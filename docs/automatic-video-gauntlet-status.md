@@ -149,3 +149,35 @@ The GolfDB acquisition result is accepted as **research-only and blocked**. The 
 - local downloaded evaluation files remain ignored and unpublished.
 
 The automatic-perception production gates, human fallback, and existing analytics contracts remain unchanged.
+
+## Accepted real automatic person/pose visual-demo milestone
+
+The real-footage automatic person/pose visual-demo milestone is accepted at **268 passing unittest tests**. The bounded local clip produced annotated H.264/yuv420p output with generic person boxes, pose keypoints/skeletons, body/feet anchors, heuristic track IDs, confidence, frame/timestamp ordering, and camera-motion/cut warning states.
+
+This is **not full automatic golf analysis** and is not validated for GhostCaddie recommendations.
+
+Remaining gates:
+
+- golf-ball detection;
+- clubhead detection;
+- impact timing;
+- trajectory/landing;
+- calibration;
+- automatic ShotEvent;
+- GhostCaddie recommendation.
+
+## Next milestone: golf-specific ball and clubhead evidence
+
+Status: **blocked / research-only investigation**.
+
+The current public YouTube clip is a qualitative stress test, not paired ground truth. Generic COCO `sports ball` output, if observed, is retained only as non-golf auxiliary evidence and cannot be promoted to golf-ball evidence. The installed generic pose model cannot detect clubheads. No dedicated golf-ball or clubhead model with a cleared source, matching annotations, reproducible evaluation, and deployment-compatible terms has been accepted.
+
+Until those prerequisites exist, the automatic-perception contract, confidence gates, human fallback, and no-fabrication rule remain unchanged. `run_pipeline()` must not be invoked for this clip.
+
+The real-video diagnostics remain under `out/real_golf_visual_demo/`, including the annotated video and blocked golf-specific evidence report.
+
+## Accepted golf-specific evidence milestone
+
+The golf-specific ball and clubhead evidence milestone is accepted as **blocked**. Generic `sports ball` detections remain non-golf auxiliary observations and are not promoted. Clubhead, impact timing, trajectory, landing, calibration, automatic `ShotEvent`, and recommendations remain unavailable.
+
+The project is **technically ready but data/model blocked**. The acquisition requirements and current candidate dispositions are recorded in `docs/golf-specific-acquisition-plan.md`. Do not modify the perception pipeline or retry generic YOLO for this milestone until a legally usable golf-ball/clubhead model and paired evaluation data are available.

@@ -280,7 +280,7 @@ def render_annotated_video(frames_directory, output_path, *, frame_rate, ffmpeg=
     output = Path(output_path).expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     args = [ffmpeg, "-v", "error", "-framerate", f"{float(frame_rate):g}",
-            "-start_number", "1", "-i", "frame_%06d.jpg", "-c:v", "libx264",
+            "-start_number", "1", "-i", "frame_%06d.jpg", "-vf", "scale=in_range=pc:out_range=tv,format=yuv420p", "-c:v", "libx264",
             "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-y", str(output)]
     try:
         result = subprocess.run(args, cwd=str(frames), capture_output=True, text=True, check=False)
