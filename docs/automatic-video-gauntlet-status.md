@@ -125,3 +125,27 @@ Until those inputs are supplied and all provisional gates pass, the correct prod
 > infrastructure and bounded best-effort artifacts ready; automatic golf perception and recommendation generation not validated.
 
 The current implementation intentionally stops rather than simulating success, lowering gates, or labeling generic detections as golf perception.
+
+## Accepted repository quality gate
+
+The public `FairwayOS CI` workflow is accepted as the repository quality gate. It runs on `push` and `pull_request` with Python 3.11, executes the standard-library unittest suite, compiles source and tests, and runs the existing CLI smoke scenarios. The workflow does not install the optional AI/MPS environment, use secrets, or upload videos, weights, annotations, or generated artifacts.
+
+The accepted public workflow run is:
+
+```text
+https://github.com/Figo5/fairwayos/actions/runs/33179154929
+head: 58a5322ceb6080d31201cc11f96493edfc8872f4
+conclusion: success
+```
+
+## Accepted GolfDB research-only result
+
+The GolfDB acquisition result is accepted as **research-only and blocked**. The available metadata does not establish a legally cleared, paired labeled evaluation corpus for FairwayOS:
+
+- no confirmed labeled `val_split_*.pkl` files;
+- no paired `videos_160` evaluation set;
+- no PCE or impact-accuracy claim;
+- SwingNet remains disabled for production;
+- local downloaded evaluation files remain ignored and unpublished.
+
+The automatic-perception production gates, human fallback, and existing analytics contracts remain unchanged.
