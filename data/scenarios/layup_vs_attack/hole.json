@@ -1,0 +1,36 @@
+{
+  "name": "Blackwater Links — Hole 11",
+  "par": 5,
+  "coordinate_system": {
+    "mode": "manual",
+    "origin": {"x": 0, "y": 0},
+    "units": "yards"
+  },
+  "fairway": [
+    [
+      {"x": 0, "y": -25},
+      {"x": 235, "y": -25},
+      {"x": 235, "y": 25},
+      {"x": 0, "y": 25}
+    ]
+  ],
+  "water_hazards": [
+    [
+      {"x": 235, "y": -20},
+      {"x": 268, "y": -20},
+      {"x": 268, "y": 20},
+      {"x": 235, "y": 20}
+    ]
+  ],
+  "green": [
+    [
+      {"x": 268, "y": -15},
+      {"x": 300, "y": -15},
+      {"x": 300, "y": 15},
+      {"x": 268, "y": 15}
+    ]
+  ],
+  "bunkers": [],
+  "out_of_bounds": [],
+  "pin_position": {"x": 285, "y": 0}
+}

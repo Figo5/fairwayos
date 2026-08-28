@@ -1,0 +1,15 @@
+{
+  "event_id": "EVT-SCEN-D-001",
+  "player_id": "SYNTH-PLAYER-005",
+  "tournament_id": "SYN-2026-EXHIBITION-02",
+  "hole_number": 6,
+  "shot_number": 1,
+  "start_position": {"x": 0, "y": 0},
+  "target_position": {"x": 250, "y": 0},
+  "actual_landing_position": {"x": 248, "y": 10},
+  "lie": "tee",
+  "club": "5i",
+  "distance_to_pin": 250.0,
+  "wind": {"speed_mph": 10, "direction_deg": 90},
+  "timestamp": "2026-06-18T11:00:00Z"
+}

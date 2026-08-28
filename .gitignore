@@ -1,0 +1,53 @@
+# Python and local tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local environments
+.venv/
+.venv-*/
+venv/
+env/
+
+# Generated and temporary outputs
+out/
+tmp/
+*.log
+.DS_Store
+
+# Downloaded media and generated media
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+*.jpg
+*.jpeg
+*.png
+*.gif
+
+# Model weights and binary evaluation data
+*.pt
+*.pth
+*.pth.tar
+*.onnx
+*.safetensors
+*.pkl
+*.pickle
+*.mat
+*.npy
+*.npz
+
+# Secrets, credentials, cookies, and private local data
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*credentials*
+*credential*
+*cookie*
+*token*
+*secret*

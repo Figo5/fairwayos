@@ -1,0 +1,14 @@
+{
+  "provider": "trackman",
+  "schema_version": "trackman.v1",
+  "source_record_id": "TM-FIXTURE-001",
+  "event_id": "EV-TM-FIXTURE-001",
+  "player_id": "SYNTH-PLAYER-001",
+  "tournament_id": "SYNTH-TOUR-001",
+  "hole_number": 1,
+  "shot_number": 1,
+  "timestamp": "2026-06-14T14:30:00Z",
+  "club": "7i",
+  "units": "yards",
+  "metrics": {"carry_yd": 150.0, "side_offset_yd": -4.0}
+}

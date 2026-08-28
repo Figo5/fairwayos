@@ -1,0 +1,19 @@
+{
+  "provider": "shotlink",
+  "schema_version": "shotlink.v1",
+  "source_record_id": "SL-FIXTURE-001",
+  "event_id": "EV-SL-FIXTURE-001",
+  "player_id": "SYNTH-PLAYER-001",
+  "tournament_id": "SYNTH-TOUR-001",
+  "hole_number": 1,
+  "shot_number": 1,
+  "timestamp": "2026-06-14T14:30:00Z",
+  "lie": "tee",
+  "club": "7i",
+  "distance_to_pin": 150.0,
+  "wind": {"speed_mph": 0, "direction_deg": 0},
+  "geo_frame": {"units": "degrees", "axes": "+x east, +y north", "origin": {"latitude": 35.0, "longitude": -80.0}},
+  "start_position": {"latitude": 35.0, "longitude": -80.0},
+  "target_position": {"latitude": 35.0, "longitude": -79.999},
+  "actual_landing_position": {"latitude": 35.0, "longitude": -79.9995}
+}

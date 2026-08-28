@@ -1,0 +1,40 @@
+{
+  "player_id": "SYNTH-PLAYER-003",
+  "clubs": {
+    "Driver": {
+      "carry_mean_yd": 270,
+      "carry_stddev_yd": 18,
+      "lateral_stddev_yd": 16,
+      "miss_bias_yd": 6,
+      "sample_size": 90
+    },
+    "3wood": {
+      "carry_mean_yd": 240,
+      "carry_stddev_yd": 14,
+      "lateral_stddev_yd": 11,
+      "miss_bias_yd": 2,
+      "sample_size": 70
+    },
+    "2i": {
+      "carry_mean_yd": 210,
+      "carry_stddev_yd": 9,
+      "lateral_stddev_yd": 8,
+      "miss_bias_yd": 0,
+      "sample_size": 60
+    }
+  },
+  "lie_modifiers": {
+    "tee": {
+      "carry_multiplier": 1.0,
+      "stddev_multiplier": 1.0
+    },
+    "fairway": {
+      "carry_multiplier": 1.0,
+      "stddev_multiplier": 1.0
+    },
+    "rough": {
+      "carry_multiplier": 0.95,
+      "stddev_multiplier": 1.3
+    }
+  }
+}

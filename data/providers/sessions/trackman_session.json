@@ -1,0 +1,85 @@
+{
+  "schema_version": "provider-session.v1",
+  "session": {
+    "session_id": "PS-SESSION",
+    "tournament_id": "PS-TOUR",
+    "player_id": "PS-PLAYER",
+    "course_id": "PS-COURSE",
+    "round_number": 1,
+    "seed": 42,
+    "provider": "trackman",
+    "provider_schema_version": "trackman.v1"
+  },
+  "course_source": {
+    "path": "course.json"
+  },
+  "player_source": {
+    "path": "player.json"
+  },
+  "shots": [
+    {
+      "shot_id": "PS-TM-2",
+      "hole_number": 1,
+      "shot_number": 2,
+      "provider_record": {
+        "provider": "trackman",
+        "schema_version": "trackman.v1",
+        "source_record_id": "PS-TM-2",
+        "event_id": "PS-TM-E2",
+        "player_id": "PS-PLAYER",
+        "tournament_id": "PS-TOUR",
+        "hole_number": 1,
+        "shot_number": 2,
+        "timestamp": "2026-06-14T14:30:00Z",
+        "club": "7i",
+        "units": "yards",
+        "metrics": {
+          "carry_yd": 150.0,
+          "side_offset_yd": -4.0
+        }
+      },
+      "course_context": {
+        "start_position": {
+          "x": 0,
+          "y": 0
+        },
+        "aim_position": {
+          "x": 300,
+          "y": 0
+        }
+      }
+    },
+    {
+      "shot_id": "PS-TM-3",
+      "hole_number": 1,
+      "shot_number": 3,
+      "provider_record": {
+        "provider": "trackman",
+        "schema_version": "trackman.v1",
+        "source_record_id": "PS-TM-3",
+        "event_id": "PS-TM-E3",
+        "player_id": "PS-PLAYER",
+        "tournament_id": "PS-TOUR",
+        "hole_number": 1,
+        "shot_number": 3,
+        "timestamp": "2026-06-14T14:30:00Z",
+        "club": "7i",
+        "units": "yards",
+        "metrics": {
+          "carry_yd": 150.0,
+          "side_offset_yd": -4.0
+        }
+      },
+      "course_context": {
+        "start_position": {
+          "x": 0,
+          "y": 0
+        },
+        "aim_position": {
+          "x": 300,
+          "y": 0
+        }
+      }
+    }
+  ]
+}

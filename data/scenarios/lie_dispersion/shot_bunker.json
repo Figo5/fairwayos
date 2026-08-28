@@ -1,0 +1,15 @@
+{
+  "event_id": "EVT-SCEN-C-BUNKER",
+  "player_id": "SYNTH-PLAYER-004",
+  "tournament_id": "SYN-2026-EXHIBITION-02",
+  "hole_number": 15,
+  "shot_number": 2,
+  "start_position": {"x": 80, "y": 0},
+  "target_position": {"x": 155, "y": 0},
+  "actual_landing_position": {"x": 110, "y": -4},
+  "lie": "bunker",
+  "club": "PW",
+  "distance_to_pin": 75.0,
+  "wind": {"speed_mph": 3, "direction_deg": 270},
+  "timestamp": "2026-06-17T13:00:00Z"
+}

@@ -1,0 +1,9 @@
+[project]
+name = "fairwayos"
+version = "0.1.0"
+description = "FairwayOS local-first golf shot-analytics and video-perception research platform. Synthetic data only."
+requires-python = ">=3.9"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"

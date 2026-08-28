@@ -1,0 +1,15 @@
+{
+  "event_id": "EVT-0001",
+  "player_id": "SYNTH-PLAYER-001",
+  "tournament_id": "SYN-2026-EXHIBITION-01",
+  "hole_number": 7,
+  "shot_number": 2,
+  "start_position": {"x": 245, "y": 5},
+  "target_position": {"x": 405, "y": 8},
+  "actual_landing_position": {"x": 398, "y": 14},
+  "lie": "rough",
+  "club": "7i",
+  "distance_to_pin": 160.0,
+  "wind": {"speed_mph": 8, "direction_deg": 200},
+  "timestamp": "2026-06-14T14:32:00Z"
+}

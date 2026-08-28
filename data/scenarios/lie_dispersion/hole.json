@@ -1,0 +1,36 @@
+{
+  "name": "Sandhaven Course — Hole 15",
+  "par": 4,
+  "coordinate_system": {
+    "mode": "manual",
+    "origin": {"x": 0, "y": 0},
+    "units": "yards"
+  },
+  "fairway": [
+    [
+      {"x": 0, "y": -20},
+      {"x": 140, "y": -20},
+      {"x": 140, "y": 20},
+      {"x": 0, "y": 20}
+    ]
+  ],
+  "bunkers": [
+    [
+      {"x": 70, "y": -10},
+      {"x": 90, "y": -10},
+      {"x": 90, "y": 10},
+      {"x": 70, "y": 10}
+    ]
+  ],
+  "green": [
+    [
+      {"x": 140, "y": -15},
+      {"x": 170, "y": -15},
+      {"x": 170, "y": 15},
+      {"x": 140, "y": 15}
+    ]
+  ],
+  "water_hazards": [],
+  "out_of_bounds": [],
+  "pin_position": {"x": 155, "y": 0}
+}

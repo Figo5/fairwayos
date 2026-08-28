@@ -1,0 +1,15 @@
+{
+  "event_id": "EVT-SCEN-A-001",
+  "player_id": "SYNTH-PLAYER-002",
+  "tournament_id": "SYN-2026-EXHIBITION-02",
+  "hole_number": 11,
+  "shot_number": 2,
+  "start_position": {"x": 60, "y": 0},
+  "target_position": {"x": 285, "y": 0},
+  "actual_landing_position": {"x": 250, "y": 2},
+  "lie": "fairway",
+  "club": "Hybrid",
+  "distance_to_pin": 225.0,
+  "wind": {"speed_mph": 5, "direction_deg": 180},
+  "timestamp": "2026-06-15T10:00:00Z"
+}

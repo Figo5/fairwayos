@@ -1,0 +1,29 @@
+{
+  "player_id": "SYNTH-PLAYER-005",
+  "clubs": {
+    "5i": {
+      "carry_mean_yd": 205,
+      "carry_stddev_yd": 8,
+      "lateral_stddev_yd": 6,
+      "miss_bias_yd": 0,
+      "sample_size": 90
+    },
+    "7i": {
+      "carry_mean_yd": 180,
+      "carry_stddev_yd": 5,
+      "lateral_stddev_yd": 4,
+      "miss_bias_yd": 0,
+      "sample_size": 90
+    }
+  },
+  "lie_modifiers": {
+    "tee": {
+      "carry_multiplier": 1.0,
+      "stddev_multiplier": 1.0
+    },
+    "fairway": {
+      "carry_multiplier": 1.0,
+      "stddev_multiplier": 1.0
+    }
+  }
+}

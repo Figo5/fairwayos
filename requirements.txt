@@ -1,0 +1,13 @@
+# FairwayOS is pure Python 3.9 standard library — no runtime
+# dependencies are required. No network access was available during this
+# build, so nothing here has been installed or tested.
+#
+# Future upgrades (documented only, NOT used):
+# numpy>=1.26        # future: vectorized Monte Carlo sampling
+# scipy>=1.11         # future: richer dispersion distributions
+# pydantic>=2.0       # future: schema validation for external data sources
+# fastapi>=0.110      # future: analyst-facing HTTP API
+# uvicorn>=0.27       # future: ASGI server for fastapi
+# opencv-python-headless>=4.9  # future: video overlay rendering
+# pillow>=10.0        # future: raster image overlay rendering
+# pytest>=8.0         # future: test runner upgrade from unittest
