@@ -1,0 +1,55 @@
+name: FairwayOS CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          check-latest: false
+
+      - name: Run unittest suite
+        run: python3 -m unittest discover -s tests -v
+
+      - name: Compile source and tests
+        run: python3 -m compileall -q ghostcaddie tests
+
+      - name: Run CLI smoke scenarios
+        shell: bash
+        run: |
+          set -euo pipefail
+          out_root="${RUNNER_TEMP}/fairwayos-cli-smoke"
+          mkdir -p "$out_root"
+          python3 -m ghostcaddie --help
+          python3 -m ghostcaddie run \
+            --shot data/sample_shot.json \
+            --course data/sample_hole.json \
+            --player data/sample_player.json \
+            --out "$out_root/run"
+          python3 -m ghostcaddie session \
+            --input data/sample_session.json \
+            --out "$out_root/session"
+          python3 -m ghostcaddie provider-session \
+            --input data/providers/sessions/shotlink_session.json \
+            --out "$out_root/provider-shotlink"
+          python3 -m ghostcaddie provider-session \
+            --input data/providers/sessions/trackman_session.json \
+            --out "$out_root/provider-trackman"
+          test -s "$out_root/run/recommendation.json"
+          test -s "$out_root/run/overlay.svg"
+          test -s "$out_root/session/session_report.json"
+          test -s "$out_root/provider-shotlink/session_report.json"
+          test -s "$out_root/provider-trackman/session_report.json"
