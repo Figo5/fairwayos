@@ -127,10 +127,11 @@ def configured_yt_dlp(executable: Optional[str]) -> str:
         raise DownloaderUnavailable()
     path = Path(executable).expanduser()
     try:
-        if not path.is_file() or path.is_symlink() or not os.access(str(path), os.X_OK):
+        resolved = path.resolve(strict=True)
+        if not resolved.is_file() or not os.access(str(resolved), os.X_OK):
             raise DownloaderUnavailable()
-        return str(path.resolve())
-    except OSError:
+        return str(resolved)
+    except (OSError, RuntimeError):
         raise DownloaderUnavailable()
 
 

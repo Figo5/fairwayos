@@ -69,6 +69,16 @@ class YtDlpBoundaryTests(unittest.TestCase):
             YtDlpDownloader(None)
         self.assertIn("manual", str(raised.exception).lower())
 
+    def test_symlinked_executable_resolves_when_target_is_executable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "yt-dlp-target"
+            target.write_text("#!/bin/sh\\n")
+            target.chmod(target.stat().st_mode | stat.S_IXUSR)
+            link = Path(tmp) / "yt-dlp"
+            link.symlink_to(target)
+            downloader = YtDlpDownloader(str(link))
+            self.assertEqual(downloader.executable, str(target.resolve()))
+
     def test_probe_rejects_private_live_unavailable_and_protected(self):
         for metadata in (
             {"is_live": True, "duration": 10},

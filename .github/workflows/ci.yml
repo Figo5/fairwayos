@@ -21,6 +21,9 @@ jobs:
           python-version: "3.11"
           check-latest: false
 
+      - name: Install ffmpeg for existing video smoke tests
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
       - name: Run unittest suite
         run: python3 -m unittest discover -s tests -v
 
