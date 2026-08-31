@@ -126,6 +126,19 @@ A primary-source audit checked the CADDIE project page, CVsports open-access pap
 
 Disposition: `blocked_before_acquisition`. CADDIE is a promising research lead, not an available local model or legally cleared swing clip. No weights, videos, or annotations were downloaded. No CADDIE inference was run. Clubhead remains unavailable and all impact/production gates remain closed.
 
+### Local frame-level annotation path
+
+The automatic proposal experiment did not establish a track, so the next safe development path is human labeling of local frames rather than further circle/line tuning.
+
+- Contract: `ghostcaddie/video/clubhead_annotation_dataset.py` (`golf-research-clubhead-annotations.v1`). It stores per-frame source-frame mappings, clubhead points, shaft `grip`/`neck` points, visibility (`visible`, `occluded`, `ambiguous`, `unavailable`), rights, split, warnings, and deterministic provenance.
+- Workspace: `ghostcaddie/video/clubhead_annotation_workspace.py`. It is self-contained offline HTML with local-relative image references, frame navigation, point controls, unavailable states, and explicit dataset export. It performs no network requests or silent writes.
+- Local seeds: ignored workspaces and validated blank templates are under `out/research_training_gauntlet/mmu_candidate/manual_clubhead_annotation/` and `out/research_training_gauntlet/wikimedia_kanagawa/manual_clubhead_annotation/`.
+- MMU seed covers source frames `40–100`, including the existing research impact bracket `68–72`. Wikimedia covers every third source frame across `0–413`.
+- Blank templates contain no labels. A human must label visible evidence, mark occlusion/ambiguity explicitly, independently review the labels, freeze a golfer/video-disjoint split, and hash the resulting local artifact before any research training.
+- Pseudo-labels, if later generated, must use `pseudo_label: true`, `ground_truth: false`, `research_only: true`, and `production_eligible: false`. They cannot be used as ground truth.
+
+This path does not promote clubhead or impact, does not alter the existing human analytics contract, and does not invoke `run_pipeline()`.
+
 ### Current acquisition gate
 
 The broader pass therefore remains a verified blocker for higher-FPS clubhead work. A future accepted candidate must have both (1) measured native frame rate sufficient for the intended impact neighborhood and (2) native-frame visual evidence of a continuous, close-enough golf swing with the club separable from the golfer, shaft, ball, overlays, and background. Metadata, titles, slow-motion playback, generic ball motion, and third-party annotations do not satisfy that gate. Production analytics and `run_pipeline()` remain closed.
