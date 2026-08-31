@@ -58,6 +58,8 @@ The demo can show:
   `rendered_overlay.marker`, `rendered_overlay.tracer_points`, and
   `rendered_overlay.zoom_inset` beside every rendered ball observation;
 - classical frame-difference motion used for swing-window selection;
+- sampled-frame ingestion is bounded by `max_duration_seconds` (plus one
+  sampling interval), and further constrained by `max_frames` when supplied;
 - rejected research clubhead candidates when no validated clubhead checkpoint
   exists;
 - unavailable exact-impact/contact evidence;
