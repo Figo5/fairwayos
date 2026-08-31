@@ -89,6 +89,36 @@ def select_swing_window(scores: Sequence[float], *, frame_rate: float,
             "peak_score": round(values[peak], 6), "status": "candidate"}
 
 
+def build_research_impact_bracket(events: Sequence[Mapping[str, Any]], *,
+                                  frame_numbers: Sequence[int]) -> dict[str, Any]:
+    """Build a research-only bracket around a predicted Impact sample."""
+    impact_frames = [int(event["frame_index"]) for event in events
+                     if event.get("event") == "Impact" and "frame_index" in event]
+    samples = sorted({int(frame) for frame in frame_numbers})
+    if not impact_frames or not samples:
+        return {"state": "unavailable", "frames": [],
+                "reason": "no SwingNet impact event or sampled frames",
+                "research_only": True, "ground_truth": False,
+                "production_eligible": False}
+    predicted = impact_frames[0]
+    nearest = min(range(len(samples)), key=lambda index: (abs(samples[index] - predicted), samples[index]))
+    left = samples[max(0, nearest - 1)]
+    right = samples[min(len(samples) - 1, nearest + 1)]
+    return {"state": "candidate_bracket_only", "frames": [left, right],
+            "reason": "SwingNet event prediction; exact contact unavailable",
+            "research_only": True, "ground_truth": False,
+            "production_eligible": False}
+
+
+def build_demo_encoding_command(ffmpeg: str, frames_dir: str, output_path: str,
+                                frame_rate: float) -> list[str]:
+    """Return the deterministic H.264/yuv420p demo encoding command."""
+    return [ffmpeg, "-y", "-loglevel", "error", "-framerate", f"{frame_rate:g}",
+            "-i", str(Path(frames_dir) / "frame_%06d.jpg"), "-vf",
+            "scale=in_range=pc:out_range=tv,format=yuv420p", "-c:v", "libx264",
+            "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(output_path)]
+
+
 def reject_obvious_false_positive(candidate: Mapping[str, Any], *, image_width: int,
                                   image_height: int) -> dict[str, Any]:
     """Reject geometry that cannot be a defensible tracked clubhead candidate."""
@@ -128,7 +158,12 @@ def build_demo_report(*, source: Mapping[str, Any], media: Mapping[str, Any],
         "swing_window": dict(swing_window),
         "observations": [dict(item) for item in observations],
         "swingnet_events": [dict(item) for item in swingnet_events],
-        "impact_bracket": dict(impact_bracket or {"state": "unavailable", "frames": [68, 72], "reason": "no_validated_contact"}),
+        "impact_bracket": dict(impact_bracket or {
+            "state": "unavailable", "frames": [],
+            "reason": "no SwingNet impact event or sampled frames",
+            "research_only": True, "ground_truth": False,
+            "production_eligible": False,
+        }),
         "artifact_references": refs,
         "methods": ["local_yolo_pose", "local_golf_ball", "local_swingnet_research_only", "classical_frame_difference", "guarded_candidate_rejection"],
         "warnings": sorted({str(item) for item in warnings if str(item)}),
@@ -520,6 +555,7 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
     event_by_frame = {}
     for event in swingnet_events:
         event_by_frame.setdefault(event["frame_index"], []).append(event)
+    impact_bracket = build_research_impact_bracket(swingnet_events, frame_numbers=frame_numbers)
     annotated = out / "annotated_frames"
     annotated.mkdir(exist_ok=True)
     for stale_frame in annotated.glob("frame_*.jpg"):
@@ -549,11 +585,14 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
             pose["bbox_rendered"] = pose_overlay["bbox"]
             pose["anchor_rendered"] = pose_overlay["anchor"]
         events = event_by_frame.get(number, [])
-        impact_applicable = 68 <= number <= 72
+        bracket_frames = impact_bracket.get("frames", [])
+        impact_applicable = (impact_bracket.get("state") == "candidate_bracket_only"
+                             and len(bracket_frames) == 2
+                             and bracket_frames[0] <= number <= bracket_frames[1])
         impact = {"state": ObservationState.UNAVAILABLE.value, "confidence": 0.0, "uncertainty": None,
                   "rejection": "exact_contact_unavailable"}
         if impact_applicable:
-            impact["bracket"] = [68, 72]
+            impact["bracket"] = list(bracket_frames)
             impact["bracket_state"] = "candidate_bracket_only"
         warnings = ["research_only", "ground_truth_false", "production_analytics_unavailable",
                     "camera_motion:not_assessed", "blur:not_assessed", "occlusion:not_assessed"]
@@ -584,7 +623,8 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
             len(trail)), (12, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 165, 255), 1, cv2.LINE_AA)
         event_text = " | ".join(event["event"] for event in events) or "none on this frame"
         cv2.putText(item, "SwingNet research-only: " + event_text, (12, 104), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 180, 255), 1, cv2.LINE_AA)
-        cv2.putText(item, "impact: unavailable" + (" | bracket 68-72" if impact_applicable else ""), (12, 128), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 80, 255), 1, cv2.LINE_AA)
+        bracket_text = (" | bracket %d-%d" % tuple(bracket_frames)) if impact_applicable else ""
+        cv2.putText(item, "impact: unavailable" + bracket_text, (12, 128), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 80, 255), 1, cv2.LINE_AA)
         cv2.putText(item, "WARNINGS: camera/blur/occlusion not assessed | analytics unavailable", (12, 152), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 80, 255), 1, cv2.LINE_AA)
         cv2.imwrite(str(annotated / f"frame_{ordinal + 1:06d}.jpg"), item)
     cv2.destroyAllWindows()
@@ -592,7 +632,8 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         raise RuntimeError("ffmpeg is required for H.264 demo output")
-    subprocess.run([ffmpeg, "-y", "-loglevel", "error", "-framerate", f"{fps / step:g}", "-i", str(annotated / "frame_%06d.jpg"), "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(rendered)], check=True)
+    subprocess.run(build_demo_encoding_command(
+        ffmpeg, str(annotated), str(rendered), fps / step), check=True)
     media = {"fps": fps, "width": width, "height": height, "frame_count": total, "sample_fps": fps / step}
     provenance = build_demo_provenance(source=source or {"platform": "local", "video_id": video.stem},
                                        video_path=video, media=media)
@@ -602,8 +643,7 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
         media=media,
         swing_window=window, observations=observations,
         swingnet_events=swingnet_events,
-        impact_bracket={"state": "candidate_bracket_only" if any(68 <= number <= 72 for number in frame_numbers) else "unavailable",
-                        "frames": [68, 72], "reason": "SwingNet/event evidence is research-only; exact impact unavailable"},
+        impact_bracket=impact_bracket,
         artifact_references=["annotated_video.mp4", "annotated_frames/", "diagnostics.json", "provenance.json"],
         warnings=["research_only", "ground_truth_false", "production_analytics_unavailable", "clubhead_not_validated"],
     )

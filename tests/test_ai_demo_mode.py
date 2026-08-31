@@ -73,6 +73,26 @@ class TestAIDemoContracts(unittest.TestCase):
         self.assertLessEqual(result["end_frame"] - result["start_frame"] + 1, 7)
         self.assertEqual(result, select_swing_window([0.1, 0.2, 0.7, 0.4, 0.1, 0.8, 0.2], frame_rate=30.0, max_duration_seconds=0.2))
 
+    def test_demo_encoding_requests_tv_range_yuv420p_output(self):
+        from ghostcaddie.video.ai_demo import build_demo_encoding_command
+        command = build_demo_encoding_command("ffmpeg", "frames", "output.mp4", 15.0)
+        self.assertIn("-vf", command)
+        self.assertIn("scale=in_range=pc:out_range=tv,format=yuv420p", command)
+        self.assertEqual(command[command.index("-pix_fmt") + 1], "yuv420p")
+
+    def test_research_impact_bracket_follows_swingnet_event_without_validating_contact(self):
+        from ghostcaddie.video.ai_demo import build_research_impact_bracket
+        bracket = build_research_impact_bracket([
+            {"event": "Impact", "frame_index": 182, "research_only": True,
+             "ground_truth": False, "production_eligible": False},
+        ], frame_numbers=[180, 182, 184])
+        self.assertEqual(bracket["state"], "candidate_bracket_only")
+        self.assertEqual(bracket["frames"], [180, 184])
+        self.assertEqual(bracket["reason"], "SwingNet event prediction; exact contact unavailable")
+        self.assertTrue(bracket["research_only"])
+        self.assertFalse(bracket["ground_truth"])
+        self.assertFalse(bracket["production_eligible"])
+
     def test_obvious_false_positive_is_rejected(self):
         candidate = {"point": [4.0, 5.0], "confidence": 0.88, "inside_golfer": False, "temporal_support": 1}
         decision = reject_obvious_false_positive(candidate, image_width=100, image_height=100)
