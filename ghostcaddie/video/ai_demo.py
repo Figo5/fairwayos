@@ -113,7 +113,9 @@ def reject_obvious_false_positive(candidate: Mapping[str, Any], *, image_width: 
 
 def build_demo_report(*, source: Mapping[str, Any], media: Mapping[str, Any],
                       swing_window: Mapping[str, Any], observations: Sequence[Mapping[str, Any]],
-                      artifact_references: Iterable[str], warnings: Iterable[str]) -> dict[str, Any]:
+                      artifact_references: Iterable[str], warnings: Iterable[str],
+                      swingnet_events: Sequence[Mapping[str, Any]] = (),
+                      impact_bracket: Optional[Mapping[str, Any]] = None) -> dict[str, Any]:
     """Create the stable report contract; analytics fields are always unavailable."""
     refs = sorted({str(ref) for ref in artifact_references})
     if any(not ref or os.path.isabs(ref) or ".." in Path(ref).parts for ref in refs):
@@ -125,8 +127,10 @@ def build_demo_report(*, source: Mapping[str, Any], media: Mapping[str, Any],
         "media": dict(media),
         "swing_window": dict(swing_window),
         "observations": [dict(item) for item in observations],
+        "swingnet_events": [dict(item) for item in swingnet_events],
+        "impact_bracket": dict(impact_bracket or {"state": "unavailable", "frames": [68, 72], "reason": "no_validated_contact"}),
         "artifact_references": refs,
-        "methods": ["local_yolo_pose", "local_golf_ball", "classical_frame_difference", "guarded_candidate_rejection"],
+        "methods": ["local_yolo_pose", "local_golf_ball", "local_swingnet_research_only", "classical_frame_difference", "guarded_candidate_rejection"],
         "warnings": sorted({str(item) for item in warnings if str(item)}),
         "research_only": True,
         "ground_truth": False,
@@ -148,6 +152,76 @@ def _default_model_path(name: str) -> Optional[str]:
     }
     path = candidates.get(name)
     return str(path) if path is not None and path.is_file() else None
+
+
+def _load_swingnet(path: Optional[str] = None):
+    """Load the local SwingNet checkpoint when the optional research stack exists."""
+    root = Path(__file__).resolve().parents[2]
+    weights = Path(path).expanduser() if path else root / "out/golfdb_evaluation/swingnet_1800.pth.tar"
+    module_dir = weights.parent
+    model_file = module_dir / "model.py"
+    if not weights.is_file() or not model_file.is_file():
+        return None, "swingnet_unavailable"
+    try:
+        import sys
+        import torch
+        if str(module_dir) not in sys.path:
+            sys.path.insert(0, str(module_dir))
+        import model as swingnet_model
+        original_load = torch.load
+        torch.load = lambda *args, **kwargs: {}
+        try:
+            net = swingnet_model.EventDetector(pretrain=False, width_mult=1., lstm_layers=1,
+                                               lstm_hidden=256, bidirectional=True, dropout=False)
+        finally:
+            torch.load = original_load
+        checkpoint = torch.load(str(weights), map_location="cpu", weights_only=False)
+        net.load_state_dict(checkpoint["model_state_dict"])
+        device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+        net.to(device).eval()
+        from torch.autograd import Variable
+        def init_hidden(batch_size):
+            layers = 2 * 1
+            return (Variable(torch.zeros(layers, batch_size, 256, device=device), requires_grad=False),
+                    Variable(torch.zeros(layers, batch_size, 256, device=device), requires_grad=False))
+        net.init_hidden = init_hidden
+        return (net, device), None
+    except Exception:
+        return None, "swingnet_load_failed"
+
+
+def _swingnet_events(bundle, frames, frame_numbers, fps):
+    if bundle is None or not frames:
+        return [], "swingnet_unavailable"
+    try:
+        import cv2
+        import numpy as np
+        import torch
+        net, device = bundle
+        images = np.asarray([cv2.cvtColor(cv2.resize(frame, (160, 160)), cv2.COLOR_BGR2RGB)
+                             for frame in frames]).transpose(0, 3, 1, 2).astype("float32") / 255.0
+        tensor = torch.from_numpy(images)
+        mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
+        std = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
+        tensor = (tensor - mean) / std
+        with torch.no_grad():
+            logits = net(tensor.unsqueeze(0).to(device)).detach().cpu()
+        probs = torch.softmax(logits, dim=1).numpy()
+        labels = ('Address', 'Toe-up', 'Mid-backswing', 'Top', 'Mid-downswing',
+                  'Impact', 'Mid-follow-through', 'Finish')
+        events = []
+        for event_index, label in enumerate(labels):
+            position = int(np.argmax(probs[:, event_index]))
+            source_index = int(frame_numbers[position])
+            events.append({"event": label, "frame_index": source_index,
+                           "timestamp_seconds": round(source_index / fps, 6),
+                           "confidence": round(float(probs[position, event_index]), 6),
+                           "provenance": "SwingNet model prediction; research-only",
+                           "research_only": True, "ground_truth": False,
+                           "production_eligible": False})
+        return events, None
+    except Exception:
+        return [], "swingnet_inference_failed"
 
 
 def _load_yolo(path: Optional[str], task: str):
@@ -185,12 +259,18 @@ def _pose_observation(model, frame, width: int, height: int):
             for point_index, point in enumerate(points):
                 score = float(point_conf[point_index]) if len(point_conf) > point_index else 0.0
                 keypoints.append([round(float(point[0]), 2), round(float(point[1]), 2), round(score, 4)])
+        feet = [point for point in keypoints[15:17] if len(point) >= 3 and point[2] >= 0.25]
+        anchor = {"x": round(sum(point[0] for point in feet) / len(feet), 2),
+                  "y": round(sum(point[1] for point in feet) / len(feet), 2)} if feet else None
         return {
             "state": ObservationState.OBSERVED.value,
             "confidence": round(max(0.0, min(1.0, confidence)), 4),
             "uncertainty": round((1.0 - confidence) * max(width, height) * 0.05, 2),
             "bbox": [round(x1, 2), round(y1, 2), round(x2, 2), round(y2, 2)],
             "keypoints": keypoints,
+            "anchor": anchor,
+            "track_id": "golfer-0",
+            "track_confidence": round(max(0.0, min(1.0, confidence)), 4),
             "model": "local_yolo_pose",
         }, None
     except Exception:
@@ -229,23 +309,44 @@ def _ball_observation(model, tracker, frame, width: int, height: int):
         return None, "ball_inference_failed"
 
 
+POSE_SKELETON = ((5, 6), (5, 7), (7, 9), (6, 8), (8, 10),
+                 (5, 11), (6, 12), (11, 12), (11, 13), (13, 15),
+                 (12, 14), (14, 16), (0, 5), (0, 6))
+
+
 def _draw_pose(frame, pose):
     if not pose:
-        return
+        return {"bbox": False, "skeleton": False, "anchor": False}
     x1, y1, x2, y2 = [int(value) for value in pose["bbox"]]
     import cv2
-    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 4)
     points = pose.get("keypoints") or []
-    for point in points:
-        if point[2] >= 0.25:
-            cv2.circle(frame, (int(point[0]), int(point[1])), 3, (255, 120, 0), -1)
+    drawn = set()
+    for left, right in POSE_SKELETON:
+        if left >= len(points) or right >= len(points):
+            continue
+        if points[left][2] >= 0.25 and points[right][2] >= 0.25:
+            cv2.line(frame, (int(points[left][0]), int(points[left][1])),
+                     (int(points[right][0]), int(points[right][1])), (255, 80, 0), 4, cv2.LINE_AA)
+            drawn.update((left, right))
+    for point_index, point in enumerate(points):
+        if len(point) >= 3 and point[2] >= 0.25:
+            cv2.circle(frame, (int(point[0]), int(point[1])), 6, (255, 180, 0), -1)
+            drawn.add(point_index)
+    anchor = pose.get("anchor")
+    anchor_drawn = bool(anchor)
+    if anchor_drawn:
+        ax, ay = int(anchor["x"]), int(anchor["y"])
+        cv2.drawMarker(frame, (ax, ay), (255, 255, 0), cv2.MARKER_CROSS, 28, 4)
+        cv2.putText(frame, "FEET ANCHOR", (ax + 10, ay - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2, cv2.LINE_AA)
+    return {"bbox": True, "skeleton": bool(drawn), "anchor": anchor_drawn}
 
 
 def _normalize_tracker_state(raw_state: Any) -> str:
     return raw_state if raw_state in {member.value for member in ObservationState} else ObservationState.UNAVAILABLE.value
 
 
-def _draw_ball_overlay(frame, ball, trail):
+def _draw_ball_overlay(frame, ball, trail, source_frame=None):
     if not ball or not ball.get("point"):
         return {"marker": False, "tracer_points": 0, "zoom_inset": False}
     import cv2
@@ -265,7 +366,8 @@ def _draw_ball_overlay(frame, ball, trail):
     half_w, half_h = max(20, inset_w // 4), max(20, inset_h // 4)
     x0, x1 = max(0, cx - half_w), min(frame.shape[1], cx + half_w)
     y0, y1 = max(0, cy - half_h), min(frame.shape[0], cy + half_h)
-    crop = frame[y0:y1, x0:x1]
+    crop_source = source_frame if source_frame is not None else frame
+    crop = crop_source[y0:y1, x0:x1]
     if crop.size:
         inset = cv2.resize(crop, (inset_w, inset_h), interpolation=cv2.INTER_NEAREST)
         cv2.circle(inset, (inset_w // 2, inset_h // 2), max(10, radius // 2), (0, 0, 255), 4, cv2.LINE_AA)
@@ -401,12 +503,18 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
         window["peak_frame"] = max(0, int(window["peak_frame"]) - start_index)
     pose_model, pose_warning = _load_yolo(pose_model or _default_model_path("pose"), "pose")
     ball_model, ball_warning = _load_yolo(ball_model or _default_model_path("ball"), "detect")
+    swingnet_bundle, swingnet_warning = _load_swingnet()
     try:
         from .research_ball_model import ResearchBallMultiHypothesisTrack
         ball_tracker = ResearchBallMultiHypothesisTrack(reacquire_confidence=0.75, max_step=80.0, max_misses=2, max_hypotheses=3)
     except Exception:
         ball_tracker = None
         ball_warning = ball_warning or "ball_tracker_unavailable"
+    swingnet_events, swingnet_inference_warning = _swingnet_events(
+        swingnet_bundle, frames, frame_numbers, fps)
+    event_by_frame = {}
+    for event in swingnet_events:
+        event_by_frame.setdefault(event["frame_index"], []).append(event)
     annotated = out / "annotated_frames"
     annotated.mkdir(exist_ok=True)
     observations = []
@@ -422,13 +530,30 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
             trail.append((int(ball["point"]["x"]), int(ball["point"]["y"])))
             if len(trail) > 40:
                 trail.pop(0)
-            overlay_flags = _draw_ball_overlay(item, ball, trail)
+            overlay_flags = _draw_ball_overlay(item, ball, trail, source_frame=frame)
             ball["rendered_overlay"] = overlay_flags
-        clubhead = _candidate_evidence(item, pose, scores, ordinal)
+        if pose:
+            pose.setdefault("track_id", "golfer-0")
+            pose.setdefault("track_confidence", pose.get("confidence", 0.0))
+        pose_overlay = _draw_pose(item, pose)
+        if pose:
+            pose["skeleton_rendered"] = pose_overlay["skeleton"]
+            pose["bbox_rendered"] = pose_overlay["bbox"]
+            pose["anchor_rendered"] = pose_overlay["anchor"]
+        events = event_by_frame.get(number, [])
+        impact_applicable = 68 <= number <= 72
         impact = {"state": ObservationState.UNAVAILABLE.value, "confidence": 0.0, "uncertainty": None,
                   "rejection": "exact_contact_unavailable"}
-        warnings = ["research_only", "ground_truth_false", "production_analytics_unavailable"]
-        warnings.extend(value for value in (pose_warning, ball_warning, pose_frame_warning, ball_frame_warning) if value)
+        if impact_applicable:
+            impact["bracket"] = [68, 72]
+            impact["bracket_state"] = "candidate_bracket_only"
+        warnings = ["research_only", "ground_truth_false", "production_analytics_unavailable",
+                    "camera_motion:not_assessed", "blur:not_assessed", "occlusion:not_assessed"]
+        warnings.extend(value for value in (pose_warning, ball_warning, pose_frame_warning,
+                                             ball_frame_warning, swingnet_warning,
+                                             swingnet_inference_warning) if value)
+        if not pose:
+            warnings.append("golfer_track_lost")
         if ball and ball.get("tracker_warning"):
             warnings.append(str(ball["tracker_warning"]))
         observations.append(build_demo_observation(
@@ -436,14 +561,23 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
             golfer=pose or {"state": ObservationState.UNAVAILABLE.value, "confidence": 0.0},
             pose=pose or {"state": ObservationState.UNAVAILABLE.value, "confidence": 0.0},
             ball=ball or {"state": ObservationState.UNAVAILABLE.value, "confidence": 0.0},
-            clubhead=clubhead, impact=impact, warnings=warnings,
+            clubhead=_candidate_evidence(item, pose, scores, ordinal), impact=impact, warnings=warnings,
         ))
-        _draw_pose(item, pose)
-        cv2.putText(item, "FAIRWAYOS AI DEMO | RESEARCH ONLY", (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 220, 255), 2, cv2.LINE_AA)
-        cv2.putText(item, "golfer/pose: %s | ball/tracer: %s" % ("observed" if pose else "unavailable", ball.get("state", "unavailable") if ball else "unavailable"), (12, 56), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (180, 255, 180), 1, cv2.LINE_AA)
-        cv2.putText(item, "clubhead: REJECTED CANDIDATE | impact: unavailable", (12, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 165, 255), 1, cv2.LINE_AA)
-        cv2.putText(item, "confidence/uncertainty: model output; not ground truth", (12, 104), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (180, 180, 180), 1, cv2.LINE_AA)
-        cv2.putText(item, "WARNING: pixel-space research evidence; no production analytics", (12, 128), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 80, 255), 1, cv2.LINE_AA)
+        cv2.putText(item, "FAIRWAYOS AI DEMO | RESEARCH ONLY | NO PRODUCTION CLAIM", (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (0, 220, 255), 2, cv2.LINE_AA)
+        cv2.putText(item, "FRAME %d | t=%.3fs | golfer=%s id=%s conf=%s" % (
+            number + 1, number / fps, "observed" if pose else "unavailable",
+            pose.get("track_id", "unavailable") if pose else "unavailable",
+            "%.2f" % pose["confidence"] if pose else "0.00"),
+            (12, 56), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (180, 255, 180), 1, cv2.LINE_AA)
+        cv2.putText(item, "ball=%s conf=%s u=%spx tracer=%d" % (
+            ball.get("state", "unavailable") if ball else "unavailable",
+            "%.2f" % ball.get("confidence", 0.0) if ball else "0.00",
+            "%.1f" % ball.get("uncertainty", 0.0) if ball and ball.get("uncertainty") is not None else "n/a",
+            len(trail)), (12, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 165, 255), 1, cv2.LINE_AA)
+        event_text = " | ".join(event["event"] for event in events) or "none on this frame"
+        cv2.putText(item, "SwingNet research-only: " + event_text, (12, 104), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 180, 255), 1, cv2.LINE_AA)
+        cv2.putText(item, "impact: unavailable" + (" | bracket 68-72" if impact_applicable else ""), (12, 128), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 80, 255), 1, cv2.LINE_AA)
+        cv2.putText(item, "WARNINGS: camera/blur/occlusion not assessed | analytics unavailable", (12, 152), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 80, 255), 1, cv2.LINE_AA)
         cv2.imwrite(str(annotated / f"frame_{ordinal + 1:06d}.jpg"), item)
     cv2.destroyAllWindows()
     rendered = out / "annotated_video.mp4"
@@ -459,6 +593,9 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
         source=source or {"platform": "local", "video_id": video.stem},
         media=media,
         swing_window=window, observations=observations,
+        swingnet_events=swingnet_events,
+        impact_bracket={"state": "candidate_bracket_only" if any(68 <= number <= 72 for number in frame_numbers) else "unavailable",
+                        "frames": [68, 72], "reason": "SwingNet/event evidence is research-only; exact impact unavailable"},
         artifact_references=["annotated_video.mp4", "annotated_frames/", "diagnostics.json", "provenance.json"],
         warnings=["research_only", "ground_truth_false", "production_analytics_unavailable", "clubhead_not_validated"],
     )

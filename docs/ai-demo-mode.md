@@ -79,6 +79,18 @@ The tracer is persistent only within one guarded continuity segment. It is
 cleared on unavailable, terminated, or reacquisition-gap states so unrelated
 candidate positions are never joined by a misleading line.
 
+The unified renderer consumes one clean source frame per iteration for every
+component, then composes all accepted evidence exactly once. The ball zoom is
+cropped from that clean source frame before marker/tracer pixels are added.
+
+MMU is the first ball/tracer acceptance fixture because its moving-ball close-up
+is visually inspectable. It does not contain a golfer in the selected view, so
+`golfer`, pose, and body anchor remain unavailable there. A golfer-framed clip
+must pass a separate visual ball-alignment review before both components can be
+claimed together; the demo never substitutes a false positive to satisfy that
+condition.
+
+
 ## Closed gates
 
 AI Demo Mode always emits `null`/unavailable for calibration, course

@@ -90,10 +90,67 @@ class TestAIDemoContracts(unittest.TestCase):
         self.assertFalse(report["production_eligible"])
         self.assertIsNone(report["analytics"])
         self.assertIn("local_yolo_pose", report["methods"])
+        self.assertIn("local_swingnet_research_only", report["methods"])
         self.assertIn("guarded_candidate_rejection", report["methods"])
         self.assertIsNone(report["shot_event"])
         self.assertEqual(report["source"], {"platform": "youtube", "video_id": "ABCDEFGHIJK"})
         self.assertTrue(all(not Path(ref).is_absolute() for ref in report["artifact_references"]))
+    def test_unified_mp4_contains_pose_and_ball_overlays_from_clean_frames(self):
+        try:
+            import cv2
+            import numpy as np
+        except ImportError:
+            self.skipTest("optional OpenCV stack unavailable")
+        from ghostcaddie.video.ai_demo import run_local_demo
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            writer = cv2.VideoWriter(str(source), cv2.VideoWriter_fourcc(*"mp4v"), 10.0, (320, 240))
+            self.assertTrue(writer.isOpened())
+            for _ in range(3):
+                frame = np.full((240, 320, 3), 45, dtype=np.uint8)
+                writer.write(frame)
+            writer.release()
+            points = iter(({"x": 100.0, "y": 110.0}, {"x": 130.0, "y": 110.0}, {"x": 160.0, "y": 110.0}))
+            seen_frames = []
+            def fake_ball(*args):
+                frame = args[2]
+                seen_frames.append(("ball", int(frame[0, 0, 0]), int(frame[120, 160, 0])))
+                return {"state": "observed", "confidence": 0.9, "uncertainty": 4.0,
+                        "point": next(points), "candidate_count": 1, "model": "test_ball"}, None
+            pose = {"state": "observed", "confidence": 0.95, "uncertainty": 2.0,
+                    "bbox": [60, 40, 220, 220],
+                    "keypoints": [[100, 80, 0.9], [120, 90, 0.9], [140, 120, 0.9],
+                                  [90, 180, 0.9], [150, 180, 0.9], [80, 210, 0.9],
+                                  [160, 210, 0.9], [100, 140, 0.9], [140, 140, 0.9],
+                                  [90, 160, 0.9], [150, 160, 0.9]]}
+            def fake_pose(*args):
+                frame = args[1]
+                seen_frames.append(("pose", int(frame[0, 0, 0]), int(frame[120, 160, 0])))
+                return pose, None
+            with patch("ghostcaddie.video.ai_demo._ball_observation", side_effect=fake_ball), \
+                 patch("ghostcaddie.video.ai_demo._pose_observation", side_effect=fake_pose):
+                report = run_local_demo(str(source), str(root / "out"), sample_fps=10.0, max_frames=3,
+                                        pose_model="", ball_model="")
+            self.assertEqual(len(seen_frames), 6)
+            self.assertTrue(all(seen_frames[index][1:] == seen_frames[index + 1][1:]
+                                for index in range(0, len(seen_frames), 2)))
+            self.assertTrue(all(item["golfer"].get("track_id") == "golfer-0" for item in report["observations"]))
+            self.assertTrue(all(item["pose"].get("skeleton_rendered") for item in report["observations"]))
+            capture = cv2.VideoCapture(str(root / "out" / "annotated_video.mp4"))
+            green_pixels = red_pixels = orange_pixels = 0
+            while True:
+                ok, frame = capture.read()
+                if not ok:
+                    break
+                green_pixels += int(np.sum((frame[:, :, 1] > 120) & (frame[:, :, 0] < 100) & (frame[:, :, 2] < 100)))
+                red_pixels += int(np.sum((frame[:, :, 2] > 120) & (frame[:, :, 1] < 90) & (frame[:, :, 0] < 90)))
+                orange_pixels += int(np.sum((frame[:, :, 2] > 120) & (frame[:, :, 1] > 70) & (frame[:, :, 0] < 100)))
+            capture.release()
+            self.assertGreater(green_pixels, 100)
+            self.assertGreater(red_pixels, 100)
+            self.assertGreater(orange_pixels, 20)
+
     def test_mp4_contains_ball_marker_and_tracer_when_observations_exist(self):
         try:
             import cv2
