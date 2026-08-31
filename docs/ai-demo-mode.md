@@ -58,8 +58,9 @@ The demo can show:
   `rendered_overlay.marker`, `rendered_overlay.tracer_points`, and
   `rendered_overlay.zoom_inset` beside every rendered ball observation;
 - classical frame-difference motion used for swing-window selection;
-- sampled-frame ingestion is bounded by `max_duration_seconds` (plus one
-  sampling interval), and further constrained by `max_frames` when supplied;
+- sampled-frame ingestion is bounded by the requested duration in source-frame
+  time (using the source FPS, plus one boundary frame), and further constrained
+  by `max_frames` when supplied;
 - SwingNet event predictions remain research-only; when an `Impact` prediction is
   present, the displayed candidate bracket is derived from the neighboring
   sampled source frames around that prediction. It never validates exact contact

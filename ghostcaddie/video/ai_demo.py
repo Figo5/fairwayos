@@ -512,13 +512,12 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
     step = max(1, int(round(fps / max(0.1, sample_fps))))
     frames, frame_numbers = [], []
     index = 0
-    cap_limit = None if max_frames is None else max(0, int(max_frames))
-    duration_limit = max(1, int(math.floor(max(0.0, _finite(max_duration_seconds)) * max(0.1, sample_fps))) + 1)
-    if cap_limit is None:
-        cap_limit = duration_limit
-    else:
-        cap_limit = min(cap_limit, duration_limit)
-    while cap_limit is None or len(frames) < cap_limit:
+    sample_limit = None if max_frames is None else max(0, int(max_frames))
+    duration_source_limit = max(
+        1,
+        int(math.floor(max(0.0, _finite(max_duration_seconds)) * max(0.1, fps))) + 1,
+    )
+    while index < duration_source_limit and (sample_limit is None or len(frames) < sample_limit):
         ok, frame = cap.read()
         if not ok:
             break
