@@ -36,9 +36,10 @@ from .video.metadata import inspect_video
 from .video.annotation_workspace import build_annotation_workspace
 from .video.prepare import prepare_video
 from .video.human_import import observations_from_human_annotations
-from .video.youtube import DownloadError, YtDlpDownloader
-from .video.youtube_auto_try import AutoTryConfig, DEFAULT_YTDLP, auto_try
+from .video.youtube import DownloadError, DownloadLimits, YtDlpDownloader, parse_youtube_url
+from .video.youtube_auto_try import AUTO_FORMAT, AutoTryConfig, DEFAULT_YTDLP, auto_try
 from .video.fairwayos_research import sidecar_from_mapping, write_fairwayos_sidecar
+from .video.ai_demo import run_local_demo
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -178,6 +179,20 @@ def _build_parser() -> argparse.ArgumentParser:
     auto_p.add_argument("--fallback-human", action="store_true")
     auto_p.add_argument("--yt-dlp", default=DEFAULT_YTDLP,
                         help="Explicit executable path for bounded yt-dlp download.")
+    demo_p = sub.add_parser("ai-demo", help="Run bounded research-only AI demo and render H.264.",
+                             description="Bounded research-only AI Demo Mode; H.264 output with visible uncertainty and warnings.")
+    source_group = demo_p.add_mutually_exclusive_group(required=True)
+    source_group.add_argument("--url", help="Explicit public HTTPS YouTube video URL.")
+    source_group.add_argument("--video", type=Path, help="Existing local video for offline demo validation.")
+    demo_p.add_argument("--out", required=True, type=Path, help="Local output directory; media remains ignored.")
+    demo_p.add_argument("--yt-dlp", default=DEFAULT_YTDLP, help="Explicit yt-dlp executable for --url.")
+    demo_p.add_argument("--segment-start", type=float, default=0.0)
+    demo_p.add_argument("--segment-duration", type=float, default=None)
+    demo_p.add_argument("--max-duration", type=float, default=8.0)
+    demo_p.add_argument("--sample-fps", type=float, default=4.0)
+    demo_p.add_argument("--max-frames", type=int, default=None)
+    demo_p.add_argument("--pose-model", default=None, help="Optional local pose checkpoint path/adapter hint.")
+    demo_p.add_argument("--ball-model", default=None, help="Optional local ball checkpoint path/adapter hint.")
     sidecar_p = sub.add_parser(
         "fairwayos-ball-sidecar",
         help="Serialize shared research ball candidates for FairwayOS diagnostics; never runs analytics.",
@@ -232,6 +247,10 @@ def main(argv=None) -> None:
 
     if args.command == "youtube-auto-try":
         _run_youtube_auto_try_command(args)
+        return
+
+    if args.command == "ai-demo":
+        _run_ai_demo_command(args)
         return
 
     if args.command == "fairwayos-ball-sidecar":
@@ -591,6 +610,49 @@ def _run_video_analyze_command(args) -> None:
         references.append("annotated_video.mp4")
         diagnostics.artifact_references = sorted(set(references))
     (out / "diagnostics.json").write_text(serialize_video_diagnostics(diagnostics) + "\n")
+
+
+def _run_ai_demo_command(args) -> None:
+    """Run only the research demo path; never invoke validated analytics."""
+    out = args.out.expanduser().resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    ingest_dir = None
+    source = None
+    video = args.video
+    try:
+        if args.url:
+            source = parse_youtube_url(args.url)
+            ingest_dir = Path(tempfile.mkdtemp(prefix=".ai-demo-ingest-", dir=str(out.parent)))
+            downloader = YtDlpDownloader(
+                args.yt_dlp,
+                limits=DownloadLimits(max_segment_seconds=20.0),
+                format_selector=AUTO_FORMAT,
+            )
+            result = downloader.download(args.url, str(ingest_dir),
+                                         segment_start=args.segment_start,
+                                         segment_duration=args.segment_duration)
+            video = Path(result.path)
+            source = source.to_dict()
+        elif video is not None:
+            source = {"platform": "local", "video_id": video.stem}
+        report = run_local_demo(
+            str(video), str(out), sample_fps=args.sample_fps,
+            max_duration_seconds=args.max_duration, max_frames=args.max_frames,
+            source=source, pose_model=args.pose_model, ball_model=args.ball_model,
+        )
+        print(json.dumps({"status": report["status"], "output": str(args.out)}))
+    except (DownloadError, OSError, RuntimeError, ValueError) as exc:
+        (out / "diagnostics.json").write_text(json.dumps({
+            "schema_version": "fairwayos-ai-demo.v1", "status": "blocked",
+            "research_only": True, "ground_truth": False,
+            "production_eligible": False, "coordinate_space": "pixels",
+            "analytics": None, "shot_event": None, "warnings": [str(exc)],
+        }, indent=2, sort_keys=True) + "\n")
+        print(json.dumps({"status": "blocked", "output": str(args.out)}))
+        raise SystemExit(2) from exc
+    finally:
+        if ingest_dir is not None:
+            shutil.rmtree(str(ingest_dir), ignore_errors=True)
 
 
 def _write_youtube_diagnostics(out, payload):
