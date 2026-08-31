@@ -54,3 +54,33 @@ The bounded local follow-up did not produce a qualifying high-FPS clubhead clip:
 - `impact320_candidate/source.mp4`: `320x240`, encoded approximately `29.97 FPS`, `190` frames. The inspected contact sheet shows a fixed apparatus and ball with `www.photron.com` overlay; no separable golf-clubhead or exact golf impact is visible.
 
 The existing `local_impact` probe is a separate `1080x1920`, `60 FPS` apparatus sequence, not a golf-club swing. Its motion peaks are therefore not impact evidence. These clips remain rejected qualitative research material and were not added to the acceptance set or published.
+
+## Broader high-FPS acquisition pass
+
+A bounded follow-up searched for real golf-swing footage with an explicit local-use path and inspected native frames before any clubhead or impact processing. No candidate passed the complete acquisition-and-visual gate.
+
+### Pixabay candidate: genuine high-FPS metadata, unusable view
+
+- Source page: <https://pixabay.com/videos/golf-sport-golfer-hole-213192/>
+- License page: <https://pixabay.com/service/license-summary/>
+- Local file: `out/research_training_gauntlet/pixabay_213192/source.mp4`
+- Local SHA-256: `93b26cff1cd5e667dd5df00d64d70c3eb1ba25d9db914dfe3a7d583a344385fc`
+- Measured stream: `3840x2160`, H.264, `60000/1001` FPS, `354` frames, `5.9059 s`
+- Visual decision: rejected. The native contact sheet shows a wide course/aerial view with the golfer too small for separable clubhead inspection; no qualifying close-range continuous swing was established.
+- Clubhead and impact: unavailable; no coordinates or event labels were inferred.
+
+The local acquisition record is `out/research_training_gauntlet/pixabay_213192/triage/acquisition_record.json`. The file remains ignored and local; no media or derived frame artifact is publishable.
+
+### YouTube ultra-slow-motion lead: title rate not preserved in stream
+
+- Source page: <https://www.youtube.com/watch?v=b8LEAMlqE0E>
+- Local file: `out/research_training_gauntlet/youtube_b8LEAMlqE0E/source.mp4`
+- Acquisition: one bounded 10-second segment through the existing allowlisted HTTPS YouTube adapter, with no cookies, credentials, playlist access, or protection bypass.
+- Measured stream: `1920x1080`, VP9, `30000/1001` FPS, `300` frames, `10.021 s`
+- Source metadata probe: `502 s` total duration, `30 FPS` source metadata; the title's `800 FPS` wording did not correspond to the downloaded stream.
+- Visual decision: rejected as a higher-FPS acquisition. The inspected segment shows a real golfer at address, but the downloaded native stream is standard 29.97 FPS and does not satisfy the temporal-resolution gate.
+- Clubhead and impact: unavailable; no coordinates or event labels were inferred.
+
+### Current acquisition gate
+
+The broader pass therefore remains a verified blocker for higher-FPS clubhead work. A future accepted candidate must have both (1) measured native frame rate sufficient for the intended impact neighborhood and (2) native-frame visual evidence of a continuous, close-enough golf swing with the club separable from the golfer, shaft, ball, overlays, and background. Metadata, titles, slow-motion playback, generic ball motion, and third-party annotations do not satisfy that gate. Production analytics and `run_pipeline()` remain closed.
