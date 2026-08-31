@@ -123,6 +123,8 @@ def _download_failure(exc: DownloadError) -> str:
         "download_timeout": "timeout",
         "size_limit_exceeded": "size_limit",
         "disk_limit_exceeded": "size_limit",
+        "duration_limit_exceeded": "duration_limit",
+        "segment_limit_exceeded": "segment_limit",
         "invalid_media": "decode_failure",
         "protected_content": "video_unavailable",
         "unavailable": "video_unavailable",

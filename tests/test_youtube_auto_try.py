@@ -8,6 +8,7 @@ from ghostcaddie.video.youtube_auto_try import (
     AutoTryConfig, DetectorUnavailable, auto_try, validate_segment,
 )
 from ghostcaddie.video.youtube import DownloadError
+from ghostcaddie.video.youtube_auto_try import _download_failure
 from ghostcaddie.video.observations import VideoObservations
 from tests.test_video_reconstruction import PAYLOAD
 
@@ -15,6 +16,10 @@ URL = "https://youtu.be/dQw4w9WgXcQ"
 
 
 class YoutubeAutoTryTests(unittest.TestCase):
+    def test_download_limit_errors_keep_specific_categories(self):
+        self.assertEqual(_download_failure(DownloadError("too long", "duration_limit_exceeded")), "duration_limit")
+        self.assertEqual(_download_failure(DownloadError("segment too long", "segment_limit_exceeded")), "segment_limit")
+
     def test_malformed_url_writes_transparent_blocked_report(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "out"
