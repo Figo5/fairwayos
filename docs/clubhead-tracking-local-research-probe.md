@@ -1,0 +1,47 @@
+# Clubhead tracking: local research probe
+
+**Review date:** 2026-08-31
+**Scope:** local research-only methods on the existing MMU clip. No production code or production gates changed. Clubhead and impact outputs remain unavailable.
+
+## Result
+
+- `clubhead_available: false`
+- `impact_available: false`
+- No method below emitted a defensible clubhead identity, validated track, or impact label.
+- Generic sports-ball output was not relabeled as clubhead or golf-ball evidence.
+
+## Exact local evidence
+
+Source clip:
+
+- Path: `out/research_training_gauntlet/mmu_candidate/source.mp4`
+- SHA-256: `b8f56a4868c1d8324d8949c0bdf670ec34471ec5bb1cb27756bc05b37d6feba6`
+- Decoded window: frames `0..164` inclusive (165 frames), `600x480`, encoded `25.0 FPS`, `0.0..6.56 s`
+- Existing MMU ball-demo record: `out/research_training_gauntlet/mmu_candidate/analysis/automatic_ball_tracer_diagnostics.json`; it is explicitly a heuristic ball proposal, not clubhead evidence.
+
+### Generic local models
+
+| Model | SHA-256 | Local task/output | Runtime on 165 MMU frames | Finding |
+|---|---|---|---:|---|
+| `yolo11n.pt` | `0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1` | COCO detection; class names include `sports ball`, no `clubhead` | 17.9874 s CPU | 152/165 frames had outputs; counts: sports ball 124, clock 25, frisbee 1, wine glass 2. Not clubhead evidence. |
+| `yolo11n-pose.pt` | `869e83fcdffdc7371fa4e34cd8e51c838cc729571d1635e5141e3075e9319dc0` | generic person pose; class names only `person`, no `clubhead` | 20.3483 s CPU | 0/165 frames had outputs. No clubhead evidence. |
+
+Model license/provenance disposition: local files were loaded and exercised successfully, but their production licensing was not independently re-cleared in this probe; research-only. Do not promote either output to GhostCaddie evidence.
+
+### Classical methods
+
+- Farneback dense optical flow: 5.1694 s for the combined classical pass; mean fraction of pixels with magnitude >2 was `0.0452535`, maximum `0.0765764`. This is a motion field, not an object identity or track.
+- MOG2 foreground subtraction: same combined-pass runtime, mean foreground fraction `0.0386260`, maximum `1.0`. Foreground is entangled with person/club/background and initialization; it does not identify the clubhead.
+
+The machine-readable full result is `out/research_training_gauntlet/mmu_candidate/analysis/clubhead_tracking_local_probe.json`.
+
+## Safe research candidates and rights
+
+- ClubheadDB package `clubhead_db-1.0.1.tar.gz`: SHA-256 `15a1494a2c28855b84f76e9802f018c3387af976e32c19324c7ab2b62521d1d5`; declared `CC-BY-NC-4.0`; local recon status is `blocked_before_source_video_acquisition`, with no source videos downloaded and no checkpoint found. Its metadata points to third-party YouTube/Reddit media, so it cannot open a production gate.
+- GolfDB/SwingNet is research/non-commercial and provides swing-event predictions only; it does not provide clubhead coordinates. Existing local evaluation records no held-out labels and keep clubhead/impact gates false.
+- GolfPose is a conditional research lead with an authorization-gated dataset and derived-model terms, but no local acquisition or validation was performed here. It is not an available clubhead model.
+- Existing public MMU/YouTube footage is qualitative stress-test material only; no rights-cleared benchmark or matching clubhead annotations are present.
+
+## Gate decision
+
+Keep clubhead and impact unavailable. Do not infer clubhead from ball, person pose, optical flow, foreground masks, or SwingNet event predictions. A future candidate must provide rights-cleared paired frames/annotations, frozen evaluation splits, reproducible hashes, and a validated clubhead/impact evaluator before any gate changes.

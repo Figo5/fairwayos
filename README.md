@@ -361,6 +361,26 @@ The whole simulation is reproducible for a fixed seed: every random draw goes
 through a single seeded `random.Random` consumed sequentially; the global
 `random` module is never used.
 
+## Current research status
+
+A bounded local research demo now automatically tracks a visibly moving ball in the MMU biomechanics sequence. The source is 600x480 and encoded at 25 FPS; capture FPS and reuse rights are unverified. The marker was inspected across all 160 rendered frames (source indices 0–159) and remained on the visible ball from pre-impact through upward/rightward translation.
+
+Best local artifacts:
+
+```bash
+open out/research_training_gauntlet/mmu_candidate/analysis/automatic_ball_tracer_h264.mp4
+open out/research_training_gauntlet/mmu_candidate/analysis/automatic_ball_tracer_contact_full.jpg
+open out/research_training_gauntlet/mmu_candidate/analysis/automatic_ball_tracer_diagnostics.json
+python3 -m ghostcaddie fairwayos-ball-sidecar \
+  --input out/research_training_gauntlet/mmu_candidate/analysis/automatic_ball_tracer_diagnostics.json \
+  --out out/research_training_gauntlet/mmu_candidate/analysis/fairwayos_ball_research_sidecar.json \
+  --source mmu_candidate/source.mp4
+```
+
+The sidecar is a diagnostics handoff only: it preserves pixel-space track items, frame provenance, warnings, and human fallback while explicitly setting `production_eligible: false`. It does not construct `VideoObservations`, `ShotEvent`, analytics, or recommendations.
+
+This remains heuristic pixel-space research evidence. Clubhead, validated impact, trajectory, landing, calibration, `ShotEvent`, analytics, and recommendation remain unavailable. Production gates are closed and `run_pipeline()` is not invoked. See [`STATUS.md`](STATUS.md) for provenance, QA artifacts, and verification commands.
+
 ## Dependencies
 
 Pure Python 3.9 standard library only (dataclasses, json, math, random,

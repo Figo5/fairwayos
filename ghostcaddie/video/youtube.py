@@ -261,7 +261,7 @@ class YtDlpDownloader:
                 "source": source.to_dict(),
                 "downloader": "yt-dlp",
                 "status": "downloaded",
-            }, sort_keys=True, indent=2) + "\\n")
+            }, sort_keys=True, indent=2) + "\n")
             os.replace(str(metadata_tmp), str(provenance))
             return YouTubeDownloadResult(source, str(final))
         finally:

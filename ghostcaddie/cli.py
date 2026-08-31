@@ -38,6 +38,7 @@ from .video.prepare import prepare_video
 from .video.human_import import observations_from_human_annotations
 from .video.youtube import DownloadError, YtDlpDownloader
 from .video.youtube_auto_try import AutoTryConfig, DEFAULT_YTDLP, auto_try
+from .video.fairwayos_research import sidecar_from_mapping, write_fairwayos_sidecar
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -177,6 +178,16 @@ def _build_parser() -> argparse.ArgumentParser:
     auto_p.add_argument("--fallback-human", action="store_true")
     auto_p.add_argument("--yt-dlp", default=DEFAULT_YTDLP,
                         help="Explicit executable path for bounded yt-dlp download.")
+    sidecar_p = sub.add_parser(
+        "fairwayos-ball-sidecar",
+        help="Serialize shared research ball candidates for FairwayOS diagnostics; never runs analytics.",
+    )
+    sidecar_p.add_argument("--input", required=True, type=Path,
+                           help="JSON track emitted by a research-only ball runner.")
+    sidecar_p.add_argument("--out", required=True, type=Path,
+                           help="Output FairwayOS research sidecar JSON.")
+    sidecar_p.add_argument("--source", default=None,
+                           help="Optional human-readable source label; no video bytes are copied.")
     return parser
 
 
@@ -223,6 +234,10 @@ def main(argv=None) -> None:
         _run_youtube_auto_try_command(args)
         return
 
+    if args.command == "fairwayos-ball-sidecar":
+        _run_fairwayos_ball_sidecar_command(args)
+        return
+
     config = Config.default()
     if args.seed is not None:
         config = replace(config, simulation=replace(config.simulation, random_seed=args.seed))
@@ -246,6 +261,14 @@ def main(argv=None) -> None:
         fh.write(result.svg)
 
     _print_terminal_summary(result)
+
+
+def _run_fairwayos_ball_sidecar_command(args) -> None:
+    with args.input.open() as fh:
+        payload = json.load(fh)
+    sidecar = sidecar_from_mapping(payload, source=args.source)
+    write_fairwayos_sidecar(args.out, sidecar)
+    print(f"Wrote research-only FairwayOS ball sidecar to {args.out}")
 
 
 def _run_provider_session_command(args) -> None:
@@ -360,8 +383,13 @@ def _run_video_human_analyze_command(args) -> None:
                        annotated_dir / frame.filename, selected, calibration)
     workspace_video = {"width": metadata.width, "height": metadata.height,
                        "frame_count": len(frames.frames), "duration_seconds": metadata.duration_seconds}
+    workspace_frames = []
+    for frame in frames.frames:
+        frame_data = frame.to_dict()
+        frame_data["filename"] = "frames/" + frame_data["filename"]
+        workspace_frames.append(frame_data)
     workspace = build_annotation_workspace(
-        [frame.to_dict() for frame in frames.frames], video=workspace_video,
+        workspace_frames, video=workspace_video,
         contact_sheet_href="contact_sheet.jpg", title="Offline human annotation workspace",
         context="Submitted video-human-annotations.v1; deterministic local extraction")
     (out / "annotation_workspace.html").write_text(workspace)

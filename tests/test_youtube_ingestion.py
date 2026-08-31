@@ -111,6 +111,7 @@ class YtDlpBoundaryTests(unittest.TestCase):
             self.assertTrue((Path(tmp) / "source_metadata.json").is_file())
             provenance = (Path(tmp) / "source_metadata.json").read_text()
             self.assertIn(VIDEO_ID, provenance)
+            self.assertEqual(json.loads(provenance)["status"], "downloaded")
             self.assertNotIn("https://", provenance)
             self.assertNotIn(str(Path(tmp)), provenance)
             self.assertEqual(Path(result.path).name, "source.mp4")
