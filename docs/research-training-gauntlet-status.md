@@ -14,6 +14,8 @@ out/research_training_gauntlet/manifest.json
 
 Downloaded media, extracted frames, annotations, reports, and model outputs remain under the ignored local directory `out/research_training_gauntlet/`.
 
+The YouTube ingestion boundary rejects provider metadata with non-finite or non-positive duration before invoking the download subprocess. Missing duration remains an explicit provider limitation rather than an invented value.
+
 ## Triage and automatic overlays
 
 The local generic YOLO pose checkpoint was run on the two downloaded clips:

@@ -216,10 +216,13 @@ class YtDlpDownloader:
             duration = metadata.get("duration")
             if duration is not None:
                 try:
-                    if float(duration) > self.limits.max_duration_seconds:
-                        raise DownloadError("video duration exceeds configured limit", "duration_limit_exceeded")
-                except (TypeError, ValueError):
+                    parsed_duration = float(duration)
+                except (TypeError, ValueError) as exc:
+                    raise DownloadError("downloader returned invalid duration", "malformed_metadata") from exc
+                if not math.isfinite(parsed_duration) or parsed_duration <= 0:
                     raise DownloadError("downloader returned invalid duration", "malformed_metadata")
+                if parsed_duration > self.limits.max_duration_seconds:
+                    raise DownloadError("video duration exceeds configured limit", "duration_limit_exceeded")
             estimated = metadata.get("filesize") or metadata.get("filesize_approx")
             if estimated is not None and int(estimated) > self.limits.max_download_bytes:
                 raise DownloadError("estimated download size exceeds configured limit", "size_limit_exceeded")

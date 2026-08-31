@@ -95,6 +95,17 @@ class YtDlpBoundaryTests(unittest.TestCase):
                     )
                 self.assertIn(raised.exception.code, {"live_not_allowed", "protected_content", "unavailable"})
 
+    def test_probe_rejects_nonfinite_or_nonpositive_duration_before_download(self):
+        for duration in ("nan", "inf", "-inf", -1, 0):
+            runner, calls = self._runner({"id": VIDEO_ID, "duration": duration})
+            with self.subTest(duration=duration), tempfile.TemporaryDirectory() as tmp:
+                with self.assertRaises(DownloadError) as raised:
+                    YtDlpDownloader("/bin/sh", runner=runner).download(
+                        "https://youtu.be/" + VIDEO_ID, tmp
+                    )
+                self.assertEqual(raised.exception.code, "malformed_metadata")
+                self.assertEqual(len(calls), 1)
+
     def test_download_uses_fixed_safe_argv_and_atomic_finalization(self):
         runner, calls = self._runner({"id": VIDEO_ID, "duration": 30, "is_live": False})
         with tempfile.TemporaryDirectory() as tmp:
