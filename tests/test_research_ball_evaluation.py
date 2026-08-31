@@ -30,6 +30,17 @@ class TestResearchBallEvaluation(unittest.TestCase):
         self.assertEqual(result["coverage"], 0.0)
         self.assertIsNone(result["false_positive_rate"])
 
+    def test_impact_bracket_never_becomes_exact(self):
+        from ghostcaddie.video.clubhead_pseudo_labels import estimate_impact_window
+
+        result = estimate_impact_window([
+            {"available": True, "frame_index": 10, "ball_club_alignment": 8.0},
+            {"available": True, "frame_index": 11, "ball_club_alignment": 4.0},
+        ], 25.0)
+        self.assertEqual((result["start_frame"], result["end_frame"]), (9, 13))
+        self.assertIsNone(result["exact_impact"])
+        self.assertIn("not_ground_truth", result["warning"])
+
 
 if __name__ == "__main__":
     unittest.main()

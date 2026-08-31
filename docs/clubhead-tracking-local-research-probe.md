@@ -176,6 +176,23 @@ The automatic proposal experiment did not establish a track, so the next safe de
 
 This path does not promote clubhead or impact, does not alter the existing human analytics contract, and does not invoke `run_pipeline()`.
 
+### Research-only pseudo-label experiment
+
+A separate local runner generated provisional clubhead/shaft labels from the MMU and two additional complete clips using the guarded ball track, generic pose when detected, Hough/contour geometry, frame motion, sparse optical flow, ball proximity, and temporal consistency. The shaft is only a wrist-to-clubhead proxy; it is not a validated shaft annotation.
+
+- Runner: `out/research_training_gauntlet/run_pseudo_clubhead_experiment.py`
+- Contract: `ghostcaddie/video/clubhead_pseudo_labels.py`
+- Regression tests: `tests/test_clubhead_pseudo_labels.py` and `tests/test_research_ball_evaluation.py`
+- Every emitted record carries `pseudo_label: true`, `ground_truth: false`, `research_only: true`, and `production_eligible: false`.
+- MMU complete source: `0/1795` pseudo-labels accepted because generic pose produced no person detection at the inspected impact frame and pose wrist evidence was unavailable across the run.
+- `zD94ij8dm_A`: `2/600` provisional candidates emitted around frames `43–44`; both were rejected after full-resolution visual inspection because the proxy did not identify a separable clubhead endpoint.
+- `PsJvcITOVRc`: `6/600` provisional candidates emitted around frames `77–79` and `578–581`; all were rejected after full-resolution inspection as background/scene geometry rather than clubhead evidence.
+- The generated MP4s passed H.264 FFprobe checks and complete FFmpeg decode. Orange trails are bounded pixel-space ball trajectories and stop after ball-track termination.
+- Proximity brackets `42–46` and `76–80` were invalidated after visual rejection. No exact impact was inferred; `impact`, `trajectory`, `landing`, `calibration`, `shot_event`, `analytics`, and `recommendation` remain `null`.
+- Local QA records: `pseudo_clubhead_visual_qa.json` and `pseudo_clubhead_experiment_qa_rejected.json` in each ignored experiment directory. No pseudo-labels are eligible for experimental training after visual QA.
+
+Disposition: `blocked_visual_false_positive` for the higher-resolution clips and `blocked_pose_unavailable` for MMU. The workflow demonstrates guarded pseudo-label generation and rejection, but it does not establish automatic clubhead tracking, contact detection, continuous ball tracking, or any production eligibility.
+
 ### Current acquisition gate
 
 The broader pass therefore remains a verified blocker for higher-FPS clubhead work. A future accepted candidate must have both (1) measured native frame rate sufficient for the intended impact neighborhood and (2) native-frame visual evidence of a continuous, close-enough golf swing with the club separable from the golfer, shaft, ball, overlays, and background. Metadata, titles, slow-motion playback, generic ball motion, and third-party annotations do not satisfy that gate. Production analytics and `run_pipeline()` remain closed.
