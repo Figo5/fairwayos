@@ -206,6 +206,39 @@ class TestAIDemoContracts(unittest.TestCase):
             self.assertGreater(red_pixels, 100)
             self.assertGreater(orange_pixels, 20)
 
+    def test_rerun_removes_stale_annotated_frames_before_encoding(self):
+        try:
+            import cv2
+            import numpy as np
+        except ImportError:
+            self.skipTest("optional OpenCV stack unavailable")
+        from ghostcaddie.video.ai_demo import run_local_demo
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            writer = cv2.VideoWriter(str(source), cv2.VideoWriter_fourcc(*"mp4v"), 10.0, (320, 240))
+            self.assertTrue(writer.isOpened())
+            for _ in range(3):
+                writer.write(np.full((240, 320, 3), 45, dtype=np.uint8))
+            writer.release()
+            def fake_ball(*_args):
+                return {"state": "observed", "confidence": 0.9, "uncertainty": 4.0,
+                        "point": {"x": 100.0, "y": 110.0}, "candidate_count": 1,
+                        "model": "test_ball"}, None
+            with patch("ghostcaddie.video.ai_demo._ball_observation", side_effect=fake_ball):
+                run_local_demo(str(source), str(root / "out"), sample_fps=10.0, max_frames=3,
+                               pose_model="", ball_model="")
+                run_local_demo(str(source), str(root / "out"), sample_fps=10.0, max_frames=1,
+                               pose_model="", ball_model="")
+            frames = sorted((root / "out" / "annotated_frames").glob("frame_*.jpg"))
+            self.assertEqual(len(frames), 1)
+            capture = cv2.VideoCapture(str(root / "out" / "annotated_video.mp4"))
+            count = 0
+            while capture.read()[0]:
+                count += 1
+            capture.release()
+            self.assertEqual(count, 1)
+
     def test_blocked_rerun_removes_stale_production_artifacts(self):
         with tempfile.TemporaryDirectory() as directory:
             out = Path(directory)

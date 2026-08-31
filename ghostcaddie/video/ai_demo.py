@@ -517,6 +517,9 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
         event_by_frame.setdefault(event["frame_index"], []).append(event)
     annotated = out / "annotated_frames"
     annotated.mkdir(exist_ok=True)
+    for stale_frame in annotated.glob("frame_*.jpg"):
+        if stale_frame.is_file() and not stale_frame.is_symlink():
+            stale_frame.unlink()
     observations = []
     trail = []
     for ordinal, (frame, number) in enumerate(zip(frames, frame_numbers)):

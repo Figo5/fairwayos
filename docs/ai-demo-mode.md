@@ -81,7 +81,9 @@ truth source.
 
 The tracer is persistent only within one guarded continuity segment. It is
 cleared on unavailable, terminated, or reacquisition-gap states so unrelated
-candidate positions are never joined by a misleading line.
+candidate positions are never joined by a misleading line. Before each render,
+only stale generated `annotated_frames/frame_*.jpg` files are removed, so a
+shorter rerun cannot encode frames left by an earlier run.
 
 The unified renderer consumes one clean source frame per iteration for every
 component, then composes all accepted evidence exactly once. The ball zoom is
