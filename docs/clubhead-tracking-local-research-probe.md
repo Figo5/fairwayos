@@ -81,6 +81,24 @@ The local acquisition record is `out/research_training_gauntlet/pixabay_213192/t
 - Visual decision: rejected as a higher-FPS acquisition. The inspected segment shows a real golfer at address, but the downloaded native stream is standard 29.97 FPS and does not satisfy the temporal-resolution gate.
 - Clubhead and impact: unavailable; no coordinates or event labels were inferred.
 
+### Wikimedia Commons leads: licensed but not high-FPS
+
+Two CC BY 4.0 Wikimedia Commons files were downloaded only for local inspection. Their file pages provide direct media and explicit attribution terms, but neither stream meets the higher-FPS gate:
+
+- `Golf swing practice - Kanagawa - slow motion - 2023 June 13.webm`: <https://commons.wikimedia.org/wiki/File:Golf_swing_practice_-_Kanagawa_-_slow_motion_-_2023_June_13.webm>. The direct 1,920x1,080 VP9 stream measured `30000/1001` FPS with `414` frames over `13.813 s`. Native inspection shows a real practice swing, but it is standard frame rate rather than higher-FPS capture; it remains a licensed qualitative reference, not an accepted high-FPS candidate.
+- `Manpracticinggolfswing-slowmotion-2021-3-24.webm`: <https://commons.wikimedia.org/wiki/File:Manpracticinggolfswing-slowmotion-2021-3-24.webm>. The direct 464x538 VP8 stream measured `30 FPS` with `513` frames over `17.1 s`. Native inspection shows a real practice scene, but the golfer is small and partly confounded by a truck/background; it is not suitable for separable clubhead research.
+
+The “slow motion” labels were not treated as frame-rate evidence. Both files remain local and ignored; no clubhead or impact labels were inferred.
+
+### Existing local 60-FPS candidates
+
+The audit also rechecked the remaining ignored candidates:
+
+- `flight_candidate/source.mp4`: `1080x1920`, `60 FPS`, `428` frames. It shows continuous golfer footage, but the foreground ball is static and tracer/measurement graphics dominate the relevant region; no qualifying separable evidence was established.
+- `impact_candidate/source.mp4`: `1080x1920`, `60 FPS`, `732` frames. It is a controlled close-up of ball deformation with title graphics, not a continuous full swing or translating-ball sequence.
+
+Both are rejected for the requested gate. Neither supplies clubhead or impact evidence.
+
 ### Current acquisition gate
 
 The broader pass therefore remains a verified blocker for higher-FPS clubhead work. A future accepted candidate must have both (1) measured native frame rate sufficient for the intended impact neighborhood and (2) native-frame visual evidence of a continuous, close-enough golf swing with the club separable from the golfer, shaft, ball, overlays, and background. Metadata, titles, slow-motion playback, generic ball motion, and third-party annotations do not satisfy that gate. Production analytics and `run_pipeline()` remain closed.
