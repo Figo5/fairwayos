@@ -115,6 +115,17 @@ A dependency-free proposal contract and ignored local visualizer were exercised 
 
 The proposal output is useful as a false-positive diagnostic and visualization scaffold, not as validated clubhead evidence.
 
+### Model-release follow-up: CADDIE / GolfClub
+
+A primary-source audit checked the CADDIE project page, CVsports open-access paper, paper PDF, and a public GitHub repository search:
+
+- CADDIE reports a dedicated `GolfClub` collection of 72,012 annotated frames, a five-keypoint club schema (`grip`, `shaft`, `neck`, `head-in`, `head-out`), and 200–300 FPS source capture. Sources: <https://cjung5.github.io/CADDIE/> and <https://openaccess.thecvf.com/content/CVPR2026W/CVsports/html/Jung_CADDIE_Compact_Adaptive_Detection-Driven_Inference_for_Real-Time_Golf_Club_Pose_CVPRW_2026_paper.html>.
+- The inspected official project page exposes the paper and a teaser GIF, but no public checkpoint, dataset archive, annotation download, source-video package, checksum, or explicit asset license for the claimed GolfClub frames was found.
+- The CVF page explicitly states that copyright and related rights are retained by the authors or other rights holders; the paper is not evidence that the underlying frames, annotations, or weights are cleared for FairwayOS redistribution or evaluation.
+- The GitHub repository search for `CADDIE golf club pose` returned no official public repository. No unofficial checkpoint or hosted API was used.
+
+Disposition: `blocked_before_acquisition`. CADDIE is a promising research lead, not an available local model or legally cleared swing clip. No weights, videos, or annotations were downloaded. No CADDIE inference was run. Clubhead remains unavailable and all impact/production gates remain closed.
+
 ### Current acquisition gate
 
 The broader pass therefore remains a verified blocker for higher-FPS clubhead work. A future accepted candidate must have both (1) measured native frame rate sufficient for the intended impact neighborhood and (2) native-frame visual evidence of a continuous, close-enough golf swing with the club separable from the golfer, shaft, ball, overlays, and background. Metadata, titles, slow-motion playback, generic ball motion, and third-party annotations do not satisfy that gate. Production analytics and `run_pipeline()` remain closed.
