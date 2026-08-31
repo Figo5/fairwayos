@@ -99,6 +99,22 @@ The audit also rechecked the remaining ignored candidates:
 
 Both are rejected for the requested gate. Neither supplies clubhead or impact evidence.
 
+### Research-only clubhead proposal experiment
+
+A dependency-free proposal contract and ignored local visualizer were exercised on the current Wikimedia and MMU files:
+
+- Source contract: `ghostcaddie/video/clubhead_proposal.py`
+- Regression tests: `tests/test_clubhead_proposal.py`
+- Local runner: `out/research_training_gauntlet/run_clubhead_proposal.py`
+- Inputs fused: pose keypoints when available, ROI/exclusion bounds, Canny/Hough line endpoints, contour centers, and frame-to-frame motion contours.
+- Outputs: pixel-space proposal point, confidence, disagreement-derived uncertainty, evidence families, warnings, and explicit `research_candidate` provenance. JSON serialization rejects non-finite values and requires `production_eligible: false`.
+- Rendered artifacts: `out/research_training_gauntlet/wikimedia_kanagawa/analysis/clubhead_proposals.mp4` (`414` frames) and `out/research_training_gauntlet/mmu_candidate/analysis/clubhead_proposal/clubhead_proposals.mp4` (`1795` frames). Both passed complete FFmpeg decode and FFprobe source/output count checks.
+- Visual QA result: rejected as a clubhead track. Remaining circles were not consistently attached to a visibly separable clubhead; MMU proposals frequently followed the ball/background. The report therefore records `clubhead_available: false` and `visual_gate: blocked_visual_false_positive`.
+- Exact impact: unavailable. The MMU research bracket remains frames `68–72`; no proposal point was used to narrow it.
+- Landing, calibration, ShotEvent, analytics, and recommendation remain `null` and no production pipeline was invoked.
+
+The proposal output is useful as a false-positive diagnostic and visualization scaffold, not as validated clubhead evidence.
+
 ### Current acquisition gate
 
 The broader pass therefore remains a verified blocker for higher-FPS clubhead work. A future accepted candidate must have both (1) measured native frame rate sufficient for the intended impact neighborhood and (2) native-frame visual evidence of a continuous, close-enough golf swing with the club separable from the golfer, shaft, ball, overlays, and background. Metadata, titles, slow-motion playback, generic ball motion, and third-party annotations do not satisfy that gate. Production analytics and `run_pipeline()` remain closed.
