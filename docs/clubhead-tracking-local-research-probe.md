@@ -115,6 +115,20 @@ A dependency-free proposal contract and ignored local visualizer were exercised 
 
 The proposal output is useful as a false-positive diagnostic and visualization scaffold, not as validated clubhead evidence.
 
+### Local golf-ball checkpoint smoke test
+
+A bounded local test evaluated the public model release at <https://huggingface.co/notjulietxd/golf-ball-tracker> on the 165-frame MMU window. The model card's reported training metrics and source-image claims were not treated as ground truth; the checkpoint and source media remain local and ignored.
+
+- Local research runner: `out/research_training_gauntlet/run_model_ball_smoke.py`
+- PyTorch checkpoint: `best.pt`, 24,458,339 bytes, SHA-256 `45e8f8bd8975dc7f437919a11c3f6ee1fe7c8ae40b0f49910d0677d1c0326791`
+- ONNX checkpoint: `best.onnx`, 12,367,406 bytes, SHA-256 `9e948135c9898c2b0e4194fa992308a0bbb478e21f6407dda12cb49e3e91ac22`
+- Local runtime: Ultralytics with CPU ONNX Runtime/PyTorch in the ignored `.venv-video-ai` environment; no cloud inference.
+- ONNX finding: raw detections returned degenerate boxes with `y1 == y2 == 0` on the first MMU frame, so that export was rejected for visual use.
+- PyTorch finding: 144 detections across the 165-frame render. Full-resolution decoded MP4 inspection showed visible alignment on the stationary and early-flight ball, but later markers drifted onto the club/background while the real ball was elsewhere.
+- Render: ignored local `model_ball_smoke_h264.mp4`, H.264, `600x480`, `25 FPS`, `yuv420p`, `165` frames. Every overlay is explicitly `MODEL PREDICTION | NOT GROUND TRUTH` with `research_only=true`, `ground_truth=false`, and `production_eligible=false`.
+
+Disposition: `partial_visual_alignment_then_blocked_visual_false_positive`. This checkpoint is a useful local stress-test and rendering demonstration, not a validated ball tracker. It does not support clubhead identity, exact impact, trajectory, landing, calibration, analytics, or production eligibility.
+
 ### Model-release follow-up: CADDIE / GolfClub
 
 A primary-source audit checked the CADDIE project page, CVsports open-access paper, paper PDF, and a public GitHub repository search:
