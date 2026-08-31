@@ -2,30 +2,35 @@
 
 Updated 2026-08-31.
 
-## Verified research artifact
+## Verified accepted artifact
 
-The MMU biomechanics clip is the strongest current local demonstration:
+The current accepted continuous demo is the local Pexels clip. It is a
+research-only visual artifact, not a validated golf-perception result:
 
-- Source: https://www.youtube.com/watch?v=6dG9hb3_blo
-- Local source: `out/research_training_gauntlet/mmu_candidate/source.mp4`
-- Media: 600x480, encoded 25 FPS, 71.8 seconds
-- Automatically selected window for the original parity run: frames 0-164, 6.6 seconds
-- Final shared-adapter render: frames 0-159, 160 rendered frames, after omitting low-confidence terminal candidates
-- Automatic method: shared `ResearchBallTracker` with Hough-circle proposals, white compactness scoring, automatic logo-strip ROI exclusion, bounded continuity linking, multi-scale fallback, and temporal comparison
-- Final net pixel displacement: 363.25 pixels
-- Visual QA: final contact sheet inspected; marker remained on the visible ball and the terminal offset candidate was not rendered as tracked
-- Renderer QA: frame/time labels are visible; the inset is cropped from pristine source pixels; terminal top-boundary clipping is explicitly labeled without moving the marker
-- States: rendered observations are `observed`/`tracked`; interpolation and prediction were not used in this accepted run
+- Source: Pexels video `6573485`, https://www.pexels.com/video/boy-hitting-a-golf-ball-6573485/
+- Local source: `out/research_training_gauntlet/pexels_6573485/source.mp4`
+- Source SHA-256: `a6e48474045365d1de2d4af76f65da558531684d67da87172cdd15a6dc45e1d6`
+- Accepted output: `out/research_training_gauntlet/fairwayos_unified_pexels_6573485/`
+- Media: 1920x1080 H.264/yuv420p, 30 FPS, 310 source frames; 121 sampled observations
+- Observations: 121/121 pose and ball observations; ball states include 117 observed and 4 predicted states
+- Provenance: `research_only: true`, `production_eligible: false`, `ground_truth: false`
 
-Open the best artifact:
+Open the accepted artifact and its QA contact sheet:
 
 ```bash
-open out/research_training_gauntlet/mmu_candidate/analysis/automatic_ball_tracer_h264.mp4
-open out/research_training_gauntlet/mmu_candidate/analysis/automatic_ball_tracer_contact.jpg
-open out/research_training_gauntlet/mmu_candidate/analysis/automatic_ball_tracer_diagnostics.json
+open out/research_training_gauntlet/fairwayos_unified_pexels_6573485/annotated_video.mp4
+open out/research_training_gauntlet/fairwayos_unified_pexels_6573485/qa_contact_sheet.jpg
+open out/research_training_gauntlet/fairwayos_unified_pexels_6573485/provenance.json
+open out/research_training_gauntlet/fairwayos_unified_pexels_6573485/diagnostics.json
 ```
 
-The H.264 artifact is verified as `h264`, `yuv420p`, 600x480, 25 FPS, 160 frames, and decodes fully with FFmpeg.
+Native-resolution frame inspection found consistently rendered pose, golfer
+box, feet anchor, ball marker, tracer, and zoom inset. The marker remains a
+research candidate: no ground-truth labels establish golf-ball identity,
+reacquisition, precision, recall, or false-positive rate. SwingNet event
+hypotheses are also research-only; exact impact, landing, calibration,
+course-space trajectory, `ShotEvent`, analytics, and recommendations remain
+unavailable. Do not use Pexels `6573474` for this artifact.
 
 The research-only FairwayOS sidecar can be generated without entering the
 production observation or analytics contracts:
@@ -86,4 +91,4 @@ ffmpeg -v error -i out/research_training_gauntlet/mmu_candidate/analysis/automat
 git diff --check
 ```
 
-The current full suite passes 313 tests with one environment-dependent test skipped. Research media and generated artifacts remain local under ignored `out/` paths. Diagnostic source labels are relative to the research artifact root, so reruns do not serialize local filesystem paths. YouTube provenance metadata is strict JSON; research sidecars reject traversal, URL, and home-relative source identifiers, non-finite values, and promoted production flags.
+The current full suite passes 352 tests with 3 optional-dependency tests skipped. Research media and generated artifacts remain local under ignored `out/` paths. Diagnostic source labels are relative to the research artifact root, so reruns do not serialize local filesystem paths. YouTube provenance metadata is strict JSON; research sidecars reject traversal, URL, and home-relative source identifiers, non-finite values, and promoted production flags.
