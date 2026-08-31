@@ -69,7 +69,7 @@ SwingNet is locally runnable for its eight GolfDB swing events plus background, 
 
 ## Evidence boundary
 
-This is an automatically aligned heuristic research demonstration, not a validated golf-ball detector. The source is public YouTube footage with unverified reuse rights. The encoded FPS is not proof of the camera capture FPS. No pseudo-labels or human coordinates were used for the automatic track.
+This is an automatically aligned heuristic research demonstration, not a validated golf-ball detector. The accepted source is Pexels video `6573485`, marked free to use on its source page and retained locally only; this does not establish ground truth or production eligibility. The encoded FPS is not proof of the camera capture FPS. No pseudo-labels or human coordinates were used for the automatic track.
 
 The following remain unavailable and must remain null until rights-cleared paired annotations, validated models, calibration, and held-out evaluation exist:
 
