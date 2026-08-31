@@ -11,7 +11,7 @@ research-only visual artifact, not a validated golf-perception result:
 - Local source: `out/research_training_gauntlet/pexels_6573485/source.mp4`
 - Source SHA-256: `a6e48474045365d1de2d4af76f65da558531684d67da87172cdd15a6dc45e1d6`
 - Accepted output: `out/research_training_gauntlet/fairwayos_unified_pexels_6573485/`
-- Media: 1920x1080 H.264/yuv420p, 30 FPS, 310 source frames; 121 sampled observations
+- Media: source 1920x1080 H.264/yuv420p at 30 FPS with 310 frames; encoded demo is 1920x1080 H.264/yuv420p at 15 FPS with 121 frames
 - Observations: 121/121 pose and ball observations; ball states include 117 observed and 4 predicted states
 - Provenance: `research_only: true`, `production_eligible: false`, `ground_truth: false`
 
@@ -19,7 +19,7 @@ Open the accepted artifact and its QA contact sheet:
 
 ```bash
 open out/research_training_gauntlet/fairwayos_unified_pexels_6573485/annotated_video.mp4
-open out/research_training_gauntlet/fairwayos_unified_pexels_6573485/qa_contact_sheet.jpg
+open out/research_training_gauntlet/fairwayos_unified_pexels_6573485/contact_sheet_current.jpg
 open out/research_training_gauntlet/fairwayos_unified_pexels_6573485/provenance.json
 open out/research_training_gauntlet/fairwayos_unified_pexels_6573485/diagnostics.json
 ```
@@ -84,11 +84,11 @@ The following remain unavailable and must remain null until rights-cleared paire
 ## Verification
 
 ```bash
-python3 -m unittest -q
+python3 -m unittest discover -s tests -q
 python3 -m compileall -q ghostcaddie tests
 python3 -m py_compile out/research_training_gauntlet/run_mmu_auto_demo.py
 ffmpeg -v error -i out/research_training_gauntlet/mmu_candidate/analysis/automatic_ball_tracer_h264.mp4 -f null -
 git diff --check
 ```
 
-The current full suite passes 352 tests with 3 optional-dependency tests skipped. Research media and generated artifacts remain local under ignored `out/` paths. Diagnostic source labels are relative to the research artifact root, so reruns do not serialize local filesystem paths. YouTube provenance metadata is strict JSON; research sidecars reject traversal, URL, and home-relative source identifiers, non-finite values, and promoted production flags.
+The current full suite passes 361 tests with 6 optional-dependency tests skipped. Research media and generated artifacts remain local under ignored `out/` paths. Diagnostic source labels are relative to the research artifact root, so reruns do not serialize local filesystem paths. YouTube provenance metadata is strict JSON; research sidecars reject traversal, URL, and home-relative source identifiers, non-finite values, and promoted production flags. YouTube filesize metadata is rejected when malformed, non-finite, negative, fractional, or boolean, and an explicit zero `filesize` is not replaced by `filesize_approx`.

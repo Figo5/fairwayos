@@ -223,9 +223,19 @@ class YtDlpDownloader:
                     raise DownloadError("downloader returned invalid duration", "malformed_metadata")
                 if parsed_duration > self.limits.max_duration_seconds:
                     raise DownloadError("video duration exceeds configured limit", "duration_limit_exceeded")
-            estimated = metadata.get("filesize") or metadata.get("filesize_approx")
-            if estimated is not None and int(estimated) > self.limits.max_download_bytes:
-                raise DownloadError("estimated download size exceeds configured limit", "size_limit_exceeded")
+            estimated_key = "filesize" if "filesize" in metadata else "filesize_approx"
+            estimated = metadata.get(estimated_key)
+            if estimated is not None:
+                if isinstance(estimated, bool):
+                    raise DownloadError("downloader returned invalid filesize", "malformed_metadata")
+                try:
+                    parsed_size = float(estimated)
+                except (TypeError, ValueError) as exc:
+                    raise DownloadError("downloader returned invalid filesize", "malformed_metadata") from exc
+                if not math.isfinite(parsed_size) or parsed_size < 0 or not parsed_size.is_integer():
+                    raise DownloadError("downloader returned invalid filesize", "malformed_metadata")
+                if int(parsed_size) > self.limits.max_download_bytes:
+                    raise DownloadError("estimated download size exceeds configured limit", "size_limit_exceeded")
 
             template = staging / "source.download.part.%(ext)s"
             args = [self.executable, "--no-playlist", "--no-progress"]

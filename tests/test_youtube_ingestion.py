@@ -180,6 +180,29 @@ class YtDlpBoundaryTests(unittest.TestCase):
                 )
             self.assertIn("160", calls[1][0])
 
+    def test_probe_rejects_invalid_filesize_metadata_before_download(self):
+        for filesize in ("not-a-number", "nan", "inf", "-inf", -1, True):
+            runner, calls = self._runner({"id": VIDEO_ID, "duration": 30, "filesize": filesize})
+            with self.subTest(filesize=filesize), tempfile.TemporaryDirectory() as tmp:
+                with self.assertRaises(DownloadError) as raised:
+                    YtDlpDownloader("/bin/sh", runner=runner).download(
+                        "https://youtu.be/" + VIDEO_ID, tmp
+                    )
+                self.assertEqual(raised.exception.code, "malformed_metadata")
+                self.assertEqual(len(calls), 1)
+
+    def test_probe_prefers_zero_filesize_over_approximate_size(self):
+        runner, calls = self._runner({
+            "id": VIDEO_ID, "duration": 30, "filesize": 0, "filesize_approx": 999,
+        })
+        with tempfile.TemporaryDirectory() as tmp:
+            with unittest.mock.patch("ghostcaddie.video.youtube.inspect_video"):
+                YtDlpDownloader(
+                    "/bin/sh", runner=runner,
+                    limits=DownloadLimits(max_duration_seconds=60, max_download_bytes=10),
+                ).download("https://youtu.be/" + VIDEO_ID, tmp)
+        self.assertEqual(len(calls), 2)
+
     def test_download_failure_and_size_limit_are_sanitized(self):
         runner, _ = self._runner({"id": VIDEO_ID, "duration": 30}, returncode=1,
                                  stderr="ERROR https://youtu.be/" + VIDEO_ID + " Authorization: secret")
