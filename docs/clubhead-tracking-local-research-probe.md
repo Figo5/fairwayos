@@ -45,3 +45,12 @@ The machine-readable full result is `out/research_training_gauntlet/mmu_candidat
 ## Gate decision
 
 Keep clubhead and impact unavailable. Do not infer clubhead from ball, person pose, optical flow, foreground masks, or SwingNet event predictions. A future candidate must provide rights-cleared paired frames/annotations, frozen evaluation splits, reproducible hashes, and a validated clubhead/impact evaluator before any gate changes.
+
+## Higher-FPS follow-up
+
+The bounded local follow-up did not produce a qualifying high-FPS clubhead clip:
+
+- `highfps_candidate/source.mp4`: `1920x1080`, encoded `25 FPS`, `1122` frames. The inspected contact sheet is a V1 Sports title-card/logo sequence, not a continuous golf-clubhead shot.
+- `impact320_candidate/source.mp4`: `320x240`, encoded approximately `29.97 FPS`, `190` frames. The inspected contact sheet shows a fixed apparatus and ball with `www.photron.com` overlay; no separable golf-clubhead or exact golf impact is visible.
+
+The existing `local_impact` probe is a separate `1080x1920`, `60 FPS` apparatus sequence, not a golf-club swing. Its motion peaks are therefore not impact evidence. These clips remain rejected qualitative research material and were not added to the acceptance set or published.
