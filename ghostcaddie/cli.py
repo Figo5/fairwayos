@@ -193,6 +193,9 @@ def _build_parser() -> argparse.ArgumentParser:
     demo_p.add_argument("--max-frames", type=int, default=None)
     demo_p.add_argument("--pose-model", default=None, help="Optional local pose checkpoint path/adapter hint.")
     demo_p.add_argument("--ball-model", default=None, help="Optional local ball checkpoint path/adapter hint.")
+    demo_p.add_argument("--source-platform", default=None, help="Explicit source platform for a local video.")
+    demo_p.add_argument("--source-video-id", default=None, help="Explicit source asset ID for a local video.")
+    demo_p.add_argument("--source-url", default=None, help="Explicit source page URL for a local video.")
     sidecar_p = sub.add_parser(
         "fairwayos-ball-sidecar",
         help="Serialize shared research ball candidates for FairwayOS diagnostics; never runs analytics.",
@@ -638,7 +641,10 @@ def _run_ai_demo_command(args) -> None:
             video = Path(result.path)
             source = source.to_dict()
         elif video is not None:
-            source = {"platform": "local", "video_id": video.stem}
+            source = {"platform": args.source_platform or "local",
+                      "video_id": args.source_video_id or video.stem}
+            if args.source_url:
+                source["url"] = args.source_url
         report = run_local_demo(
             str(video), str(out), sample_fps=args.sample_fps,
             max_duration_seconds=args.max_duration, max_frames=args.max_frames,

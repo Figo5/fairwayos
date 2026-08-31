@@ -36,7 +36,11 @@ The output directory contains local ignored artifacts:
 Diagnostics record source identity, media metadata, selected motion window,
 methods compared, candidate counts, states, confidence, uncertainty, warnings,
 and safe relative artifact references. Absolute local paths and credentials are
-not serialized.
+not serialized. For a local copy of externally hosted media, pass
+`--source-platform`, `--source-video-id`, and `--source-url` so the provenance
+identifies the external asset rather than the local filename. The accepted
+paired-evidence example uses Pexels video `6573485`; its local output directory
+and `source.video_id` must both remain `6573485`.
 
 ## Evidence states and labels
 

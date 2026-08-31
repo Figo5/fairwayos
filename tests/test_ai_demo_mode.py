@@ -20,6 +20,24 @@ from ghostcaddie.video.ai_demo import (
 
 
 class TestAIDemoContracts(unittest.TestCase):
+    def test_local_demo_accepts_explicit_source_provenance(self):
+        output = StringIO()
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.mp4"
+            source.write_bytes(b"source")
+            with patch("ghostcaddie.cli.run_local_demo", return_value={"status": "research_only"}) as run:
+                with redirect_stdout(output):
+                    main([
+                        "ai-demo", "--video", str(source), "--out", str(Path(directory) / "out"),
+                        "--source-platform", "pexels", "--source-video-id", "6573485",
+                        "--source-url", "https://www.pexels.com/video/a-boy-hitting-a-golf-ball-6573485/",
+                    ])
+            self.assertEqual(run.call_args.kwargs["source"], {
+                "platform": "pexels",
+                "video_id": "6573485",
+                "url": "https://www.pexels.com/video/a-boy-hitting-a-golf-ball-6573485/",
+            })
+
     def test_terminal_tracker_state_is_unavailable_not_schema_failure(self):
         self.assertEqual(_normalize_tracker_state("terminated"), "unavailable")
         self.assertEqual(_normalize_tracker_state("observed"), "observed")
