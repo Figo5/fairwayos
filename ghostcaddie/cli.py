@@ -616,6 +616,10 @@ def _run_ai_demo_command(args) -> None:
     """Run only the research demo path; never invoke validated analytics."""
     out = args.out.expanduser().resolve()
     out.mkdir(parents=True, exist_ok=True)
+    for stale_name in ("recommendation.json", "normalized_shot.json", "overlay.svg"):
+        stale = out / stale_name
+        if stale.is_file() or stale.is_symlink():
+            stale.unlink()
     ingest_dir = None
     source = None
     video = args.video

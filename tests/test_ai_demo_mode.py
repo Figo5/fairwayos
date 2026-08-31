@@ -91,6 +91,17 @@ class TestAIDemoContracts(unittest.TestCase):
 
 
 class TestAIDemoCLIExposure(unittest.TestCase):
+    def test_blocked_rerun_removes_stale_production_artifacts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory)
+            for name in ("recommendation.json", "normalized_shot.json", "overlay.svg"):
+                (out / name).write_text("stale")
+            with redirect_stdout(StringIO()):
+                with self.assertRaises(SystemExit) as raised:
+                    main(["ai-demo", "--url", "https://example.com/not-youtube", "--out", str(out)])
+            self.assertEqual(raised.exception.code, 2)
+            self.assertFalse(any((out / name).exists() for name in ("recommendation.json", "normalized_shot.json", "overlay.svg")))
+
     def test_help_exposes_ai_demo_without_invoking_analytics(self):
         with redirect_stdout(StringIO()) as stdout:
             with self.assertRaises(SystemExit) as raised:
