@@ -129,6 +129,19 @@ A bounded local test evaluated the public model release at <https://huggingface.
 
 Disposition: `partial_visual_alignment_then_blocked_visual_false_positive`. This checkpoint is a useful local stress-test and rendering demonstration, not a validated ball tracker. It does not support clubhead identity, exact impact, trajectory, landing, calibration, analytics, or production eligibility.
 
+### Temporal drift-control gauntlet
+
+The local model runner was extended with `ResearchBallTrack`, a research-only temporal state machine. It uses a minimum confidence gate (`0.35`), a bounded per-frame motion step (`80` pixels), velocity-smoothed prediction, confidence decay (`0.15` per miss), and automatic termination after two rejected/missed frames. Terminated tracks emit no marker or tracer and cannot silently restart.
+
+- Contract: `ghostcaddie/video/research_ball_model.py`
+- Regression tests: `tests/test_research_ball_model.py` (`4` focused tests)
+- Runner: `out/research_training_gauntlet/run_model_ball_smoke.py`
+- MMU: `47` observed, `1` predicted, `117` terminated states over `165` frames. Visual inspection showed aligned early markers, one short prediction, and termination before later club/background drift.
+- Wikimedia Kanagawa: `1` observed, `1` predicted, `163` terminated states over `165` frames. Visual inspection showed no persistent false track.
+- Both renders passed H.264/yuv420p FFprobe checks and complete FFmpeg decode. All states remain model predictions, not ground truth.
+
+This reduces visible model drift but also demonstrates the expected tradeoff: a strict gate terminates rather than claiming a track when motion evidence becomes ambiguous. It does not validate ball identity, clubhead, impact, trajectory, landing, calibration, analytics, or production eligibility.
+
 ### Model-release follow-up: CADDIE / GolfClub
 
 A primary-source audit checked the CADDIE project page, CVsports open-access paper, paper PDF, and a public GitHub repository search:
