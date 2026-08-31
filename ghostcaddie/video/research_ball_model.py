@@ -84,6 +84,106 @@ class ResearchBallTrack:
         self._point = predicted
         return self._result("predicted", self._point, self._confidence, "confidence_decayed" if warning == "no_valid_candidate" else warning)
 
+class ResearchBallMultiHypothesisTrack:
+    """Research-only tracker with bounded ambiguity and guarded reacquisition."""
+
+    def __init__(
+        self,
+        *,
+        min_confidence: float = 0.35,
+        reacquire_confidence: float = 0.75,
+        max_step: float = 80.0,
+        max_misses: int = 2,
+        max_hypotheses: int = 3,
+    ) -> None:
+        if not 0.0 <= min_confidence <= reacquire_confidence <= 1.0:
+            raise ValueError("invalid confidence thresholds")
+        if max_step <= 0 or max_misses < 1 or max_hypotheses < 1:
+            raise ValueError("invalid track limits")
+        self.min_confidence = float(min_confidence)
+        self.reacquire_confidence = float(reacquire_confidence)
+        self.max_step = float(max_step)
+        self.max_misses = int(max_misses)
+        self.max_hypotheses = int(max_hypotheses)
+        self._hypotheses = []
+        self._terminated = False
+        self._pending_reacquisition = None
+
+    @staticmethod
+    def _result(state, point, confidence, warning=None, hypothesis_count=0):
+        return {
+            "state": state,
+            "point": None if point is None else {"x": float(point[0]), "y": float(point[1])},
+            "confidence": float(confidence),
+            "warning": warning,
+            "hypothesis_count": int(hypothesis_count),
+        }
+
+    @staticmethod
+    def _center(candidate):
+        return tuple(float(value) for value in candidate["center"])
+
+    def _reacquire(self, candidates):
+        strong = [candidate for candidate in candidates if float(candidate.get("confidence", 0.0)) >= self.reacquire_confidence]
+        if self._pending_reacquisition is not None and len(strong) == 1:
+            center = self._center(strong[0])
+            distance = math.hypot(center[0] - self._pending_reacquisition[0], center[1] - self._pending_reacquisition[1])
+            if distance <= self.max_step:
+                self._hypotheses = [{"point": center, "velocity": (0.0, 0.0), "confidence": float(strong[0]["confidence"]), "score": float(strong[0]["confidence"]), "misses": 0}]
+                self._pending_reacquisition = None
+                self._terminated = False
+                return self._result("reacquired", center, strong[0]["confidence"], hypothesis_count=1)
+        if len(strong) == 1:
+            self._pending_reacquisition = self._center(strong[0])
+            return self._result("terminated", None, 0.0, "reacquisition_pending")
+        self._pending_reacquisition = None
+        warning = "reacquisition_ambiguous" if len(strong) > 1 else "reacquisition_insufficient_evidence"
+        return self._result("terminated", None, 0.0, warning)
+
+    def update(self, candidates: Iterable[dict]):
+        valid = [candidate for candidate in candidates if float(candidate.get("confidence", 0.0)) >= self.min_confidence]
+        if self._terminated:
+            return self._reacquire(valid)
+        if not self._hypotheses:
+            if not valid:
+                return self._result("unavailable", None, 0.0, "no_valid_candidate")
+            self._hypotheses = [
+                {"point": self._center(candidate), "velocity": (0.0, 0.0), "confidence": float(candidate["confidence"]), "score": float(candidate["confidence"]), "misses": 0}
+                for candidate in sorted(valid, key=lambda item: float(item["confidence"]), reverse=True)[: self.max_hypotheses]
+            ]
+            best = max(self._hypotheses, key=lambda item: item["score"])
+            return self._result("observed", best["point"], best["confidence"], hypothesis_count=len(self._hypotheses))
+
+        branches = []
+        for hypothesis in self._hypotheses:
+            predicted = (hypothesis["point"][0] + hypothesis["velocity"][0], hypothesis["point"][1] + hypothesis["velocity"][1])
+            allowed = self.max_step + min(self.max_step, math.hypot(*hypothesis["velocity"]))
+            matched = False
+            for candidate in valid:
+                center = self._center(candidate)
+                distance = math.hypot(center[0] - predicted[0], center[1] - predicted[1])
+                if distance <= allowed:
+                    confidence = float(candidate["confidence"])
+                    delta = (center[0] - hypothesis["point"][0], center[1] - hypothesis["point"][1])
+                    branches.append({"point": center, "velocity": ((hypothesis["velocity"][0] + delta[0]) / 2.0, (hypothesis["velocity"][1] + delta[1]) / 2.0), "confidence": confidence, "score": hypothesis["score"] * 0.7 + confidence * 0.3 - distance / max(self.max_step, 1.0) * 0.05, "misses": 0})
+                    matched = True
+            if not matched and hypothesis["misses"] + 1 < self.max_misses:
+                branches.append({"point": predicted, "velocity": hypothesis["velocity"], "confidence": max(0.0, hypothesis["confidence"] - 0.15), "score": hypothesis["score"] * 0.7, "misses": hypothesis["misses"] + 1})
+        existing_points = [branch["point"] for branch in branches]
+        for candidate in valid:
+            center = self._center(candidate)
+            if not any(math.hypot(center[0] - point[0], center[1] - point[1]) <= self.max_step / 2.0 for point in existing_points):
+                confidence = float(candidate["confidence"])
+                branches.append({"point": center, "velocity": (0.0, 0.0), "confidence": confidence, "score": confidence * 0.5, "misses": 0})
+        self._hypotheses = sorted(branches, key=lambda item: item["score"], reverse=True)[: self.max_hypotheses]
+        if not self._hypotheses:
+            self._terminated = True
+            return self._result("terminated", None, 0.0, "track_terminated")
+        best = self._hypotheses[0]
+        return self._result("predicted" if best["misses"] else "observed", best["point"], best["confidence"], "confidence_decayed" if best["misses"] else None, hypothesis_count=len(self._hypotheses))
+
+
+
 def _dimensions(width: int, height: int) -> None:
     if not isinstance(width, int) or not isinstance(height, int) or width <= 0 or height <= 0:
         raise ValueError("width and height must be positive integers")

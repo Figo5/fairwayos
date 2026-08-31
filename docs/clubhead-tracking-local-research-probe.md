@@ -142,6 +142,16 @@ The local model runner was extended with `ResearchBallTrack`, a research-only te
 
 This reduces visible model drift but also demonstrates the expected tradeoff: a strict gate terminates rather than claiming a track when motion evidence becomes ambiguous. It does not validate ball identity, clubhead, impact, trajectory, landing, calibration, analytics, or production eligibility.
 
+### Guarded reacquisition and multi-hypothesis follow-up
+
+The tracker now retains up to three bounded motion hypotheses during ambiguous active frames. After termination, a track can only reacquire when exactly one candidate exceeds `0.75` confidence on two consecutive frames and remains within the motion bound. Weak candidates remain terminated; multiple strong candidates are classified as `reacquisition_ambiguous` rather than promoted.
+
+- MMU: `53` observed, `3` predicted, `1` reacquired, and `108` terminated states over `165` frames. The exact decoded reacquisition frame `68` visibly centers on the stationary ball near the impact neighborhood.
+- Wikimedia Kanagawa: `44` observed, `1` predicted, `1` reacquired, and `119` terminated states over `165` frames. The exact decoded reacquisition frame `121` visibly centers on a white ball in the practice area.
+- Both clips were rendered to H.264/yuv420p MP4, fully decoded with FFmpeg, and inspected from regenerated contact sheets and exact reacquisition frames.
+
+These reacquisitions are temporally supported model predictions only. They remain `ground_truth: false`, `research_only: true`, and `production_eligible: false`; no clubhead, impact, trajectory, landing, calibration, analytics, or production gate is opened.
+
 ### Model-release follow-up: CADDIE / GolfClub
 
 A primary-source audit checked the CADDIE project page, CVsports open-access paper, paper PDF, and a public GitHub repository search:
