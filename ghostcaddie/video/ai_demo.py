@@ -211,16 +211,20 @@ def _ball_observation(model, tracker, frame, width: int, height: int):
                 candidates.append({"center": ((x1 + x2) / 2.0, (y1 + y2) / 2.0), "confidence": confidence,
                                   "box": [x1, y1, x2, y2]})
         tracked = tracker.update(candidates)
-        point = tracked.get("point")
+        raw_state = tracked.get("state", ObservationState.UNAVAILABLE.value)
+        state = _normalize_tracker_state(raw_state)
+        warning = tracked.get("warning") or ("tracker_" + str(raw_state) if raw_state != state else None)
+        point = tracked.get("point") if state != ObservationState.UNAVAILABLE.value else None
         if point is None:
-            return {"state": tracked.get("state", ObservationState.UNAVAILABLE.value), "confidence": 0.0,
-                    "uncertainty": None, "candidate_count": len(candidates), "model": "local_golf_ball"}, None
-        return {"state": tracked.get("state", ObservationState.OBSERVED.value),
+            return {"state": state, "confidence": 0.0,
+                    "uncertainty": None, "candidate_count": len(candidates), "model": "local_golf_ball",
+                    "tracker_state": raw_state, "tracker_warning": warning}, None
+        return {"state": state,
                 "confidence": round(float(tracked.get("confidence", 0.0)), 4),
                 "uncertainty": round(max(2.0, (1.0 - float(tracked.get("confidence", 0.0))) * 30.0), 2),
                 "point": {"x": round(float(point["x"]), 2), "y": round(float(point["y"]), 2)},
                 "candidate_count": len(candidates), "model": "local_golf_ball",
-                "tracker_warning": tracked.get("warning")}, None
+                "tracker_warning": warning, "tracker_state": raw_state}, None
     except Exception:
         return None, "ball_inference_failed"
 
@@ -235,6 +239,42 @@ def _draw_pose(frame, pose):
     for point in points:
         if point[2] >= 0.25:
             cv2.circle(frame, (int(point[0]), int(point[1])), 3, (255, 120, 0), -1)
+
+
+def _normalize_tracker_state(raw_state: Any) -> str:
+    return raw_state if raw_state in {member.value for member in ObservationState} else ObservationState.UNAVAILABLE.value
+
+
+def _draw_ball_overlay(frame, ball, trail):
+    if not ball or not ball.get("point"):
+        return {"marker": False, "tracer_points": 0, "zoom_inset": False}
+    import cv2
+    import numpy as np
+    point = ball["point"]
+    cx, cy = int(round(point["x"])), int(round(point["y"]))
+    trail_points = [(int(x), int(y)) for x, y in trail]
+    if len(trail_points) > 1:
+        cv2.polylines(frame, [np.asarray(trail_points, dtype="int32")], False, (0, 165, 255), 6, cv2.LINE_AA)
+    radius = max(14, int(round((ball.get("uncertainty") or 6.0) * 1.5)))
+    cv2.circle(frame, (cx, cy), radius, (0, 0, 255), 5, cv2.LINE_AA)
+    cv2.line(frame, (cx - radius - 8, cy), (cx + radius + 8, cy), (255, 255, 255), 2, cv2.LINE_AA)
+    cv2.line(frame, (cx, cy - radius - 8), (cx, cy + radius + 8), (255, 255, 255), 2, cv2.LINE_AA)
+    label = "BALL %s conf=%.2f u=%.1fpx" % (ball.get("state", "unavailable").upper(), ball.get("confidence", 0.0), ball.get("uncertainty") or 0.0)
+    cv2.putText(frame, label, (max(4, cx + radius + 10), max(22, cy)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 255), 2, cv2.LINE_AA)
+    inset_w, inset_h = min(260, frame.shape[1] // 3), min(200, frame.shape[0] // 3)
+    half_w, half_h = max(20, inset_w // 4), max(20, inset_h // 4)
+    x0, x1 = max(0, cx - half_w), min(frame.shape[1], cx + half_w)
+    y0, y1 = max(0, cy - half_h), min(frame.shape[0], cy + half_h)
+    crop = frame[y0:y1, x0:x1]
+    if crop.size:
+        inset = cv2.resize(crop, (inset_w, inset_h), interpolation=cv2.INTER_NEAREST)
+        cv2.circle(inset, (inset_w // 2, inset_h // 2), max(10, radius // 2), (0, 0, 255), 4, cv2.LINE_AA)
+        ix = max(0, frame.shape[1] - inset_w - 12)
+        iy = 12
+        frame[iy:iy + inset_h, ix:ix + inset_w] = inset
+        cv2.rectangle(frame, (ix, iy), (ix + inset_w - 1, iy + inset_h - 1), (0, 0, 255), 4)
+        cv2.putText(frame, "BALL ZOOM", (ix + 8, iy + 22), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2, cv2.LINE_AA)
+    return {"marker": True, "tracer_points": len(trail_points), "zoom_inset": bool(crop.size)}
 
 
 def _draw_point(frame, evidence, color, label):
@@ -375,13 +415,15 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
         item = frame.copy()
         pose, pose_frame_warning = _pose_observation(pose_model, frame, width, height)
         ball, ball_frame_warning = _ball_observation(ball_model, ball_tracker, frame, width, height) if ball_tracker else (None, "ball_tracker_unavailable")
-        if ball and ball.get("point"):
+        overlay_flags = {"marker": False, "tracer_points": 0, "zoom_inset": False}
+        if not ball or not ball.get("point") or ball.get("state") == ObservationState.UNAVAILABLE.value:
+            trail.clear()
+        else:
             trail.append((int(ball["point"]["x"]), int(ball["point"]["y"])))
             if len(trail) > 40:
                 trail.pop(0)
-            if len(trail) > 1:
-                import numpy as np
-                cv2.polylines(item, [np.array(trail, dtype="int32")], False, (0, 210, 255), 2)
+            overlay_flags = _draw_ball_overlay(item, ball, trail)
+            ball["rendered_overlay"] = overlay_flags
         clubhead = _candidate_evidence(item, pose, scores, ordinal)
         impact = {"state": ObservationState.UNAVAILABLE.value, "confidence": 0.0, "uncertainty": None,
                   "rejection": "exact_contact_unavailable"}
@@ -397,7 +439,6 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
             clubhead=clubhead, impact=impact, warnings=warnings,
         ))
         _draw_pose(item, pose)
-        _draw_point(item, ball, (0, 220, 255), "BALL")
         cv2.putText(item, "FAIRWAYOS AI DEMO | RESEARCH ONLY", (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 220, 255), 2, cv2.LINE_AA)
         cv2.putText(item, "golfer/pose: %s | ball/tracer: %s" % ("observed" if pose else "unavailable", ball.get("state", "unavailable") if ball else "unavailable"), (12, 56), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (180, 255, 180), 1, cv2.LINE_AA)
         cv2.putText(item, "clubhead: REJECTED CANDIDATE | impact: unavailable", (12, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 165, 255), 1, cv2.LINE_AA)

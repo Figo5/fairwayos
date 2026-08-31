@@ -50,7 +50,9 @@ Every visual field uses one of:
 The demo can show:
 
 - golfer box and local pose keypoints;
-- local golf-ball candidates and a guarded pixel-space tracer;
+- local golf-ball candidates and a guarded pixel-space tracer; the renderer records
+  `rendered_overlay.marker`, `rendered_overlay.tracer_points`, and
+  `rendered_overlay.zoom_inset` beside every rendered ball observation;
 - classical frame-difference motion used for swing-window selection;
 - rejected research clubhead candidates when no validated clubhead checkpoint
   exists;
@@ -72,6 +74,10 @@ The current demo never promotes clubhead or impact proposals. Obvious false
 positives are rejected using bounds, golfer support, confidence, and temporal
 support checks. A generic `sports ball` detector is not relabeled as a golf-ball
 truth source.
+
+The tracer is persistent only within one guarded continuity segment. It is
+cleared on unavailable, terminated, or reacquisition-gap states so unrelated
+candidate positions are never joined by a misleading line.
 
 ## Closed gates
 

@@ -4,6 +4,7 @@ import unittest
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 from ghostcaddie.cli import main
 from ghostcaddie.video.ai_demo import (
@@ -12,12 +13,17 @@ from ghostcaddie.video.ai_demo import (
     build_demo_observation,
     build_demo_provenance,
     build_demo_report,
+    _normalize_tracker_state,
     reject_obvious_false_positive,
     select_swing_window,
 )
 
 
 class TestAIDemoContracts(unittest.TestCase):
+    def test_terminal_tracker_state_is_unavailable_not_schema_failure(self):
+        self.assertEqual(_normalize_tracker_state("terminated"), "unavailable")
+        self.assertEqual(_normalize_tracker_state("observed"), "observed")
+
     def test_observation_states_and_provenance_are_explicit(self):
         observation = build_demo_observation(
             frame_index=4,
@@ -88,9 +94,43 @@ class TestAIDemoContracts(unittest.TestCase):
         self.assertIsNone(report["shot_event"])
         self.assertEqual(report["source"], {"platform": "youtube", "video_id": "ABCDEFGHIJK"})
         self.assertTrue(all(not Path(ref).is_absolute() for ref in report["artifact_references"]))
+    def test_mp4_contains_ball_marker_and_tracer_when_observations_exist(self):
+        try:
+            import cv2
+            import numpy as np
+        except ImportError:
+            self.skipTest("optional OpenCV stack unavailable")
+        from ghostcaddie.video.ai_demo import run_local_demo
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            writer = cv2.VideoWriter(str(source), cv2.VideoWriter_fourcc(*"mp4v"), 10.0, (320, 240))
+            self.assertTrue(writer.isOpened())
+            for _ in range(3):
+                writer.write(np.full((240, 320, 3), 45, dtype=np.uint8))
+            writer.release()
+            points = iter(({"x": 100.0, "y": 110.0}, {"x": 130.0, "y": 110.0}, {"x": 160.0, "y": 110.0}))
+            def fake_ball(*_args):
+                return {"state": "observed", "confidence": 0.9, "uncertainty": 4.0,
+                        "point": next(points), "candidate_count": 1, "model": "test_ball"}, None
+            with patch("ghostcaddie.video.ai_demo._ball_observation", side_effect=fake_ball):
+                report = run_local_demo(str(source), str(root / "out"), sample_fps=10.0, max_frames=3,
+                                        pose_model="", ball_model="")
+            observed = [item for item in report["observations"] if item["ball"].get("point")]
+            self.assertGreaterEqual(len(observed), 2)
+            self.assertTrue(all(item["ball"]["rendered_overlay"]["marker"] for item in observed))
+            capture = cv2.VideoCapture(str(root / "out" / "annotated_video.mp4"))
+            red_pixels = orange_pixels = 0
+            while True:
+                ok, frame = capture.read()
+                if not ok:
+                    break
+                red_pixels += int(np.sum((frame[:, :, 2] > 120) & (frame[:, :, 1] < 90) & (frame[:, :, 0] < 90)))
+                orange_pixels += int(np.sum((frame[:, :, 2] > 120) & (frame[:, :, 1] > 70) & (frame[:, :, 0] < 100)))
+            capture.release()
+            self.assertGreater(red_pixels, 100)
+            self.assertGreater(orange_pixels, 20)
 
-
-class TestAIDemoCLIExposure(unittest.TestCase):
     def test_blocked_rerun_removes_stale_production_artifacts(self):
         with tempfile.TemporaryDirectory() as directory:
             out = Path(directory)
