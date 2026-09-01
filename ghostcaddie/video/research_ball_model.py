@@ -19,7 +19,7 @@ class ResearchBallTrack:
     ) -> None:
         if not 0.0 <= min_confidence <= 1.0:
             raise ValueError("min_confidence must be between 0 and 1")
-        if max_step <= 0 or max_misses < 1 or not 0.0 <= confidence_decay <= 1.0:
+        if not math.isfinite(float(max_step)) or max_step <= 0 or max_misses < 1 or not 0.0 <= confidence_decay <= 1.0:
             raise ValueError("invalid track limits")
         self.min_confidence = float(min_confidence)
         self.max_step = float(max_step)
@@ -44,7 +44,7 @@ class ResearchBallTrack:
     def update(self, candidates: Iterable[dict]):
         if self._terminated:
             return self._result("terminated", None, 0.0, "track_terminated")
-        valid = [candidate for candidate in candidates if float(candidate.get("confidence", 0.0)) >= self.min_confidence]
+        valid = _valid_candidates(candidates, self.min_confidence)
         if self._point is None:
             if not valid:
                 return self._result("unavailable", None, 0.0, "no_valid_candidate")
@@ -98,7 +98,7 @@ class ResearchBallMultiHypothesisTrack:
     ) -> None:
         if not 0.0 <= min_confidence <= reacquire_confidence <= 1.0:
             raise ValueError("invalid confidence thresholds")
-        if max_step <= 0 or max_misses < 1 or max_hypotheses < 1:
+        if not math.isfinite(float(max_step)) or max_step <= 0 or max_misses < 1 or max_hypotheses < 1:
             raise ValueError("invalid track limits")
         self.min_confidence = float(min_confidence)
         self.reacquire_confidence = float(reacquire_confidence)
@@ -141,7 +141,7 @@ class ResearchBallMultiHypothesisTrack:
         return self._result("terminated", None, 0.0, warning)
 
     def update(self, candidates: Iterable[dict]):
-        valid = [candidate for candidate in candidates if float(candidate.get("confidence", 0.0)) >= self.min_confidence]
+        valid = _valid_candidates(candidates, self.min_confidence)
         if self._terminated:
             return self._reacquire(valid)
         if not self._hypotheses:
@@ -189,6 +189,24 @@ def _dimensions(width: int, height: int) -> None:
         raise ValueError("width and height must be positive integers")
 
 
+def _valid_candidates(candidates: Iterable[dict], minimum: float):
+    """Return finite, two-dimensional candidates without raising on bad input."""
+    valid = []
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        try:
+            confidence = float(candidate.get("confidence", 0.0))
+            center = tuple(float(value) for value in candidate["center"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if len(center) != 2 or not math.isfinite(confidence) or not all(math.isfinite(value) for value in center):
+            continue
+        if confidence >= minimum:
+            valid.append(candidate)
+    return valid
+
+
 def _values(values: Iterable[float], count: int) -> Tuple[float, ...]:
     try:
         result = tuple(float(value) for value in values)
@@ -203,6 +221,8 @@ def normalize_point(point: Iterable[float], width: int, height: int) -> Tuple[fl
     """Convert normalized or pixel-space point coordinates to pixels."""
     _dimensions(width, height)
     x, y = _values(point, 2)
+    if not all(math.isfinite(value) for value in (x, y)):
+        raise ValueError("coordinates must be finite")
     if 0.0 <= x <= 1.0 and 0.0 <= y <= 1.0:
         return x * width, y * height
     return x, y
@@ -218,6 +238,8 @@ def normalize_box(box: Iterable[float], width: int, height: int) -> Tuple[float,
     """
     _dimensions(width, height)
     x1, y1, x2, y2 = _values(box, 4)
+    if not all(math.isfinite(value) for value in (x1, y1, x2, y2)):
+        raise ValueError("coordinates must be finite")
     if all(0.0 <= value <= 1.0 for value in (x1, y1, x2, y2)):
         x1, y1, x2, y2 = x1 * width, y1 * height, x2 * width, y2 * height
     box_width, box_height = x2 - x1, y2 - y1

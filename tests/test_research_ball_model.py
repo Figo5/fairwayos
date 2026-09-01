@@ -43,6 +43,12 @@ class TestResearchBallModel(unittest.TestCase):
         with self.assertRaises(ValueError):
             normalize_box((0.1, 0.2, 0.3), 600, 480)
 
+    def test_rejects_nonfinite_normalized_values(self):
+        with self.assertRaises(ValueError):
+            normalize_point((float("nan"), 0.3), 600, 480)
+        with self.assertRaises(ValueError):
+            normalize_box((0.1, 0.2, float("inf"), 0.3), 600, 480)
+
 
 class TestBallModelBoxSkipping(unittest.TestCase):
     def test_implausible_box_skipped_and_real_box_kept(self):
@@ -142,6 +148,22 @@ class TestResearchBallTrack(unittest.TestCase):
         terminated = track.update([candidate(101, 200, 0.4)])
         self.assertEqual(terminated["state"], "terminated")
         self.assertIsNone(terminated["point"])
+
+    def test_rejects_invalid_track_limits(self):
+        with self.assertRaises(ValueError):
+            ResearchBallTrack(max_step=float("nan"))
+        with self.assertRaises(ValueError):
+            ResearchBallMultiHypothesisTrack(max_step=float("inf"))
+
+    def test_skips_malformed_and_nonfinite_candidates(self):
+        track = ResearchBallTrack(max_misses=2)
+        result = track.update([None, {}, {"center": (1,), "confidence": 0.9},
+                               {"center": (1, 2), "confidence": "bad"},
+                               {"center": (float("nan"), 2), "confidence": 0.9},
+                               {"center": (3, 4), "confidence": float("inf")},
+                               candidate(100, 200, 0.8)])
+        self.assertEqual(result["state"], "observed")
+        self.assertEqual(result["point"], {"x": 100.0, "y": 200.0})
 
 
 class TestResearchBallMultiHypothesisTrack(unittest.TestCase):

@@ -59,7 +59,9 @@ The demo can show:
   boxes wider/taller than a quarter of a frame dimension or covering more than
   5% of the frame area are rejected as implausible ball geometry (a golf ball
   cannot fill the frame), and such boxes are skipped individually so a genuine
-  detection in the same frame survives;
+  detection in the same frame survives. Malformed candidate records and
+  non-finite coordinates/confidences are skipped at the tracker boundary rather
+  than raising or seeding a non-finite track;
 - classical frame-difference motion used for swing-window selection;
 - sampled-frame ingestion is bounded by the requested duration in source-frame
   time (using the source FPS, plus one boundary frame), and further constrained
