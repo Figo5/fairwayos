@@ -30,6 +30,52 @@ class TestResearchBallEvaluation(unittest.TestCase):
         self.assertEqual(result["coverage"], 0.0)
         self.assertIsNone(result["false_positive_rate"])
 
+    def test_candidate_quality_gate_rejects_marker_overlay_without_point(self):
+        from ghostcaddie.video.research_ball_evaluation import evaluate_candidate_quality
+
+        result = evaluate_candidate_quality({"observations": [{
+            "frame_index": 0, "timestamp_seconds": 0.0,
+            "ball": {"state": "unavailable", "point": None,
+                     "rendered_overlay": {"marker": True}},
+        }]}, image_size=(600, 480))
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["status"], "rejected")
+        self.assertIn("marker_misalignment", result["reasons"])
+        self.assertFalse(result["ground_truth_available"])
+        self.assertFalse(result["production_eligible"])
+
+    def test_candidate_quality_gate_rejects_implausible_temporal_jump(self):
+        from ghostcaddie.video.research_ball_evaluation import evaluate_candidate_quality
+
+        result = evaluate_candidate_quality({"observations": [
+            {"frame_index": 0, "timestamp_seconds": 0.0,
+             "ball": {"state": "observed", "point": {"x": 10, "y": 10},
+                      "rendered_overlay": {"marker": True}}},
+            {"frame_index": 1, "timestamp_seconds": 0.04,
+             "ball": {"state": "observed", "point": {"x": 300, "y": 10},
+                      "rendered_overlay": {"marker": True}}},
+        ]}, image_size=(600, 480), max_step_per_frame=100)
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["status"], "rejected")
+        self.assertIn("low_temporal_plausibility", result["reasons"])
+        self.assertEqual(result["metrics"]["max_step_pixels"], 290.0)
+
+    def test_candidate_quality_gate_accepts_bounded_candidate_but_never_calls_it_truth(self):
+        from ghostcaddie.video.research_ball_evaluation import evaluate_candidate_quality
+
+        result = evaluate_candidate_quality({"observations": [
+            {"frame_index": 0, "timestamp_seconds": 0.0,
+             "ball": {"state": "observed", "point": {"x": 10, "y": 10},
+                      "rendered_overlay": {"marker": True}}},
+            {"frame_index": 1, "timestamp_seconds": 0.04,
+             "ball": {"state": "observed", "point": {"x": 40, "y": 10},
+                      "rendered_overlay": {"marker": True}}},
+        ]}, image_size=(600, 480), max_step_per_frame=100)
+        self.assertTrue(result["passed"])
+        self.assertEqual(result["status"], "research_candidate")
+        self.assertFalse(result["ground_truth_available"])
+        self.assertFalse(result["production_eligible"])
+
     def test_impact_bracket_never_becomes_exact(self):
         from ghostcaddie.video.clubhead_pseudo_labels import estimate_impact_window
 
