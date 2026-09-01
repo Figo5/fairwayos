@@ -1,6 +1,7 @@
 """ffprobe-only video inspection; this module never decodes video frames."""
 
 import json
+import math
 import subprocess
 from fractions import Fraction
 from typing import Any, Dict, Optional
@@ -15,6 +16,30 @@ def _required(mapping: Dict[str, Any], key: str, section: str) -> Any:
     if key not in mapping or mapping[key] in (None, ""):
         raise VideoMetadataError(f"missing {section} metadata: {key}")
     return mapping[key]
+
+
+def _finite_number(value: Any, name: str) -> float:
+    """Require a genuinely numeric value; booleans are never numbers here.
+
+    ffprobe emits numbers as strings, so numeric strings are accepted, but
+    booleans, non-numeric strings, and non-finite values are rejected.
+    """
+    if isinstance(value, bool):
+        raise VideoMetadataError(f"invalid {name} metadata")
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise VideoMetadataError(f"invalid {name} metadata") from exc
+    if not math.isfinite(result):
+        raise VideoMetadataError(f"invalid {name} metadata")
+    return result
+
+
+def _integer(value: Any, name: str) -> int:
+    """Require a genuinely integral value; booleans and fractions are rejected."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise VideoMetadataError(f"invalid {name} metadata")
+    return value
 
 
 def _number(value: Any, name: str) -> float:
@@ -56,18 +81,20 @@ def parse_ffprobe_metadata(payload: Dict[str, Any], source_identifier: Optional[
     if frame_count in (None, "", "N/A"):
         frame_count_value = None
     else:
-        try:
-            frame_count_value = int(frame_count)
-        except (TypeError, ValueError) as exc:
-            raise VideoMetadataError("invalid frame_count metadata") from exc
+        if isinstance(frame_count, str):
+            frame_count = frame_count.strip()
+            if not frame_count.isdigit():
+                raise VideoMetadataError("invalid frame_count metadata")
+            frame_count = int(frame_count)
+        frame_count_value = _integer(frame_count, "frame_count")
     try:
         return VideoMetadata(
             container_format=str(_required(format_info, "format_name", "format")),
             codec=str(_required(video, "codec_name", "video stream")),
-            width=int(_required(video, "width", "video stream")),
-            height=int(_required(video, "height", "video stream")),
+            width=_integer(_required(video, "width", "video stream"), "width"),
+            height=_integer(_required(video, "height", "video stream"), "height"),
             frame_rate=_rate(video),
-            duration_seconds=_number(_required(format_info, "duration", "format"), "duration"),
+            duration_seconds=_finite_number(_required(format_info, "duration", "format"), "duration"),
             frame_count=frame_count_value,
             source_identifier=source_identifier,
         )

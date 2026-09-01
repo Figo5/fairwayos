@@ -36,6 +36,42 @@ class TestParseFfprobeMetadata(unittest.TestCase):
         with self.assertRaises(VideoMetadataError):
             parse_ffprobe_metadata(broken)
 
+    def test_rejects_coerced_dimensions_frames_and_duration(self):
+        fractional_width = dict(FFPROBE)
+        fractional_width["streams"] = [dict(FFPROBE["streams"][0], width=1.5)]
+        with self.assertRaises(VideoMetadataError):
+            parse_ffprobe_metadata(fractional_width)
+
+        boolean_width = dict(FFPROBE)
+        boolean_width["streams"] = [dict(FFPROBE["streams"][0], width=True)]
+        with self.assertRaises(VideoMetadataError):
+            parse_ffprobe_metadata(boolean_width)
+
+        fractional_frames = dict(FFPROBE)
+        fractional_frames["streams"] = [dict(FFPROBE["streams"][0], nb_frames=2.5)]
+        with self.assertRaises(VideoMetadataError):
+            parse_ffprobe_metadata(fractional_frames)
+
+        boolean_frames = dict(FFPROBE)
+        boolean_frames["streams"] = [dict(FFPROBE["streams"][0], nb_frames=True)]
+        with self.assertRaises(VideoMetadataError):
+            parse_ffprobe_metadata(boolean_frames)
+
+        garbage_frames = dict(FFPROBE)
+        garbage_frames["streams"] = [dict(FFPROBE["streams"][0], nb_frames="12x")]
+        with self.assertRaises(VideoMetadataError):
+            parse_ffprobe_metadata(garbage_frames)
+
+        boolean_duration = dict(FFPROBE)
+        boolean_duration["format"] = dict(FFPROBE["format"], duration=True)
+        with self.assertRaises(VideoMetadataError):
+            parse_ffprobe_metadata(boolean_duration)
+
+        nonfinite_duration = dict(FFPROBE)
+        nonfinite_duration["format"] = dict(FFPROBE["format"], duration=1e400)
+        with self.assertRaises(VideoMetadataError):
+            parse_ffprobe_metadata(nonfinite_duration)
+
 
 class TestInspectVideo(unittest.TestCase):
     @patch("ghostcaddie.video.metadata.subprocess.run")
