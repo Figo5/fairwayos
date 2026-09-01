@@ -87,10 +87,10 @@ recommendation: null
 
 ## Verification
 
-- full unittest suite: 268 tests passed;
+- full unittest suite: 362 tests passed, 6 skipped;
 - `compileall`: passed;
 - `git diff --check`: passed;
-- all generated research MP4s: H.264, 1280x720, 2 FPS, 40 frames, `yuv420p`;
+- accepted Pexels 6573485 MP4: H.264, 1920x1080, 15 FPS, 121 frames, `yuv420p`;
 - FFmpeg decode and first-frame extraction: passed;
 - visual QA: person/pose/anchor overlays and honest unavailable/research-only labels visible;
 - artifact assertions: passed.

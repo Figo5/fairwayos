@@ -133,8 +133,8 @@ The public `FairwayOS CI` workflow is accepted as the repository quality gate. I
 The accepted public workflow run is:
 
 ```text
-https://github.com/Figo5/fairwayos/actions/runs/33179154929
-head: 58a5322ceb6080d31201cc11f96493edfc8872f4
+https://github.com/Figo5/fairwayos/actions/runs/33453209480
+head: 3d20eb91138c903087878820cb4c3b1d2a4b776e
 conclusion: success
 ```
 
