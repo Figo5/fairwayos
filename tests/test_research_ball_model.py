@@ -322,6 +322,7 @@ class TestResearchBallTrack(unittest.TestCase):
             self.assertEqual(summary["spread_status"], status)
             self.assertEqual(summary["spread_status_code"], code)
             self.assertIs(type(summary["spread_status_code"]), int)
+            self.assertEqual(summary["spread_status_code_values"], [0, 1, 2])
             self.assertEqual(summary["identity"], "unavailable")
 
 

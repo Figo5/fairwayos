@@ -619,3 +619,28 @@ remain unavailable. No spatial marker, ball identity, impact, trajectory,
 analytics, recommendation, or production claim is rendered. The artifact remains
 local and ignored with `research_only=true`, `ground_truth=false`, and
 `production_eligible=false`.
+
+## Cycle 29 numeric spread-status consumer contract (2026-09-01)
+
+Temporal summaries now expose `spread_status_code_values=[0, 1, 2]` alongside
+`schema_version=1` and `spread_status_code`. This gives machine consumers a
+stable enumeration without changing the underlying research-only semantics:
+`0=unavailable`, `1=bounded`, and `2=wide`.
+
+The corresponding local numeric-status render is:
+
+```text
+out/research_training_gauntlet/mmu_candidate/analysis/temporal_spread_status_numeric_h264_yuv420p.mp4
+```
+
+It is H.264/yuv420p, 600x480, 25 FPS, 112 frames, and 4.48 seconds. Its
+verified SHA-256 is:
+
+```text
+312e75e9e1d365f16849fdbda0703af1917491a271fd5a87574c561fa6d8a6be
+```
+
+All numeric labels remain temporal diagnostics. The source area has no added
+spatial marker; domain ball, contact, landing, and calibration remain
+unavailable. The output remains `research_only=true`, `ground_truth=false`, and
+`production_eligible=false`.
