@@ -127,4 +127,4 @@ def write_fairwayos_sidecar(path: str | Path, sidecar: Mapping[str, Any]) -> Non
     import json
     if not isinstance(sidecar, Mapping) or sidecar.get("production_eligible") is not False:
         raise ValueError("FairwayOS research sidecars must set production_eligible to false")
-    Path(path).write_text(json.dumps(sidecar, indent=2, sort_keys=True) + "\n")
+    Path(path).write_text(json.dumps(sidecar, indent=2, sort_keys=True, allow_nan=False) + "\n")

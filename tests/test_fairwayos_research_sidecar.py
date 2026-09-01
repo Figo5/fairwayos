@@ -82,6 +82,16 @@ class FairwayOSResearchSidecarTests(unittest.TestCase):
             self.assertEqual(written["track"]["items"][0]["frame_index"], 3)
             self.assertFalse(written["production_eligible"])
 
+    def test_writer_rejects_nonfinite_nested_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory) / "sidecar.json"
+            for value in (float("nan"), float("inf"), float("-inf")):
+                with self.subTest(value=value), self.assertRaises(ValueError):
+                    write_fairwayos_sidecar(
+                        output_path,
+                        {"production_eligible": False, "track": {"confidence": value}},
+                    )
+
     def test_writer_rejects_promoted_sidecar_payload(self):
         with tempfile.TemporaryDirectory() as directory:
             output_path = Path(directory) / "sidecar.json"
