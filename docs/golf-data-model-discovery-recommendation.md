@@ -113,6 +113,14 @@ Create the split manifest before any training:
 
 Minimum partitions are `train`, `validation`, and `held_out`; a second independent rights-cleared test set is preferred before any production discussion.
 
+FairwayOS now includes a pure standard-library validator for this narrow boundary:
+`ghostcaddie.video.research_split.validate_split_manifest`. It accepts only a
+`golf-research-split.v1` manifest with frozen status, lowercase SHA-256 clip
+digests, and all three required partitions. It rejects duplicate clips or
+digests and any source, subject, or sequence identifier appearing in more than
+one partition. The validator does not read media, verify rights, assess label
+quality, train models, or open an automatic-perception or production gate.
+
 ### 6. Training boundary
 
 Training may begin only after all of the following are true:
@@ -157,7 +165,7 @@ Calibration is applied exactly once. Only after all ball/clubhead/contact/landin
 
 ## Engineering disposition
 
-No source-code implementation was started from this discovery pass. Future changes should be limited to a research adapter, schema validator, split checker, evaluator, and isolated training runner after a candidate clears the legal/reproducibility checkpoint. Existing CLI commands, human fallback, YouTube ingestion, CI, core analytics, calibration, wind, dispersion, hazards, and session behavior remain unchanged by this discovery pass; the current verified suite is 386 tests.
+No source-code implementation was started from this discovery pass. Future changes should be limited to a research adapter, schema validator, split checker, evaluator, and isolated training runner after a candidate clears the legal/reproducibility checkpoint. Existing CLI commands, human fallback, YouTube ingestion, CI, core analytics, calibration, wind, dispersion, hazards, and session behavior remain unchanged by this discovery pass; the current verified suite is 395 passed with 6 skipped.
 
 ## Final recommendation
 

@@ -40,6 +40,8 @@ from .automatic_perception import (AUTOMATIC_PERCEPTION_SCHEMA_VERSION, AnchorVa
 from .automatic_render import (build_automatic_report, build_evaluation_report,
                                serialize_automatic_report, serialize_evaluation_report,
                                render_automatic_frame)
+from .research_split import (RESEARCH_SPLIT_SCHEMA_VERSION, serialize_split_manifest,
+                             validate_split_manifest)
 
 __all__ = [
     "SCHEMA_VERSION", "VideoDiagnostics", "VideoMetadata", "HUMAN_ANNOTATIONS_SCHEMA_VERSION", "HumanAnnotationDocument",
@@ -68,4 +70,5 @@ __all__ = [
     "validate_body_anchor", "evaluate_sequence_gates", "precision_recall",
     "reconstruct_automatic_shot", "build_automatic_report", "build_evaluation_report",
     "serialize_automatic_report", "serialize_evaluation_report", "render_automatic_frame",
+    "RESEARCH_SPLIT_SCHEMA_VERSION", "validate_split_manifest", "serialize_split_manifest",
 ]
