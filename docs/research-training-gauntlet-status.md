@@ -18,6 +18,8 @@ The YouTube ingestion boundary rejects provider metadata with non-finite or non-
 
 The automatic YouTube boundary preserves distinct blocked categories for `duration_limit` and `segment_limit`; these are not collapsed into generic video-unavailable failures.
 
+Contact/landing candidate diagnostics accept ball points only when provenance is explicitly `observed`, `native`, or `user_confirmed`; missing, inferred, automatic, and unknown provenance remain unavailable and cannot be promoted.
+
 ## Triage and automatic overlays
 The local generic YOLO pose checkpoint was run on the two downloaded clips:
 

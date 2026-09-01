@@ -50,14 +50,11 @@ def _number(value: Any, name: str) -> float:
 def _explicit_points(ball_track: Iterable[Any]):
     points = []
     for item in ball_track or ():
-        provenance = str(_value(item, "provenance", "observed")).lower()
-        # Tracker outputs are research candidates, not explicit human/native
-        # evidence. Keep them out of contact/landing candidate generation so
-        # this diagnostic cannot become an implicit promotion seam.
-        if provenance in {
-            "candidate", "tracked", "research_candidate", "predicted",
-            "interpolated", "unavailable", "synthetic",
-        }:
+        raw_provenance = _value(item, "provenance")
+        if not isinstance(raw_provenance, str):
+            continue
+        provenance = raw_provenance.strip().lower()
+        if provenance not in {"observed", "native", "user_confirmed"}:
             continue
         # Accept trajectory points as well as simple mapping records.
         timestamp = _value(item, "timestamp_seconds")

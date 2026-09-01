@@ -43,6 +43,21 @@ class ContactLandingDiagnosticTests(unittest.TestCase):
         self.assertIsNone(result.candidates)
         self.assertEqual(result.reason, "no_explicit_ball_candidate_near_event")
 
+    def test_missing_or_untrusted_ball_provenance_cannot_supply_contact_evidence(self):
+        for provenance in (None, "inferred", "made_up", "generic_model_prediction"):
+            item = {"frame_index": 10, "timestamp_seconds": 1.0, "x": 1, "y": 2,
+                    "confidence": 0.99}
+            if provenance is not None:
+                item["provenance"] = provenance
+            result = diagnose_contact_landing(
+                [item],
+                [{"event": "Impact", "timestamp_seconds": 1.0,
+                  "confidence": 1.0, "source": "native"}],
+            )
+            with self.subTest(provenance=provenance):
+                self.assertFalse(result.available)
+                self.assertEqual(result.reason, "no_explicit_ball_candidate_near_event")
+
     def test_landing_requires_native_landing_timestamp_or_strong_generic_pose_and_two_points(self):
         track = [
             {"frame_index": 20, "timestamp_seconds": 2.0, "x": 20, "y": 10, "confidence": 0.9, "provenance": "observed"},
