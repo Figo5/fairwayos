@@ -579,7 +579,7 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
             trail.append((int(ball["point"]["x"]), int(ball["point"]["y"])))
             if len(trail) > 40:
                 trail.pop(0)
-            overlay_flags = _draw_ball_overlay(item, ball, trail, source_frame=frame)
+            overlay_flags = _draw_ball_overlay(item, ball, trail, source_frame=clean_frame)
             ball["rendered_overlay"] = overlay_flags
         if pose:
             pose.setdefault("track_id", "golfer-0")
