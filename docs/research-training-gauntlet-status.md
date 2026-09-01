@@ -4,6 +4,14 @@ Date: 2026-09-01
 
 Status: **research-only / production blocked**.
 
+## Temporal spread diagnostic
+
+`aggregate_temporal_uncertainty` reports `spread_status` as `unavailable` when
+no finite points are present, `bounded` when the centroid radius is at most
+50.0 px, and `wide` when the radius exceeds 50.0 px (a potentially unstable
+spread). This fixed threshold is a research diagnostic only; the aggregate
+never asserts object identity, and its `identity` field remains `unavailable`.
+
 ## Batch acquisition
 
 A bounded batch of three public-platform golf clips was attempted with the existing `yt-dlp` adapter, Node/EJS runtime, no playlist expansion, and 20-second segments. Two clips downloaded locally and one was blocked by the configured estimated-size limit. Source URLs and hashes are retained only in the ignored local manifest:
@@ -497,6 +505,31 @@ The temporal uncertainty summary now reports `window_limit`, `window_size`,
 `spread_status=bounded`; empty or no-point input remains `spread_status=unavailable`.
 These fields describe research diagnostics only and do not establish object
 identity, location evidence, or ground truth.
+
+## Cycle 25 temporal spread transition render (2026-09-01)
+
+The bounded MMU diagnostic now classifies centroid-radius spread as `bounded`
+when it is at most 50.0 px and `wide` above that threshold. This is a
+research-only stability diagnostic, not a tracking or identity decision.
+
+The new temporal transition render is:
+
+```text
+out/research_state_diagnostics/mmu_temporal_spread/mmu_temporal_spread_h264_yuv420p.mp4
+```
+
+It is H.264/yuv420p, 600x480, 25 FPS, 199 frames, and 7.96 seconds. Its
+verified SHA-256 is:
+
+```text
+448d5b7b7c453e12e48243bb8fd6fe15397e2563b58a7278ac46a7c3ce2cabad
+```
+
+The render visibly communicates observed, predicted, and unavailable temporal
+transitions through diagnostic bands only. No spatial marker, identity claim,
+impact, trajectory, landing, calibration, analytics, or recommendation is
+present. It remains `research_only=true`, `ground_truth=false`, and
+`production_eligible=false`.
 
 The Cycle 24 render is the verified temporal confidence-history MP4 above:
 H.264/yuv420p, 600x480, 25 FPS, 112 frames, 4.48 seconds, SHA-256

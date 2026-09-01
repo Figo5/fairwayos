@@ -7,6 +7,9 @@ from typing import Iterable, Tuple
 
 _CONFIDENCE_SEMANTICS = "detection_quality_not_identity"
 _MAX_UNCERTAINTY_WINDOW = 32
+# A centroid radius above this fixed research-only threshold is reported as
+# wide (potentially unstable); it is not an identity or tracking decision.
+_WIDE_SPREAD_THRESHOLD_PX = 50.0
 
 
 def aggregate_temporal_uncertainty(observations: Iterable[dict], *, window: int = 5):
@@ -14,7 +17,9 @@ def aggregate_temporal_uncertainty(observations: Iterable[dict], *, window: int 
 
     Only observations with finite two-dimensional points contribute.  The
     window is capped so a long history cannot turn this diagnostic into an
-    unbounded aggregate.  If no point is available, the summary remains
+    unbounded aggregate.  A centroid radius at or below the documented
+    ``50.0`` pixel threshold is ``bounded``; a larger radius is ``wide``
+    (potentially unstable).  If no point is available, the summary remains
     explicitly unavailable rather than synthesizing a location or confidence.
     """
     if isinstance(window, bool) or not isinstance(window, int) or not 1 <= window <= _MAX_UNCERTAINTY_WINDOW:
@@ -53,12 +58,13 @@ def aggregate_temporal_uncertainty(observations: Iterable[dict], *, window: int 
     points = [item[1] for item in usable]
     confidences = [item[2] for item in usable]
     centroid = (sum(point[0] for point in points) / len(points), sum(point[1] for point in points) / len(points))
+    spatial_radius = max(math.hypot(point[0] - centroid[0], point[1] - centroid[1]) for point in points)
     base.update({
         "state": "available",
         "provenance": "research_temporal_aggregation",
         "confidence_range": (min(confidences), max(confidences)),
-        "spatial_radius_px": max(math.hypot(point[0] - centroid[0], point[1] - centroid[1]) for point in points),
-        "spread_status": "bounded",
+        "spatial_radius_px": spatial_radius,
+        "spread_status": "wide" if spatial_radius > _WIDE_SPREAD_THRESHOLD_PX else "bounded",
     })
     return base
 
