@@ -489,3 +489,18 @@ The associated summary aggregates only a bounded recent window of finite
 research observations. No-point input remains unavailable; confidence remains
 `detection_quality_not_identity`, with identity unavailable. All output states
 remain `research_only=true`, `ground_truth=false`, and `production_eligible=false`.
+
+## Cycle 24 bounded spread metadata (2026-09-01)
+
+The temporal uncertainty summary now reports `window_limit`, `window_size`,
+`window_bounded`, and `spread_status`. A usable finite recent window reports
+`spread_status=bounded`; empty or no-point input remains `spread_status=unavailable`.
+These fields describe research diagnostics only and do not establish object
+identity, location evidence, or ground truth.
+
+The Cycle 24 render is the verified temporal confidence-history MP4 above:
+H.264/yuv420p, 600x480, 25 FPS, 112 frames, 4.48 seconds, SHA-256
+`ef34ca9bff0ae16537d547d54049f51bc2387c4691872304efd30724b0ce95a9`. The
+source imagery is retained only as bounded local research material; no media is
+published. Output remains `research_only=true`, `ground_truth=false`, and
+`production_eligible=false`.

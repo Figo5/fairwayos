@@ -43,6 +43,10 @@ def aggregate_temporal_uncertainty(observations: Iterable[dict], *, window: int 
         "spatial_radius_px": None,
         "confidence_semantics": _CONFIDENCE_SEMANTICS,
         "identity": "unavailable",
+        "window_limit": window,
+        "window_size": len(recent),
+        "window_bounded": bool(usable),
+        "spread_status": "unavailable",
     }
     if not usable:
         return {**base, "state": "unavailable", "provenance": "unavailable"}
@@ -54,6 +58,7 @@ def aggregate_temporal_uncertainty(observations: Iterable[dict], *, window: int 
         "provenance": "research_temporal_aggregation",
         "confidence_range": (min(confidences), max(confidences)),
         "spatial_radius_px": max(math.hypot(point[0] - centroid[0], point[1] - centroid[1]) for point in points),
+        "spread_status": "bounded",
     })
     return base
 

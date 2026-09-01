@@ -226,6 +226,10 @@ class TestResearchBallTrack(unittest.TestCase):
         self.assertEqual(summary["confidence_semantics"], "detection_quality_not_identity")
         self.assertEqual(summary["provenance"], "research_temporal_aggregation")
         self.assertEqual(summary["identity"], "unavailable")
+        self.assertEqual(summary["window_limit"], 2)
+        self.assertEqual(summary["window_size"], 2)
+        self.assertTrue(summary["window_bounded"])
+        self.assertEqual(summary["spread_status"], "bounded")
 
     def test_temporal_uncertainty_preserves_unavailable_when_no_points_exist(self):
         from ghostcaddie.video.research_ball_model import aggregate_temporal_uncertainty
@@ -240,6 +244,10 @@ class TestResearchBallTrack(unittest.TestCase):
         self.assertIsNone(summary["confidence_range"])
         self.assertEqual(summary["provenance"], "unavailable")
         self.assertEqual(summary["identity"], "unavailable")
+        self.assertEqual(summary["window_limit"], 5)
+        self.assertEqual(summary["window_size"], 2)
+        self.assertFalse(summary["window_bounded"])
+        self.assertEqual(summary["spread_status"], "unavailable")
 
 
 class TestResearchBallMultiHypothesisTrack(unittest.TestCase):
