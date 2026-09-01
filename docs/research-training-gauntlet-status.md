@@ -98,7 +98,7 @@ recommendation: null
 
 ## Verification
 
-- full unittest suite: 383 tests passed, 6 skipped;
+- full unittest suite: 384 tests passed, 6 skipped;
 - `compileall`: passed;
 - `git diff --check`: passed;
 - accepted Pexels 6573485 MP4: H.264, 1920x1080, 15 FPS, 121 frames, `yuv420p`;

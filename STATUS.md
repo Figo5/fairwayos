@@ -1,6 +1,6 @@
 # FairwayOS Research Status
 
-Updated 2026-08-31.
+Updated 2026-09-01.
 
 ## Verified accepted artifact
 
@@ -93,4 +93,4 @@ ffmpeg -v error -i out/research_training_gauntlet/mmu_candidate/analysis/automat
 git diff --check
 ```
 
-The current full suite passes 383 tests with 6 optional-dependency tests skipped. YouTube acquisition now requires probe metadata to contain a canonical returned video ID matching the requested source before download. Research media and generated artifacts remain local under ignored `out/` paths. Diagnostic source labels are relative to the research artifact root, so reruns do not serialize local filesystem paths. YouTube provenance metadata is strict JSON; research sidecars reject traversal, URL, and home-relative source identifiers, boolean or non-finite numeric values, and promoted production flags. YouTube duration metadata is rejected when boolean, non-finite, non-positive, or inconsistent with the requested video ID; filesize metadata is rejected when malformed, non-finite, negative, fractional, or boolean, and an explicit zero `filesize` is not replaced by `filesize_approx`.
+The current full suite passes 384 tests with 6 optional-dependency tests skipped. YouTube acquisition now requires probe metadata to contain a canonical returned video ID matching the requested source before download. Research media and generated artifacts remain local under ignored `out/` paths. Diagnostic source labels are relative to the research artifact root, so reruns do not serialize local filesystem paths. YouTube provenance metadata is strict JSON; research sidecars reject traversal, URL, and home-relative source identifiers, boolean or non-finite numeric values, and promoted production flags. YouTube duration metadata is rejected when boolean, non-finite, non-positive, or inconsistent with the requested video ID; filesize metadata is rejected when malformed, non-finite, negative, fractional, or boolean, and an explicit zero `filesize` is not replaced by `filesize_approx`.

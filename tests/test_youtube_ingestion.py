@@ -106,6 +106,19 @@ class YtDlpBoundaryTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, "malformed_metadata")
             self.assertEqual(len(calls), 1)
 
+    def test_probe_rejects_missing_or_malformed_returned_video_id_before_download(self):
+        for returned_id in (None, "", "short", "too-long-idxx", True, 123, "dQw4w9WgX!Q"):
+            metadata = {"duration": 30} if returned_id is None else {"id": returned_id, "duration": 30}
+            runner, calls = self._runner(metadata)
+            with self.subTest(returned_id=returned_id), tempfile.TemporaryDirectory() as tmp:
+                with self.assertRaises(DownloadError) as raised:
+                    YtDlpDownloader("/bin/sh", runner=runner).download(
+                        "https://youtu.be/" + VIDEO_ID, tmp
+                    )
+                self.assertEqual(raised.exception.code, "malformed_metadata")
+                self.assertEqual(len(calls), 1)
+                self.assertFalse((Path(tmp) / "source.mp4").exists())
+
     def test_probe_rejects_boolean_duration_before_download(self):
         runner, calls = self._runner({"id": VIDEO_ID, "duration": True})
         with tempfile.TemporaryDirectory() as tmp:
