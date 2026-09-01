@@ -280,3 +280,23 @@ fully decodes. Exhaustive contact-sheet QA confirmed that no candidate marker,
 uncertainty box, or dotted trail is visible; only the yellow/red rejection
 boundary bars remain. The bright source object is not asserted to be a golf
 ball. Ball identity and downstream production gates remain unavailable.
+
+## Cycle 14 semantic rejection legend (2026-09-01)
+
+The portable research renderer now accepts an explicit rejection reason. For
+`object_consistency_*` rejection, the top boundary is blue and the bottom
+boundary remains red; generic visual-alignment rejection retains the yellow/red
+legend. Candidate geometry remains suppressed whenever visual alignment is
+false. This adds visual distinction between geometric sanity and semantic
+object-match failure without claiming detection or ground truth.
+
+A fresh clean-source render is:
+
+```text
+out/research_training_gauntlet/mmu_candidate/analysis/automatic_ball_tracer_object_consistency_rejected_v6.mp4
+```
+
+The output is H.264/yuv420p, 600x480, 25 FPS, 112 frames, 4.48 seconds, and
+fully decodes. Exhaustive contact-sheet QA confirmed blue semantic-rejection
+and red rejection bars with no candidate marker, uncertainty box, or dotted
+trail. Ball identity and downstream production gates remain unavailable.

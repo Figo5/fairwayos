@@ -38,7 +38,8 @@ def overlay_lines(*, frame_index: int, fps: float, state: str,
 
 
 def build_research_ffmpeg_filter(items, *, fps: float, width: int, height: int,
-                                visually_aligned: bool = True) -> str:
+                                visually_aligned: bool = True,
+                                rejection_reason: str = "visual_alignment_rejected") -> str:
     """Build a dependency-free, pixel-space research candidate overlay.
 
     ``items`` are already-produced candidate coordinates from a local research
@@ -54,6 +55,8 @@ def build_research_ffmpeg_filter(items, *, fps: float, width: int, height: int,
         raise ValueError("height must be a positive integer")
     if not isinstance(visually_aligned, bool):
         raise ValueError("visually_aligned must be boolean")
+    if not isinstance(rejection_reason, str) or not rejection_reason:
+        raise ValueError("rejection_reason must be a non-empty string")
     normalized = []
     previous = None
     for item in items:
@@ -82,7 +85,7 @@ def build_research_ffmpeg_filter(items, *, fps: float, width: int, height: int,
     # minimal FFmpeg builds may omit those filters. The top/bottom bars are a
     # visual legend; the full disclaimer remains in the JSON sidecar.
     filters = [
-        f"drawbox=x=0:y=0:w={width}:h=4:color=yellow:t=fill",
+        f"drawbox=x=0:y=0:w={width}:h=4:color={'blue' if rejection_reason.startswith('object_consistency_') else 'yellow'}:t=fill",
         f"drawbox=x=0:y={height-4}:w={width}:h=4:color=red:t=fill",
     ]
     if not visually_aligned:

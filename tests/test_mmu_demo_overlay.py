@@ -56,6 +56,16 @@ class MmuDemoOverlayTests(unittest.TestCase):
         self.assertIn("enable='eq(n\\,1)'", graph)
         self.assertIn("enable='gte(n\\,1)'", graph)
 
+    def test_semantic_rejection_uses_distinct_blue_boundary_bar(self):
+        rendered = build_research_ffmpeg_filter(
+            [{"frame": 0, "x": 20, "y": 20, "radius": 3, "uncertainty_px": 5}],
+            fps=25, width=600, height=480, visually_aligned=False,
+            rejection_reason="object_consistency_unavailable",
+        )
+        self.assertIn("color=blue", rendered)
+        self.assertIn("color=red", rendered)
+        self.assertNotIn("color=yellow", rendered)
+
     def test_research_ffmpeg_filter_suppresses_rejected_alignment(self):
         graph = build_research_ffmpeg_filter(
             [{"frame": 0, "x": 100, "y": 120, "radius": 8, "uncertainty_px": 4.0}],
