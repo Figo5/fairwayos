@@ -209,9 +209,22 @@ def normalize_point(point: Iterable[float], width: int, height: int) -> Tuple[fl
 
 
 def normalize_box(box: Iterable[float], width: int, height: int) -> Tuple[float, float, float, float]:
-    """Convert normalized or pixel-space ``x1,y1,x2,y2`` coordinates to pixels."""
+    """Convert normalized or pixel-space ``x1,y1,x2,y2`` coordinates to pixels.
+
+    A golf ball cannot plausibly fill a quarter of any frame dimension or 5%
+    of the frame area. Boxes that large are background hallucinations (the
+    local ball model emits full-frame boxes on some clips), so their
+    coordinates are rejected instead of seeding a phantom track.
+    """
     _dimensions(width, height)
     x1, y1, x2, y2 = _values(box, 4)
     if all(0.0 <= value <= 1.0 for value in (x1, y1, x2, y2)):
-        return x1 * width, y1 * height, x2 * width, y2 * height
+        x1, y1, x2, y2 = x1 * width, y1 * height, x2 * width, y2 * height
+    box_width, box_height = x2 - x1, y2 - y1
+    if box_width <= 0 or box_height <= 0:
+        raise ValueError("box must have positive extent")
+    if box_width > width / 4.0 or box_height > height / 4.0:
+        raise ValueError("box implausibly large for a golf ball")
+    if box_width * box_height > 0.05 * width * height:
+        raise ValueError("box implausibly large for a golf ball")
     return x1, y1, x2, y2

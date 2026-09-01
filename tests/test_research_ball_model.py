@@ -15,17 +15,94 @@ def candidate(x, y, confidence=0.8):
 class TestResearchBallModel(unittest.TestCase):
     def test_scales_normalized_coordinates_to_pixels(self):
         self.assertEqual(normalize_point((0.25, 0.5), 600, 480), (150.0, 240.0))
-        self.assertEqual(normalize_box((0.1, 0.2, 0.4, 0.6), 600, 480), (60.0, 96.0, 240.0, 288.0))
+        self.assertEqual(normalize_box((0.1, 0.2, 0.2, 0.3), 600, 480), (60.0, 96.0, 120.0, 144.0))
 
-    def test_preserves_pixel_coordinates(self):
-        self.assertEqual(normalize_point((150.0, 240.0), 600, 480), (150.0, 240.0))
-        self.assertEqual(normalize_box((60.0, 96.0, 240.0, 288.0), 600, 480), (60.0, 96.0, 240.0, 288.0))
+    def test_implausible_frame_filling_box_is_rejected(self):
+        # The local ball model emits full-frame boxes on some clips; the box
+        # center of such a hallucination must never seed a ball track.
+        with self.assertRaises(ValueError):
+            normalize_box((36.7, 0.0, 1920.0, 1080.0), 1920, 1080)
+        with self.assertRaises(ValueError):
+            normalize_box((42.9, 59.7, 1917.8, 1080.0), 1920, 1080)
+
+    def test_realistic_ball_boxes_pass_plausibility(self):
+        # A real ball at 1920x1080 is far smaller than a quarter of any
+        # dimension and a tiny fraction of the frame area.
+        self.assertEqual(
+            normalize_box((1092.6, 813.4, 1156.9, 880.3), 1920, 1080),
+            (1092.6, 813.4, 1156.9, 880.3),
+        )
+        self.assertEqual(
+            normalize_box((30.0, 520.0, 90.0, 580.0), 1920, 1080),
+            (30.0, 520.0, 90.0, 580.0),
+        )
 
     def test_rejects_invalid_dimensions_or_shape(self):
         with self.assertRaises(ValueError):
             normalize_point((0.2, 0.3), 0, 480)
         with self.assertRaises(ValueError):
             normalize_box((0.1, 0.2, 0.3), 600, 480)
+
+
+class TestBallModelBoxSkipping(unittest.TestCase):
+    def test_implausible_box_skipped_and_real_box_kept(self):
+        """One frame-filling hallucination must not discard a real detection
+        emitted in the same frame; it is skipped individually."""
+        try:
+            import numpy as np  # noqa: F401
+        except ImportError:
+            self.skipTest("optional numeric stack unavailable")
+        from ghostcaddie.video import ai_demo
+        model = _FakeBallModel(boxes=[(0.686, [36.7, 0.0, 1920.0, 1080.0]),
+                                      (0.437, [1092.6, 813.4, 1156.9, 880.3])])
+        tracker = _RecordingTracker()
+        ball, warning = ai_demo._ball_observation(model, tracker, _NumpyishFrame(1920, 1080), 1920, 1080)
+        self.assertIsNone(warning)
+        self.assertIsNotNone(ball)
+        # The kept point is the real box center, not the frame center.
+        self.assertAlmostEqual(ball["point"]["x"], 1124.75, places=2)
+        self.assertAlmostEqual(ball["point"]["y"], 846.85, places=2)
+
+
+class _FakeBallModel:
+    def __init__(self, boxes):
+        self._boxes = boxes
+
+    def __call__(self, frame, verbose=False):
+        class _XYXY(list):
+            def tolist(self):
+                return list(self)
+
+        class _Box:
+            def __init__(self, conf, xyxy):
+                self.conf = [conf]
+                self.xyxy = [_XYXY(xyxy)]
+
+        class _Result:
+            def __init__(self, boxes):
+                self.boxes = boxes
+
+        return [_Result([_Box(conf, xyxy) for conf, xyxy in self._boxes])]
+
+
+class _RecordingTracker:
+    def __init__(self):
+        self.seen = []
+
+    def update(self, candidates):
+        self.seen.extend(candidates)
+        if candidates:
+            best = max(candidates, key=lambda c: c["confidence"])
+            return {"state": "observed", "point": {"x": best["center"][0], "y": best["center"][1]},
+                    "confidence": best["confidence"]}
+        return {"state": "unavailable"}
+
+
+class _NumpyishFrame:
+    """Minimal stand-in satisfying _ball_observation's width/height use."""
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
 
 
 class TestResearchBallTrack(unittest.TestCase):

@@ -322,7 +322,13 @@ def _ball_observation(model, tracker, frame, width: int, height: int):
         if result.boxes is not None:
             for box in result.boxes:
                 confidence = float(box.conf[0])
-                x1, y1, x2, y2 = normalize_box(box.xyxy[0].tolist(), width, height)
+                try:
+                    x1, y1, x2, y2 = normalize_box(box.xyxy[0].tolist(), width, height)
+                except ValueError:
+                    # Implausible ball geometry (e.g. a frame-filling box) is
+                    # skipped per box so one hallucination cannot discard a
+                    # genuine ball detection emitted in the same frame.
+                    continue
                 candidates.append({"center": ((x1 + x2) / 2.0, (y1 + y2) / 2.0), "confidence": confidence,
                                   "box": [x1, y1, x2, y2]})
         tracked = tracker.update(candidates)

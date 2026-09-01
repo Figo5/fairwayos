@@ -85,7 +85,8 @@ positives are rejected using bounds, golfer support, confidence, and temporal
 support checks. A generic `sports ball` detector is not relabeled as a golf-ball
 truth source.
 
-The tracer is persistent only within one guarded continuity segment. It is
+The automatic ball demo rejects implausibly large frame-filling model boxes per detection, preserving any realistic same-frame candidate; this is a false-positive guard only and does not establish golf-ball identity.
+
 cleared on unavailable, terminated, or reacquisition-gap states so unrelated
 candidate positions are never joined by a misleading line. Before each render,
 only stale generated `annotated_frames/frame_*.jpg` files are removed, so a
