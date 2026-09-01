@@ -11,6 +11,7 @@ from typing import List, Optional
 from .errors import VideoExtractionError, VideoPathError
 
 MANIFEST_NAME = "frame_manifest.json"
+FFMPEG_TIMEOUT_SECONDS = 120
 
 
 @dataclass(frozen=True)
@@ -92,7 +93,10 @@ def _output_directory(path_text: str, source: Path) -> Path:
 
 def _run_ffmpeg(args: List[str], cwd: Optional[Path] = None) -> None:
     try:
-        completed = subprocess.run(args, cwd=str(cwd) if cwd else None, capture_output=True, text=True, check=False)
+        completed = subprocess.run(args, cwd=str(cwd) if cwd else None, capture_output=True, text=True,
+                                   check=False, timeout=FFMPEG_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired as exc:
+        raise VideoExtractionError(f"ffmpeg timed out after {FFMPEG_TIMEOUT_SECONDS} seconds") from exc
     except (OSError, TypeError) as exc:
         raise VideoExtractionError(f"unable to execute ffmpeg: {exc}") from exc
     if completed.returncode != 0:

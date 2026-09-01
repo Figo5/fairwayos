@@ -97,6 +97,12 @@ class TestClubheadAnnotationDataset(unittest.TestCase):
         with self.assertRaises(VideoContractError):
             validate_dataset(payload)
 
+    def test_rejects_frame_count_that_does_not_match_annotation_frames(self):
+        payload = self.valid_payload()
+        payload["video"]["frame_count"] = 99
+        with self.assertRaises(VideoContractError):
+            validate_dataset(payload)
+
     def test_serialization_is_deterministic_and_rejects_nonfinite_values(self):
         payload = self.valid_payload()
         first = serialize_dataset(payload)

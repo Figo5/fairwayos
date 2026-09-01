@@ -8,6 +8,8 @@ from typing import Any, Dict, Optional
 from .contracts import VideoMetadata
 from .errors import VideoMetadataError, VideoProbeError
 
+FFPROBE_TIMEOUT_SECONDS = 30
+
 
 def _required(mapping: Dict[str, Any], key: str, section: str) -> Any:
     if key not in mapping or mapping[key] in (None, ""):
@@ -80,8 +82,10 @@ def inspect_video(source: str, ffprobe: str = "ffprobe") -> VideoMetadata:
     try:
         completed = subprocess.run(
             [ffprobe, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", source],
-            capture_output=True, text=True, check=False,
+            capture_output=True, text=True, check=False, timeout=FFPROBE_TIMEOUT_SECONDS,
         )
+    except subprocess.TimeoutExpired as exc:
+        raise VideoProbeError(f"ffprobe timed out after {FFPROBE_TIMEOUT_SECONDS} seconds") from exc
     except (OSError, TypeError) as exc:
         raise VideoProbeError(f"unable to execute ffprobe: {exc}") from exc
     if completed.returncode != 0:

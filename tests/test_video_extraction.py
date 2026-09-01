@@ -57,6 +57,22 @@ class TestExtractFrames(unittest.TestCase):
                 with self.subTest(kwargs=kwargs), self.assertRaises(VideoExtractionError):
                     extract_frames(str(source), str(root / "frames"), **kwargs)
 
+    def test_bounds_ffmpeg_execution_time(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "round.mp4"
+            source.touch()
+            output = root / "frames"
+            completed = subprocess.CompletedProcess(["ffmpeg"], 0, "", "")
+            def write_frames(args, **kwargs):
+                output_pattern = Path(args[-1])
+                output_pattern.parent.mkdir(parents=True, exist_ok=True)
+                (output_pattern.parent / "frame_000001.jpg").write_bytes(b"jpeg")
+                return completed
+            with patch("ghostcaddie.video.extraction.subprocess.run", side_effect=write_frames) as run:
+                extract_frames(str(source), str(output), max_frames=1)
+            self.assertEqual(run.call_args.kwargs["timeout"], 120)
+
     def test_reports_ffmpeg_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -83,11 +83,11 @@ ShotEvent: null
 recommendation: null
 ```
 
-`run_pipeline()` was not invoked. Core analytics, calibration, wind, dispersion, hazards, session behavior, CLI commands, YouTube ingestion, CI, and human fallback were not changed.
+`run_pipeline()` was not invoked. Core analytics, calibration, wind, dispersion, hazards, session behavior, CLI commands, YouTube ingestion, CI, and human fallback were not changed by this gauntlet run.
 
 ## Verification
 
-- full unittest suite: 367 tests passed, 6 skipped;
+- full unittest suite: 370 tests passed, 6 skipped;
 - `compileall`: passed;
 - `git diff --check`: passed;
 - accepted Pexels 6573485 MP4: H.264, 1920x1080, 15 FPS, 121 frames, `yuv420p`;

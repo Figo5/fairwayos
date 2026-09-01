@@ -140,6 +140,8 @@ def _validate(payload: Mapping[str, Any]) -> dict[str, Any]:
     frames = payload["frames"]
     if not isinstance(frames, list) or not frames:
         _fail("frames must be a non-empty list")
+    if count != len(frames):
+        _fail("video.frame_count must match the number of annotation frames")
     previous_source = None
     for expected, frame in enumerate(frames):
         if not isinstance(frame, Mapping) or set(frame) != _FRAME_FIELDS:

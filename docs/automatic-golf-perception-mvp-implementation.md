@@ -56,7 +56,7 @@ Focused and full verification completed during implementation:
 - automatic contract/temporal/gate tests passed;
 - automatic renderer/evaluation tests passed;
 - automatic CLI tests passed;
-- full suite: **367 tests passed, 6 skipped**;
+- full suite: **370 tests passed, 6 skipped**;
 - `python3 -m compileall -q ghostcaddie tests`: passed.
 
 Provisional thresholds are documented in the implementation plan and must be tuned only against actual annotated footage, then evaluated on held-out footage. They are not validated production thresholds.

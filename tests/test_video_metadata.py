@@ -48,6 +48,12 @@ class TestInspectVideo(unittest.TestCase):
         self.assertIn("-show_format", args)
         self.assertEqual(args[-1], "/private/round.mp4")
 
+    @patch("ghostcaddie.video.metadata.subprocess.run")
+    def test_bounds_ffprobe_execution_time(self, run):
+        run.return_value = subprocess.CompletedProcess(["ffprobe"], 0, json.dumps(FFPROBE), "")
+        inspect_video("/private/round.mp4")
+        self.assertEqual(run.call_args.kwargs["timeout"], 30)
+
     @patch("ghostcaddie.video.metadata.subprocess.run", side_effect=FileNotFoundError)
     def test_reports_missing_ffprobe(self, run):
         with self.assertRaises(VideoProbeError):
