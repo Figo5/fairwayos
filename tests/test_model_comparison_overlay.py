@@ -46,6 +46,39 @@ class ModelComparisonOverlayTests(unittest.TestCase):
                 candidates={"PT": {"state": "candidate", "x": 601, "y": 20, "confidence": 0.5}},
             )
 
+    def test_research_states_are_explicit_without_claiming_ball_identity(self):
+        plan = build_comparison_overlay(
+            frame_index=12,
+            width=600,
+            height=480,
+            candidates={
+                "PT": {"state": "observed", "x": 210, "y": 180, "confidence": 0.71},
+                "ONNX": {"state": "predicted", "x": 220, "y": 181, "confidence": 0.51},
+                "GENERIC": {"state": "unavailable"},
+            },
+        )
+        self.assertEqual(
+            [(item["label"], item["state"]) for item in plan["markers"]],
+            [("PT", "observed"), ("ONNX", "predicted")],
+        )
+        self.assertEqual(plan["unavailable"], ["GENERIC"])
+        self.assertEqual(plan["identity"], "unavailable")
+        self.assertTrue(plan["research_only"])
+        graph = comparison_filter(
+            frame_index=12,
+            width=600,
+            height=480,
+            candidates={
+                "PT": {"state": "observed", "x": 210, "y": 180, "confidence": 0.71},
+                "ONNX": {"state": "predicted", "x": 220, "y": 181, "confidence": 0.51},
+                "GENERIC": {"state": "unavailable"},
+            },
+        )
+        self.assertIn("PT: OBSERVED 0.71", graph)
+        self.assertIn("ONNX: PREDICTED 0.51", graph)
+        self.assertIn("GENERIC: UNAVAILABLE", graph)
+        self.assertIn("NOT GOLF-BALL IDENTITY", graph)
+
 
 if __name__ == "__main__":
     unittest.main()

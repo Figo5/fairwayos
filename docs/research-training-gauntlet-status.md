@@ -424,3 +424,22 @@ The local temporal comparison remains diagnostic only: `research_only=true`,
 `ground_truth=false`, and `production_eligible=false`. No calibration, golf-ball
 identity, impact point, trajectory, landing, analytics, or recommendation is
 asserted.
+
+## Cycle 21 explicit observed/predicted research states (2026-09-01)
+
+The reusable model-comparison overlay contract now accepts `observed` and
+`predicted` states in addition to `candidate` and `unavailable`. Rendered labels
+use the state name and confidence, while identity remains unavailable and
+`production_eligible` remains false. This is a state-provenance improvement, not
+an accuracy claim.
+
+The Cycle 20 temporal MP4 remains the inspected availability artifact:
+
+```text
+out/research_model_comparison_temporal/temporal_comparison_h264_yuv420p.mp4
+```
+
+It uses backend `OUTPUT/NO OUTPUT` lanes and deliberately contains no spatial
+markers. It remains H.264/yuv420p, 600x480, 25 FPS, 165 frames, 6.60 seconds,
+with SHA-256 `7c03a42855de99d2b0b424734392a203851ab21f6bfe7b2d18ea94f84ddb9c10`.
+No observed/predicted identity is inferred from the availability lanes.

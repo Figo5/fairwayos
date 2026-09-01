@@ -10,7 +10,7 @@ import math
 from typing import Mapping, Any
 
 _BACKENDS = ("PT", "ONNX", "GENERIC")
-_ACTIVE = {"candidate", "observed"}
+_ACTIVE = {"candidate", "observed", "predicted"}
 
 
 def _number(value: Any, name: str) -> float:
@@ -69,7 +69,7 @@ def comparison_filter(*, frame_index: int, width: int, height: int,
             text, color = f"{label}: UNAVAILABLE", "gray"
         else:
             item = next(m for m in plan["markers"] if m["label"] == label)
-            text, color = f"{label}: CANDIDATE {item['confidence']:.2f}", {"PT": "yellow", "ONNX": "cyan", "GENERIC": "magenta"}[label]
+            text, color = f"{label}: {item['state'].upper()} {item['confidence']:.2f}", {"PT": "yellow", "ONNX": "cyan", "GENERIC": "magenta"}[label]
             filters.append(f"drawbox=x={item['x']-10:g}:y={item['y']-10:g}:w=20:h=20:color={color}:t=2:enable='eq(n\\,{frame_index})'")
         filters.append(f"drawtext=text='{text}':x=8:y={y}:fontsize=15:fontcolor={color}:box=1:boxcolor=black@0.5")
         y += 22
