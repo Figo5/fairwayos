@@ -5,6 +5,8 @@ from __future__ import annotations
 import math
 from typing import Iterable, Tuple
 
+_CONFIDENCE_SEMANTICS = "detection_quality_not_identity"
+
 
 class ResearchBallTrack:
     """Bounded, research-only temporal gate for model ball candidates."""
@@ -38,6 +40,7 @@ class ResearchBallTrack:
             "state": state,
             "point": None if point is None else {"x": float(point[0]), "y": float(point[1])},
             "confidence": float(confidence),
+            "confidence_semantics": _CONFIDENCE_SEMANTICS,
             "warning": warning,
         }
 
@@ -120,6 +123,7 @@ class ResearchBallMultiHypothesisTrack:
             "state": state,
             "point": None if point is None else {"x": float(point[0]), "y": float(point[1])},
             "confidence": float(confidence),
+            "confidence_semantics": _CONFIDENCE_SEMANTICS,
             "warning": warning,
             "hypothesis_count": int(hypothesis_count),
         }

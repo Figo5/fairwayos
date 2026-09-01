@@ -143,6 +143,10 @@ class _NumpyishFrame:
 
 
 class TestResearchBallTrack(unittest.TestCase):
+    def test_confidence_semantics_are_detection_quality_not_identity(self):
+        result = ResearchBallTrack().update([candidate(100, 200, 0.8)])
+        self.assertEqual(result["confidence_semantics"], "detection_quality_not_identity")
+
     def test_initializes_and_predicts_forward_motion(self):
         track = ResearchBallTrack(min_confidence=0.35, max_misses=2)
         first = track.update([candidate(100, 200, 0.8)])
@@ -207,6 +211,10 @@ class TestResearchBallTrack(unittest.TestCase):
 
 
 class TestResearchBallMultiHypothesisTrack(unittest.TestCase):
+    def test_confidence_semantics_are_detection_quality_not_identity(self):
+        result = ResearchBallMultiHypothesisTrack().update([candidate(100, 200, 0.8)])
+        self.assertEqual(result["confidence_semantics"], "detection_quality_not_identity")
+
     def test_weak_detection_cannot_revive_terminated_track(self):
         track = ResearchBallMultiHypothesisTrack(reacquire_confidence=0.75, max_misses=1)
         track.update([candidate(100, 200, 0.9)])

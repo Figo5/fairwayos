@@ -443,3 +443,29 @@ It uses backend `OUTPUT/NO OUTPUT` lanes and deliberately contains no spatial
 markers. It remains H.264/yuv420p, 600x480, 25 FPS, 165 frames, 6.60 seconds,
 with SHA-256 `7c03a42855de99d2b0b424734392a203851ab21f6bfe7b2d18ea94f84ddb9c10`.
 No observed/predicted identity is inferred from the availability lanes.
+
+## Cycle 22 confidence and uncertainty state diagnostics (2026-09-01)
+
+The research tracker and model-comparison contract now identify confidence as
+`detection_quality_not_identity`. This makes the scalar explicit: it describes
+model output quality only and cannot be interpreted as ball identity or ground
+truth.
+
+A new bounded state-diagnostics render shows observed, predicted, and unavailable
+states with confidence and uncertainty scalar bars. It intentionally draws no
+point, box, trajectory, or location marker:
+
+```text
+out/research_state_diagnostics/state_diagnostics_h264_yuv420p.mp4
+```
+
+The artifact is H.264/yuv420p, 600x480, 25 FPS, 67 frames, and 2.68 seconds.
+It contains 36 observed, 2 predicted, and 29 unavailable diagnostic states. Its
+SHA-256 is:
+
+```text
+37ebb5a8e6a8d1c59bcfa6bef3717f7c684153f00eff57cbe4985de7ff1782d7
+```
+
+The artifact remains explicitly `research_only=true`, `ground_truth=false`, and
+`production_eligible=false`; identity and spatial evidence remain unavailable.

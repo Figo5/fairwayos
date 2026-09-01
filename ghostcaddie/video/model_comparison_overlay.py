@@ -11,6 +11,7 @@ from typing import Mapping, Any
 
 _BACKENDS = ("PT", "ONNX", "GENERIC")
 _ACTIVE = {"candidate", "observed", "predicted"}
+_CONFIDENCE_SEMANTICS = "detection_quality_not_identity"
 
 
 def _number(value: Any, name: str) -> float:
@@ -43,12 +44,14 @@ def build_comparison_overlay(*, frame_index: int, width: int, height: int,
         confidence = _number(raw.get("confidence"), f"{label}.confidence")
         if not (0 <= x < width and 0 <= y < height and 0 <= confidence <= 1):
             raise ValueError(f"{label} candidate is out of bounds")
-        markers.append({"label": label, "state": state, "x": x, "y": y, "confidence": confidence})
+        markers.append({"label": label, "state": state, "x": x, "y": y,
+                        "confidence": confidence, "confidence_semantics": _CONFIDENCE_SEMANTICS})
     return {
         "frame_index": frame_index,
         "markers": markers,
         "unavailable": unavailable,
         "identity": "unavailable",
+        "confidence_semantics": _CONFIDENCE_SEMANTICS,
         "production_eligible": False,
         "research_only": True,
     }
@@ -61,7 +64,7 @@ def comparison_filter(*, frame_index: int, width: int, height: int,
     filters = [
         f"drawbox=x=0:y=0:w={width}:h=5:color=blue:t=fill",
         f"drawbox=x=0:y={height-5}:w={width}:h=5:color=red:t=fill",
-        f"drawtext=text='RESEARCH ONLY | NOT GOLF-BALL IDENTITY | IDENTITY UNAVAILABLE':x=8:y=8:fontsize=16:fontcolor=white:box=1:boxcolor=black@0.65",
+        f"drawtext=text='RESEARCH ONLY | NOT GOLF-BALL IDENTITY | CONFIDENCE = DETECTION QUALITY, NOT IDENTITY | IDENTITY UNAVAILABLE':x=8:y=8:fontsize=16:fontcolor=white:box=1:boxcolor=black@0.65",
     ]
     y = 32
     for label in _BACKENDS:

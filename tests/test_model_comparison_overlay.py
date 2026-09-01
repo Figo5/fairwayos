@@ -79,6 +79,18 @@ class ModelComparisonOverlayTests(unittest.TestCase):
         self.assertIn("GENERIC: UNAVAILABLE", graph)
         self.assertIn("NOT GOLF-BALL IDENTITY", graph)
 
+    def test_confidence_is_explicitly_detection_quality_not_identity(self):
+        plan = build_comparison_overlay(
+            frame_index=0, width=100, height=100,
+            candidates={"PT": {"state": "candidate", "x": 10, "y": 20, "confidence": 0.8}},
+        )
+        self.assertEqual(plan["confidence_semantics"], "detection_quality_not_identity")
+        self.assertEqual(plan["markers"][0]["confidence_semantics"], "detection_quality_not_identity")
+        self.assertIn("DETECTION QUALITY, NOT IDENTITY", comparison_filter(
+            frame_index=0, width=100, height=100,
+            candidates={"PT": {"state": "candidate", "x": 10, "y": 20, "confidence": 0.8}},
+        ))
+
 
 if __name__ == "__main__":
     unittest.main()
