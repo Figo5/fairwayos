@@ -307,6 +307,23 @@ class TestResearchBallTrack(unittest.TestCase):
         self.assertEqual(available["spread_available"], available["spread_status"] != "unavailable")
         self.assertEqual(unavailable["spread_available"], unavailable["spread_status"] != "unavailable")
 
+    def test_temporal_spread_summary_has_stable_schema_and_numeric_status_code(self):
+        from ghostcaddie.video.research_ball_model import aggregate_temporal_uncertainty
+
+        cases = (
+            ([{"point": {"x": 0, "y": 0}}], "bounded", 1),
+            ([{"point": {"x": 0, "y": 0}}, {"point": {"x": 102, "y": 0}}], "wide", 2),
+            ([{"point": None}], "unavailable", 0),
+        )
+        for observations, status, code in cases:
+            summary = aggregate_temporal_uncertainty(observations)
+            self.assertEqual(summary["schema_version"], 1)
+            self.assertIs(type(summary["schema_version"]), int)
+            self.assertEqual(summary["spread_status"], status)
+            self.assertEqual(summary["spread_status_code"], code)
+            self.assertIs(type(summary["spread_status_code"]), int)
+            self.assertEqual(summary["identity"], "unavailable")
+
 
 class TestResearchBallMultiHypothesisTrack(unittest.TestCase):
     def test_confidence_semantics_are_detection_quality_not_identity(self):
