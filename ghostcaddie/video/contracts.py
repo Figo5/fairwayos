@@ -101,8 +101,24 @@ class VideoDiagnostics:
     model_provider_provenance: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.status, str):
+            raise VideoContractError("status must be a string")
         if self.status not in {"pending", "complete", "failed"}:
             raise VideoContractError("status must be pending, complete, or failed")
+        if not isinstance(self.artifact_references, list):
+            raise VideoContractError("artifact_references must be a list")
+        if not isinstance(self.frame_observations, list):
+            raise VideoContractError("frame_observations must be a list")
+        if not all(isinstance(item, dict) for item in self.frame_observations):
+            raise VideoContractError("frame_observations must contain objects")
+        if not isinstance(self.confidence_values, dict):
+            raise VideoContractError("confidence_values must be an object")
+        if not all(isinstance(key, str) for key in self.confidence_values):
+            raise VideoContractError("confidence_values keys must be strings")
+        if not isinstance(self.warnings, list) or not all(isinstance(item, str) for item in self.warnings):
+            raise VideoContractError("warnings must be a list of strings")
+        if not isinstance(self.model_provider_provenance, dict):
+            raise VideoContractError("model_provider_provenance must be an object")
         for ref in self.artifact_references:
             parts = PurePosixPath(ref).parts if isinstance(ref, str) else ()
             if not isinstance(ref, str) or not ref or os.path.isabs(ref) or "\\" in ref or ".." in parts:

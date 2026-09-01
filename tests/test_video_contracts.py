@@ -34,6 +34,26 @@ class TestVideoMetadata(unittest.TestCase):
 
 
 class TestVideoDiagnostics(unittest.TestCase):
+    def test_diagnostics_rejects_malformed_top_level_container_shapes(self):
+        cases = (
+            {"status": []},
+            {"status": {}},
+            {"status": None},
+            {"artifact_references": None},
+            {"artifact_references": "artifact.jpg"},
+            {"frame_observations": None},
+            {"frame_observations": "frames"},
+            {"warnings": "warning"},
+            {"confidence_values": None},
+            {"confidence_values": []},
+            {"model_provider_provenance": None},
+            {"model_provider_provenance": []},
+        )
+        for overrides in cases:
+            with self.subTest(overrides=overrides):
+                with self.assertRaises(VideoContractError):
+                    VideoDiagnostics(**overrides)
+
     def test_versioned_diagnostics_contract_has_all_milestone_fields(self):
         diagnostics = VideoDiagnostics(
             status="complete",
