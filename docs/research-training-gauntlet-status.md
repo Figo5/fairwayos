@@ -19,7 +19,7 @@ The YouTube ingestion boundary rejects provider metadata with boolean, non-finit
 The automatic YouTube boundary preserves distinct blocked categories for `duration_limit` and `segment_limit`; these are not collapsed into generic video-unavailable failures.
 
 - Contact/landing candidate diagnostics accept ball points only when provenance is explicitly `observed`, `native`, or `user_confirmed`; missing, inferred, automatic, and unknown provenance remain unavailable and cannot be promoted.
-- Submitted human annotation imports reject `contact.source: "inferred"`; only explicit/user-reviewed contact sources (`user_supplied`, `user_confirmed`, or `observed`) may cross the import boundary.
+- Submitted human annotation imports reject `contact.source` and `landing.source` values of `"inferred"`; only explicit/user-reviewed sources (`user_supplied`, `user_confirmed`, or `observed`) may cross the import boundary.
 
 Research ball sidecars reject booleans, strings, fractional values, and negative values for `frame_index` and `longest_gap`; these fields remain strict non-negative integers and are never silently coerced.
 
@@ -90,7 +90,7 @@ recommendation: null
 
 ## Verification
 
-- full unittest suite: 374 tests passed, 6 skipped;
+- full unittest suite: 375 tests passed, 6 skipped;
 - `compileall`: passed;
 - `git diff --check`: passed;
 - accepted Pexels 6573485 MP4: H.264, 1920x1080, 15 FPS, 121 frames, `yuv420p`;

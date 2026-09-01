@@ -157,7 +157,7 @@ Calibration is applied exactly once. Only after all ball/clubhead/contact/landin
 
 ## Engineering disposition
 
-No source-code implementation was started from this discovery pass. Future changes should be limited to a research adapter, schema validator, split checker, evaluator, and isolated training runner after a candidate clears the legal/reproducibility checkpoint. Existing CLI commands, human fallback, YouTube ingestion, CI, core analytics, calibration, wind, dispersion, hazards, and session behavior remain unchanged by this discovery pass; the current verified suite is 374 tests.
+No source-code implementation was started from this discovery pass. Future changes should be limited to a research adapter, schema validator, split checker, evaluator, and isolated training runner after a candidate clears the legal/reproducibility checkpoint. Existing CLI commands, human fallback, YouTube ingestion, CI, core analytics, calibration, wind, dispersion, hazards, and session behavior remain unchanged by this discovery pass; the current verified suite is 375 tests.
 
 ## Final recommendation
 

@@ -70,7 +70,7 @@ Do not change automatic-perception gates until one candidate supplies all of:[1]
 7. checkpoint terms compatible with the intended deployment; and
 8. evidence sufficient to separate pixel observations from golf analytics.
 
-Until then, preserve the existing CI workflow, human fallback, production gates, and best-effort YouTube workflow unchanged. The current verified local suite is 374 tests with optional-dependency skips.[1]
+Until then, preserve the existing CI workflow, human fallback, production gates, and best-effort YouTube workflow unchanged. The current verified local suite is 375 tests with optional-dependency skips.[1]
 
 ## Sources
 

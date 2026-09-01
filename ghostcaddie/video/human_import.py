@@ -84,6 +84,8 @@ def import_human_annotations(payload: Any, calibration, *, event_id: str, player
         raise VideoContractError("submitted status and explicit_submit=true are required")
     if document.payload["contact"]["source"] not in {"user_supplied", "user_confirmed", "observed"}:
         raise VideoContractError("contact evidence must be explicit and non-inferred")
+    if document.payload["landing"]["source"] not in {"user_supplied", "user_confirmed", "observed"}:
+        raise VideoContractError("landing evidence must be explicit and non-inferred")
     if calibration is None:
         raise VideoContractError("calibration is required")
     video = document.payload["video"]
