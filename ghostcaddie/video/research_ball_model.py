@@ -6,6 +6,56 @@ import math
 from typing import Iterable, Tuple
 
 _CONFIDENCE_SEMANTICS = "detection_quality_not_identity"
+_MAX_UNCERTAINTY_WINDOW = 32
+
+
+def aggregate_temporal_uncertainty(observations: Iterable[dict], *, window: int = 5):
+    """Summarize recent research observations without asserting identity.
+
+    Only observations with finite two-dimensional points contribute.  The
+    window is capped so a long history cannot turn this diagnostic into an
+    unbounded aggregate.  If no point is available, the summary remains
+    explicitly unavailable rather than synthesizing a location or confidence.
+    """
+    if isinstance(window, bool) or not isinstance(window, int) or not 1 <= window <= _MAX_UNCERTAINTY_WINDOW:
+        raise ValueError(f"window must be an integer between 1 and {_MAX_UNCERTAINTY_WINDOW}")
+    recent = list(observations)[-window:]
+    usable = []
+    for observation in recent:
+        if not isinstance(observation, dict):
+            continue
+        point = observation.get("point")
+        if not isinstance(point, dict):
+            continue
+        try:
+            x, y = float(point["x"]), float(point["y"])
+            confidence = float(observation.get("confidence", 0.0))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not all(math.isfinite(value) for value in (x, y, confidence)):
+            continue
+        usable.append((observation, (x, y), max(0.0, min(1.0, confidence))))
+    base = {
+        "sample_count": len(usable),
+        "observed_count": sum(item[0].get("state") == "observed" for item in usable),
+        "predicted_count": sum(item[0].get("state") == "predicted" for item in usable),
+        "confidence_range": None,
+        "spatial_radius_px": None,
+        "confidence_semantics": _CONFIDENCE_SEMANTICS,
+        "identity": "unavailable",
+    }
+    if not usable:
+        return {**base, "state": "unavailable", "provenance": "unavailable"}
+    points = [item[1] for item in usable]
+    confidences = [item[2] for item in usable]
+    centroid = (sum(point[0] for point in points) / len(points), sum(point[1] for point in points) / len(points))
+    base.update({
+        "state": "available",
+        "provenance": "research_temporal_aggregation",
+        "confidence_range": (min(confidences), max(confidences)),
+        "spatial_radius_px": max(math.hypot(point[0] - centroid[0], point[1] - centroid[1]) for point in points),
+    })
+    return base
 
 
 class ResearchBallTrack:

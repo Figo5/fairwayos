@@ -209,6 +209,38 @@ class TestResearchBallTrack(unittest.TestCase):
         self.assertIsNone(result["point"])
         self.assertEqual(result["warning"], "candidate_rejected")
 
+    def test_aggregates_bounded_recent_uncertainty_without_identity_claim(self):
+        from ghostcaddie.video.research_ball_model import aggregate_temporal_uncertainty
+
+        summary = aggregate_temporal_uncertainty([
+            {"state": "observed", "point": {"x": 100, "y": 200}, "confidence": 0.99},
+            {"state": "observed", "point": {"x": 10, "y": 20}, "confidence": 0.8},
+            {"state": "predicted", "point": {"x": 13, "y": 24}, "confidence": 0.6},
+        ], window=2)
+
+        self.assertEqual(summary["sample_count"], 2)
+        self.assertEqual(summary["observed_count"], 1)
+        self.assertEqual(summary["predicted_count"], 1)
+        self.assertEqual(summary["confidence_range"], (0.6, 0.8))
+        self.assertAlmostEqual(summary["spatial_radius_px"], 2.5)
+        self.assertEqual(summary["confidence_semantics"], "detection_quality_not_identity")
+        self.assertEqual(summary["provenance"], "research_temporal_aggregation")
+        self.assertEqual(summary["identity"], "unavailable")
+
+    def test_temporal_uncertainty_preserves_unavailable_when_no_points_exist(self):
+        from ghostcaddie.video.research_ball_model import aggregate_temporal_uncertainty
+
+        summary = aggregate_temporal_uncertainty([
+            {"state": "unavailable", "point": None, "confidence": 0.0},
+            {"state": "terminated", "point": None, "confidence": 0.0},
+        ])
+
+        self.assertEqual(summary["state"], "unavailable")
+        self.assertIsNone(summary["spatial_radius_px"])
+        self.assertIsNone(summary["confidence_range"])
+        self.assertEqual(summary["provenance"], "unavailable")
+        self.assertEqual(summary["identity"], "unavailable")
+
 
 class TestResearchBallMultiHypothesisTrack(unittest.TestCase):
     def test_confidence_semantics_are_detection_quality_not_identity(self):

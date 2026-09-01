@@ -467,5 +467,25 @@ SHA-256 is:
 37ebb5a8e6a8d1c59bcfa6bef3717f7c684153f00eff57cbe4985de7ff1782d7
 ```
 
-The artifact remains explicitly `research_only=true`, `ground_truth=false`, and
-`production_eligible=false`; identity and spatial evidence remain unavailable.
+## Cycle 23 temporal confidence history (2026-09-01)
+
+A bounded confidence-history render now shows temporal detection-quality history
+for the rejected MMU research sequence. The source image area is retained, while
+an information band plots confidence over time without drawing a ball marker,
+box, trail, impact point, trajectory, or location claim:
+
+```text
+out/research_training_gauntlet/mmu_candidate/analysis/temporal_confidence_history_h264_yuv420p.mp4
+```
+
+The output is H.264/yuv420p, 600x480, 25 FPS, 112 frames, and 4.48 seconds.
+Its verified SHA-256 is:
+
+```text
+ef34ca9bff0ae16537d547d54049f51bc2387c4691872304efd30724b0ce95a9
+```
+
+The associated summary aggregates only a bounded recent window of finite
+research observations. No-point input remains unavailable; confidence remains
+`detection_quality_not_identity`, with identity unavailable. All output states
+remain `research_only=true`, `ground_truth=false`, and `production_eligible=false`.
