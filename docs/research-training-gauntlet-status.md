@@ -20,6 +20,8 @@ The automatic YouTube boundary preserves distinct blocked categories for `durati
 
 Contact/landing candidate diagnostics accept ball points only when provenance is explicitly `observed`, `native`, or `user_confirmed`; missing, inferred, automatic, and unknown provenance remain unavailable and cannot be promoted.
 
+Research ball sidecars reject booleans, strings, fractional values, and negative values for `frame_index` and `longest_gap`; these fields remain strict non-negative integers and are never silently coerced.
+
 ## Triage and automatic overlays
 The local generic YOLO pose checkpoint was run on the two downloaded clips:
 
@@ -87,7 +89,7 @@ recommendation: null
 
 ## Verification
 
-- full unittest suite: 370 tests passed, 6 skipped;
+- full unittest suite: 371 tests passed, 6 skipped;
 - `compileall`: passed;
 - `git diff --check`: passed;
 - accepted Pexels 6573485 MP4: H.264, 1920x1080, 15 FPS, 121 frames, `yuv420p`;

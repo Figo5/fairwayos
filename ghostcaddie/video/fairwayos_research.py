@@ -31,6 +31,12 @@ def _json_number(value: Any, name: str) -> float:
     return number
 
 
+def _json_integer(value: Any, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{name} must be a non-negative integer")
+    return value
+
+
 def _safe_source(source: Optional[str]) -> Optional[str]:
     if source is None:
         return None
@@ -108,8 +114,7 @@ def sidecar_from_mapping(payload: Mapping[str, Any], *, source: Optional[str] = 
         frame_value = raw.get("frame_index", raw.get("frame"))
         if frame_value is None:
             raise ValueError("each track item requires frame_index or frame")
-        if isinstance(frame_value, bool):
-            raise ValueError("frame_index must be an integer")
+        frame_value = _json_integer(frame_value, "frame_index")
         center = raw.get("center")
         if center is None and raw.get("x") is not None and raw.get("y") is not None:
             center = (raw["x"], raw["y"])
@@ -120,12 +125,12 @@ def sidecar_from_mapping(payload: Mapping[str, Any], *, source: Optional[str] = 
         confidence_value = raw.get("confidence", 0.0)
         confidence = _json_number(confidence_value, "confidence")
         items.append(BallTrackItem(
-            int(frame_value), center, confidence,
+            frame_value, center, confidence,
             str(raw.get("provenance", raw.get("state", "unavailable"))),
             tuple(raw.get("warnings", ()))
         ))
-    result = BallTrackResult(str(payload.get("track_id", "ball-0")), tuple(items),
-                             int(payload.get("longest_gap", 0)))
+    longest_gap = _json_integer(payload.get("longest_gap", 0), "longest_gap")
+    result = BallTrackResult(str(payload.get("track_id", "ball-0")), tuple(items), longest_gap)
     return build_fairwayos_sidecar(result, source=source)
 
 

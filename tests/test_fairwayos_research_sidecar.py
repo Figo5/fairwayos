@@ -95,6 +95,23 @@ class FairwayOSResearchSidecarTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     sidecar_from_mapping(payload, source="clip.mp4")
 
+    def test_sidecar_rejects_non_integer_frame_and_gap_values(self):
+        for field, value in (("frame_index", 3.9), ("frame_index", "3"),
+                             ("longest_gap", 1.5), ("longest_gap", "1")):
+            with self.subTest(field=field, value=value):
+                payload = {
+                    "track_id": "ball-0",
+                    "items": [{"frame_index": 3, "center": [4, 5],
+                               "confidence": 0.8, "provenance": "candidate",
+                               "warnings": []}],
+                }
+                if field == "frame_index":
+                    payload["items"][0][field] = value
+                else:
+                    payload[field] = value
+                with self.assertRaises(ValueError):
+                    sidecar_from_mapping(payload, source="clip.mp4")
+
     def test_writer_rejects_nonfinite_nested_values(self):
         with tempfile.TemporaryDirectory() as directory:
             output_path = Path(directory) / "sidecar.json"
