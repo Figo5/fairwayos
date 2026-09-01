@@ -101,6 +101,27 @@ class MmuDemoOverlayTests(unittest.TestCase):
         self.assertIn("drawbox=x=0:y=460:w=4:h=16:color=red:t=fill", graph)
         self.assertIn("drawbox=x=596:y=460:w=4:h=16:color=red:t=fill", graph)
 
+    def test_candidate_impact_window_is_a_temporal_research_bar(self):
+        graph = build_research_ffmpeg_filter(
+            [], fps=30.0, width=1920, height=1080,
+            visually_aligned=False,
+            impact_window=(180, 184),
+            impact_window_state="candidate_bracket_only",
+        )
+        self.assertIn("color=orange", graph)
+        self.assertIn("enable='between(n\\,180\\,184)'", graph)
+        self.assertNotIn("x=1361.15", graph)
+
+    def test_unavailable_impact_window_suppresses_temporal_geometry(self):
+        graph = build_research_ffmpeg_filter(
+            [], fps=25.0, width=600, height=480,
+            visually_aligned=False,
+            impact_window=(68, 72),
+            impact_window_state="unavailable",
+        )
+        self.assertNotIn("between(n", graph)
+        self.assertIn("color=red", graph)
+
 
 if __name__ == "__main__":
     unittest.main()

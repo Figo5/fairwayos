@@ -52,7 +52,9 @@ def overlay_lines(*, frame_index: int, fps: float, state: str,
 
 def build_research_ffmpeg_filter(items, *, fps: float, width: int, height: int,
                                 visually_aligned: bool = True,
-                                rejection_reason: str = "visual_alignment_rejected") -> str:
+                                rejection_reason: str = "visual_alignment_rejected",
+                                impact_window=None,
+                                impact_window_state: str = "unavailable") -> str:
     """Build a dependency-free, pixel-space research candidate overlay.
 
     ``items`` are already-produced candidate coordinates from a local research
@@ -70,6 +72,13 @@ def build_research_ffmpeg_filter(items, *, fps: float, width: int, height: int,
         raise ValueError("visually_aligned must be boolean")
     if not isinstance(rejection_reason, str) or not rejection_reason:
         raise ValueError("rejection_reason must be a non-empty string")
+    if impact_window_state not in ("candidate_bracket_only", "unavailable"):
+        raise ValueError("impact_window_state must be candidate_bracket_only or unavailable")
+    if impact_window is not None:
+        if (not isinstance(impact_window, (tuple, list)) or len(impact_window) != 2 or
+                any(isinstance(value, bool) or not isinstance(value, int) or value < 0
+                    for value in impact_window) or impact_window[1] < impact_window[0]):
+            raise ValueError("impact_window must be a non-negative frame pair")
     normalized = []
     previous = None
     for item in items:
@@ -101,6 +110,12 @@ def build_research_ffmpeg_filter(items, *, fps: float, width: int, height: int,
         f"drawbox=x=0:y=0:w={width}:h=4:color={'blue' if rejection_reason.startswith('object_consistency_') else 'yellow'}:t=fill",
         f"drawbox=x=0:y={height-4}:w={width}:h=4:color=red:t=fill",
     ]
+    if impact_window is not None and impact_window_state == "candidate_bracket_only":
+        start_frame, end_frame = impact_window
+        filters.append(
+            f"drawbox=x=0:y={height-12}:w={width}:h=4:color=orange:t=fill:"
+            f"enable='between(n\\,{start_frame}\\,{end_frame})'"
+        )
     if not visually_aligned:
         # Add short endcaps to the unavailable bar, forming a portable red U
         # that remains legible without text filters or color interpretation.

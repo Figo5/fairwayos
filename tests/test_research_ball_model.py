@@ -165,6 +165,15 @@ class TestResearchBallTrack(unittest.TestCase):
         self.assertEqual(result["state"], "observed")
         self.assertEqual(result["point"], {"x": 100.0, "y": 200.0})
 
+    def test_preserves_rejected_candidate_status_instead_of_seeding_track(self):
+        track = ResearchBallTrack(max_misses=2)
+        rejected = candidate(100, 200, 0.9)
+        rejected["status"] = "rejected"
+        result = track.update([rejected])
+        self.assertEqual(result["state"], "unavailable")
+        self.assertIsNone(result["point"])
+        self.assertEqual(result["warning"], "candidate_rejected")
+
 
 class TestResearchBallMultiHypothesisTrack(unittest.TestCase):
     def test_weak_detection_cannot_revive_terminated_track(self):

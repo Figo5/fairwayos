@@ -42,12 +42,13 @@ class ResearchBallTrack:
         }
 
     def update(self, candidates: Iterable[dict]):
+        candidates = list(candidates)
         if self._terminated:
             return self._result("terminated", None, 0.0, "track_terminated")
         valid = _valid_candidates(candidates, self.min_confidence)
         if self._point is None:
             if not valid:
-                return self._result("unavailable", None, 0.0, "no_valid_candidate")
+                return self._result("unavailable", None, 0.0, _candidate_status_warning(candidates))
             chosen = max(valid, key=lambda item: float(item["confidence"]))
             self._point = tuple(float(value) for value in chosen["center"])
             self._confidence = float(chosen["confidence"])
@@ -141,12 +142,13 @@ class ResearchBallMultiHypothesisTrack:
         return self._result("terminated", None, 0.0, warning)
 
     def update(self, candidates: Iterable[dict]):
+        candidates = list(candidates)
         valid = _valid_candidates(candidates, self.min_confidence)
         if self._terminated:
             return self._reacquire(valid)
         if not self._hypotheses:
             if not valid:
-                return self._result("unavailable", None, 0.0, "no_valid_candidate")
+                return self._result("unavailable", None, 0.0, _candidate_status_warning(candidates))
             self._hypotheses = [
                 {"point": self._center(candidate), "velocity": (0.0, 0.0), "confidence": float(candidate["confidence"]), "score": float(candidate["confidence"]), "misses": 0}
                 for candidate in sorted(valid, key=lambda item: float(item["confidence"]), reverse=True)[: self.max_hypotheses]
@@ -189,11 +191,29 @@ def _dimensions(width: int, height: int) -> None:
         raise ValueError("width and height must be positive integers")
 
 
+def _candidate_status_warning(candidates: Iterable[dict]) -> str:
+    """Keep explicit upstream rejection/unavailability visible to the track."""
+    statuses = []
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        if candidate.get("status") == "rejected" or candidate.get("accepted") is False:
+            statuses.append("candidate_rejected")
+        elif candidate.get("status") == "unavailable" or candidate.get("available") is False:
+            statuses.append("candidate_unavailable")
+    return "candidate_rejected" if "candidate_rejected" in statuses else (
+        "candidate_unavailable" if statuses else "no_valid_candidate"
+    )
+
+
 def _valid_candidates(candidates: Iterable[dict], minimum: float):
-    """Return finite, two-dimensional candidates without raising on bad input."""
+    """Return finite, usable candidates without raising on bad input."""
     valid = []
     for candidate in candidates:
         if not isinstance(candidate, dict):
+            continue
+        if (candidate.get("status") in {"rejected", "unavailable"} or
+                candidate.get("accepted") is False or candidate.get("available") is False):
             continue
         try:
             confidence = float(candidate.get("confidence", 0.0))

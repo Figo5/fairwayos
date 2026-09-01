@@ -342,3 +342,30 @@ with no candidate marker, uncertainty box, or dotted trail. The visible
 provenance improvement is blocked by the local FFmpeg text-filter limitation;
 red corner endcaps were added to the unavailable bar as a portable visual
 indicator. No ball identity or production capability was promoted.
+
+## Cycle 18 research-only impact bracket (2026-09-01)
+
+The research overlay now supports an optional temporal impact bracket. When the
+state is `candidate_bracket_only`, it renders only a short orange frame-gated
+bar; it never draws a spatial impact point or promotes contact timing. When the
+state is `unavailable`, the temporal bar is suppressed. Rejected ball geometry
+remains suppressed, and the output remains research-only with
+`ground_truth=false` and `production_eligible=false`.
+
+The MMU bounded window was rendered with the existing object-consistency
+rejection state and a five-frame local bracket. The new artifact is:
+
+```text
+out/research_training_gauntlet/mmu_candidate/analysis/automatic_ball_tracer_object_consistency_rejected_v9.mp4
+```
+
+It is H.264/yuv420p, 600x480, 25 FPS, 112 frames, and 4.48 seconds. Full-frame
+and enlarged bottom-band QA confirmed the blue semantic-rejection bar, red
+unavailable U/endcaps, and orange bar only on local frames 15-19. No candidate
+marker, uncertainty box, dotted trail, or spatial impact geometry appears.
+
+A local model comparison also found the PT checkpoint useful only as a separate
+research candidate: misses and oversized/ambiguous boxes remain. The ONNX
+adapter collapses detections to a zero-height boundary, so its output is
+unavailable pending coordinate-decoding repair. Generic sports-ball detections
+were not relabeled as golf-ball evidence.
