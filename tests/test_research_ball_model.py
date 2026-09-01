@@ -273,6 +273,27 @@ class TestResearchBallTrack(unittest.TestCase):
         self.assertEqual(summary["spread_status"], "wide")
         self.assertEqual(summary["identity"], "unavailable")
 
+    def test_temporal_spread_summary_exposes_status_semantics_and_threshold(self):
+        from ghostcaddie.video.research_ball_model import aggregate_temporal_uncertainty
+
+        bounded = aggregate_temporal_uncertainty([
+            {"point": {"x": 0, "y": 0}, "confidence": 0.8},
+            {"point": {"x": 100, "y": 0}, "confidence": 0.8},
+        ])
+        wide = aggregate_temporal_uncertainty([
+            {"point": {"x": 0, "y": 0}, "confidence": 0.8},
+            {"point": {"x": 102, "y": 0}, "confidence": 0.8},
+        ])
+        unavailable = aggregate_temporal_uncertainty([{"point": None}])
+
+        for summary in (bounded, wide, unavailable):
+            self.assertEqual(summary["spread_threshold_px"], 50.0)
+            self.assertEqual(summary["identity"], "unavailable")
+            self.assertEqual(summary["confidence_semantics"], "detection_quality_not_identity")
+        self.assertEqual(bounded["spread_status_description"], "centroid radius at or below threshold")
+        self.assertEqual(wide["spread_status_description"], "centroid radius above threshold")
+        self.assertEqual(unavailable["spread_status_description"], "no finite points available")
+
 
 class TestResearchBallMultiHypothesisTrack(unittest.TestCase):
     def test_confidence_semantics_are_detection_quality_not_identity(self):

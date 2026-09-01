@@ -10,6 +10,11 @@ _MAX_UNCERTAINTY_WINDOW = 32
 # A centroid radius above this fixed research-only threshold is reported as
 # wide (potentially unstable); it is not an identity or tracking decision.
 _WIDE_SPREAD_THRESHOLD_PX = 50.0
+_SPREAD_STATUS_DESCRIPTIONS = {
+    "bounded": "centroid radius at or below threshold",
+    "wide": "centroid radius above threshold",
+    "unavailable": "no finite points available",
+}
 
 
 def aggregate_temporal_uncertainty(observations: Iterable[dict], *, window: int = 5):
@@ -52,6 +57,8 @@ def aggregate_temporal_uncertainty(observations: Iterable[dict], *, window: int 
         "window_size": len(recent),
         "window_bounded": bool(usable),
         "spread_status": "unavailable",
+        "spread_status_description": _SPREAD_STATUS_DESCRIPTIONS["unavailable"],
+        "spread_threshold_px": _WIDE_SPREAD_THRESHOLD_PX,
     }
     if not usable:
         return {**base, "state": "unavailable", "provenance": "unavailable"}
@@ -59,12 +66,14 @@ def aggregate_temporal_uncertainty(observations: Iterable[dict], *, window: int 
     confidences = [item[2] for item in usable]
     centroid = (sum(point[0] for point in points) / len(points), sum(point[1] for point in points) / len(points))
     spatial_radius = max(math.hypot(point[0] - centroid[0], point[1] - centroid[1]) for point in points)
+    spread_status = "wide" if spatial_radius > _WIDE_SPREAD_THRESHOLD_PX else "bounded"
     base.update({
         "state": "available",
         "provenance": "research_temporal_aggregation",
         "confidence_range": (min(confidences), max(confidences)),
         "spatial_radius_px": spatial_radius,
-        "spread_status": "wide" if spatial_radius > _WIDE_SPREAD_THRESHOLD_PX else "bounded",
+        "spread_status": spread_status,
+        "spread_status_description": _SPREAD_STATUS_DESCRIPTIONS[spread_status],
     })
     return base
 

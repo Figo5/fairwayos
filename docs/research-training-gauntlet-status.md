@@ -531,6 +531,35 @@ impact, trajectory, landing, calibration, analytics, or recommendation is
 present. It remains `research_only=true`, `ground_truth=false`, and
 `production_eligible=false`.
 
+## Cycle 26 explicit spread-status semantics (2026-09-01)
+
+The temporal uncertainty summary now includes a fixed `spread_threshold_px` and
+human-readable `spread_status_description` alongside `spread_status`. The
+statuses are `bounded` at or below 50.0 px, `wide` above 50.0 px, and
+`unavailable` when no finite points are present. These remain research stability
+diagnostics; identity remains unavailable.
+
+A separate transition-focused local render is available at:
+
+```text
+out/research_state_diagnostics/mmu_temporal_spread_transitions/mmu_temporal_spread_transitions_h264_yuv420p.mp4
+```
+
+It is H.264/yuv420p, 600x480, 25 FPS, 199 frames, and 7.96 seconds. Its
+SHA-256 is:
+
+```text
+8470132253bd85217708c7ee919605e524fc6e73093893858de52540b2063e95
+```
+
+The 199-frame decoded contact sheet shows bounded, wide, and unavailable
+transitions through temporal diagnostic bands only. No spatial marker, ball
+identity, impact, trajectory, landing, calibration, analytics, or recommendation
+is rendered. The generated media remains local and ignored; no deterministic
+rerender claim is made because no generator script is tracked for this artifact.
+The output remains `research_only=true`, `ground_truth=false`, and
+`production_eligible=false`.
+
 The Cycle 24 render is the verified temporal confidence-history MP4 above:
 H.264/yuv420p, 600x480, 25 FPS, 112 frames, 4.48 seconds, SHA-256
 `ef34ca9bff0ae16537d547d54049f51bc2387c4691872304efd30724b0ce95a9`. The
