@@ -644,3 +644,24 @@ All numeric labels remain temporal diagnostics. The source area has no added
 spatial marker; domain ball, contact, landing, and calibration remain
 unavailable. The output remains `research_only=true`, `ground_truth=false`, and
 `production_eligible=false`.
+
+## Cycle 30 spread-status consistency validation (2026-09-01)
+
+Temporal summaries now include `spread_status_consistent`, and the reusable
+validator accepts only the exact mapping `unavailable=0`, `bounded=1`, and
+`wide=2`. Invalid types or mismatched pairs are rejected by the helper; this is
+schema validation only and does not promote any observation.
+
+The consistency render is:
+
+```text
+out/research_training_gauntlet/mmu_candidate/analysis/temporal_spread_status_consistency_h264_yuv420p.mp4
+```
+
+It is H.264/yuv420p, 600x480, 25 FPS, 112 frames, and 4.48 seconds, with
+SHA-256 `312e75e9e1d365f16849fdbda0703af1917491a271fd5a87574c561fa6d8a6be`.
+It is byte-identical to the Cycle 29 numeric-status render: the consistency
+check changes diagnostics, not pixels. The decoded contact sheet contains only
+temporal bands and no spatial marker, identity, impact, trajectory, landing,
+calibration, analytics, recommendation, or production claim. Output remains
+`research_only=true`, `ground_truth=false`, and `production_eligible=false`.

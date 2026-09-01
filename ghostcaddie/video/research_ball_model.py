@@ -23,6 +23,15 @@ _SPREAD_STATUS_DESCRIPTIONS = {
 }
 
 
+def validate_spread_status_consistency(spread_status, spread_status_code) -> bool:
+    """Return whether a status/code pair matches the research enumeration."""
+    return (
+        isinstance(spread_status, str)
+        and type(spread_status_code) is int
+        and _SPREAD_STATUS_CODES.get(spread_status) == spread_status_code
+    )
+
+
 def aggregate_temporal_uncertainty(observations: Iterable[dict], *, window: int = 5):
     """Summarize recent research observations without asserting identity.
 
@@ -66,6 +75,9 @@ def aggregate_temporal_uncertainty(observations: Iterable[dict], *, window: int 
         "spread_status": "unavailable",
         "spread_status_code": _SPREAD_STATUS_CODES["unavailable"],
         "spread_status_code_values": sorted(_SPREAD_STATUS_CODES.values()),
+        "spread_status_consistent": validate_spread_status_consistency(
+            "unavailable", _SPREAD_STATUS_CODES["unavailable"]
+        ),
         "spread_status_description": _SPREAD_STATUS_DESCRIPTIONS["unavailable"],
         "spread_threshold_px": _WIDE_SPREAD_THRESHOLD_PX,
         "spread_available": bool(usable),
@@ -84,6 +96,9 @@ def aggregate_temporal_uncertainty(observations: Iterable[dict], *, window: int 
         "spatial_radius_px": spatial_radius,
         "spread_status": spread_status,
         "spread_status_code": _SPREAD_STATUS_CODES[spread_status],
+        "spread_status_consistent": validate_spread_status_consistency(
+            spread_status, _SPREAD_STATUS_CODES[spread_status]
+        ),
         "spread_status_description": _SPREAD_STATUS_DESCRIPTIONS[spread_status],
     })
     return base

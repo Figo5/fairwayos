@@ -5,6 +5,7 @@ from ghostcaddie.video.research_ball_model import (
     ResearchBallTrack,
     normalize_box,
     normalize_point,
+    validate_spread_status_consistency,
 )
 
 
@@ -324,6 +325,27 @@ class TestResearchBallTrack(unittest.TestCase):
             self.assertIs(type(summary["spread_status_code"]), int)
             self.assertEqual(summary["spread_status_code_values"], [0, 1, 2])
             self.assertEqual(summary["identity"], "unavailable")
+
+    def test_spread_status_consistency_helper_accepts_only_exact_code_mapping(self):
+        for status, code in (("unavailable", 0), ("bounded", 1), ("wide", 2)):
+            self.assertTrue(validate_spread_status_consistency(status, code))
+            self.assertFalse(validate_spread_status_consistency(status, code + 1))
+        self.assertFalse(validate_spread_status_consistency("bounded", True))
+        self.assertFalse(validate_spread_status_consistency("unknown", 0))
+
+    def test_temporal_summary_reports_consistent_spread_status_diagnostics(self):
+        from ghostcaddie.video.research_ball_model import aggregate_temporal_uncertainty
+
+        for observations in (
+            [{"point": {"x": 0, "y": 0}}],
+            [{"point": {"x": 0, "y": 0}}, {"point": {"x": 102, "y": 0}}],
+            [{"point": None}],
+        ):
+            summary = aggregate_temporal_uncertainty(observations)
+            self.assertIs(summary["spread_status_consistent"], True)
+            self.assertTrue(validate_spread_status_consistency(
+                summary["spread_status"], summary["spread_status_code"]
+            ))
 
 
 class TestResearchBallMultiHypothesisTrack(unittest.TestCase):
