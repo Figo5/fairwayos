@@ -133,6 +133,18 @@ class TestAIDemoContracts(unittest.TestCase):
         self.assertIsNone(report["shot_event"])
         self.assertEqual(report["source"], {"platform": "youtube", "video_id": "ABCDEFGHIJK"})
         self.assertTrue(all(not Path(ref).is_absolute() for ref in report["artifact_references"]))
+    def test_component_frame_is_an_independent_clean_copy(self):
+        try:
+            import numpy as np
+        except ImportError:
+            self.skipTest("optional NumPy stack unavailable")
+        from ghostcaddie.video.ai_demo import clean_frame_for_components
+        source = np.full((2, 2, 3), 45, dtype=np.uint8)
+        clean = clean_frame_for_components(source)
+        self.assertIsNot(clean, source)
+        clean[0, 0, 0] = 255
+        self.assertEqual(int(source[0, 0, 0]), 45)
+
     def test_unified_mp4_contains_pose_and_ball_overlays_from_clean_frames(self):
         try:
             import cv2

@@ -488,6 +488,11 @@ def build_demo_provenance(*, source: Mapping[str, Any], video_path: Path,
     }
 
 
+def clean_frame_for_components(frame: Any) -> Any:
+    """Return the unannotated frame shared by all inference components."""
+    return frame.copy()
+
+
 def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
                    max_duration_seconds: float = 8.0, max_frames: Optional[int] = None,
                    source: Optional[Mapping[str, Any]] = None,
@@ -563,9 +568,10 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
     observations = []
     trail = []
     for ordinal, (frame, number) in enumerate(zip(frames, frame_numbers)):
-        item = frame.copy()
-        pose, pose_frame_warning = _pose_observation(pose_model, frame, width, height)
-        ball, ball_frame_warning = _ball_observation(ball_model, ball_tracker, frame, width, height) if ball_tracker else (None, "ball_tracker_unavailable")
+        clean_frame = clean_frame_for_components(frame)
+        item = clean_frame.copy()
+        pose, pose_frame_warning = _pose_observation(pose_model, clean_frame, width, height)
+        ball, ball_frame_warning = _ball_observation(ball_model, ball_tracker, clean_frame, width, height) if ball_tracker else (None, "ball_tracker_unavailable")
         overlay_flags = {"marker": False, "tracer_points": 0, "zoom_inset": False}
         if not ball or not ball.get("point") or ball.get("state") == ObservationState.UNAVAILABLE.value:
             trail.clear()

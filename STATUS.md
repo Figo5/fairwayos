@@ -25,7 +25,9 @@ open out/research_training_gauntlet/fairwayos_unified_pexels_6573485/diagnostics
 ```
 
 Native-resolution frame inspection found consistently rendered pose, golfer
-box, feet anchor, ball marker, tracer, and zoom inset. The marker remains a
+box, feet anchor, ball marker, tracer, and zoom inset. The renderer now creates
+an explicit independent clean-frame copy before pose and ball inference, then
+composes overlays onto a separate output copy. The marker remains a
 research candidate: no ground-truth labels establish golf-ball identity,
 reacquisition, precision, recall, or false-positive rate. SwingNet event
 hypotheses are also research-only; exact impact, landing, calibration,
@@ -91,4 +93,4 @@ ffmpeg -v error -i out/research_training_gauntlet/mmu_candidate/analysis/automat
 git diff --check
 ```
 
-The current full suite passes 371 tests with 6 optional-dependency tests skipped. Research media and generated artifacts remain local under ignored `out/` paths. Diagnostic source labels are relative to the research artifact root, so reruns do not serialize local filesystem paths. YouTube provenance metadata is strict JSON; research sidecars reject traversal, URL, and home-relative source identifiers, boolean or non-finite numeric values, and promoted production flags. YouTube duration metadata is rejected when boolean, non-finite, non-positive, or inconsistent with the requested video ID; filesize metadata is rejected when malformed, non-finite, negative, fractional, or boolean, and an explicit zero `filesize` is not replaced by `filesize_approx`.
+The current full suite passes 372 tests with 6 optional-dependency tests skipped. Research media and generated artifacts remain local under ignored `out/` paths. Diagnostic source labels are relative to the research artifact root, so reruns do not serialize local filesystem paths. YouTube provenance metadata is strict JSON; research sidecars reject traversal, URL, and home-relative source identifiers, boolean or non-finite numeric values, and promoted production flags. YouTube duration metadata is rejected when boolean, non-finite, non-positive, or inconsistent with the requested video ID; filesize metadata is rejected when malformed, non-finite, negative, fractional, or boolean, and an explicit zero `filesize` is not replaced by `filesize_approx`.
