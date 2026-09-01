@@ -211,3 +211,25 @@ candidate, not a ball-tracking success. The candidate remains
 
 The exact local QA sheets and sidecar are kept under the ignored MMU analysis
 directory. No generated media is published.
+
+## Cycle 11 visual-alignment gate (2026-09-01)
+
+The research renderer now accepts an explicit `visually_aligned` decision. When
+that decision is false, it suppresses the candidate marker, uncertainty
+envelope, and candidate trail instead of presenting a visually rejected track.
+This is a review gate, not an automatic detector or ground-truth decision.
+
+Using the clean MMU source and the same bounded window `[53, 164]`, the rejected
+render is:
+
+```text
+out/research_training_gauntlet/mmu_candidate/analysis/automatic_ball_tracer_research_overlay_v3_rejected.mp4
+```
+
+The output is H.264/yuv420p, 600x480, 25 FPS, 112 frames, 4.48 seconds, and
+fully decodes. Exhaustive contact-sheet QA confirmed that no candidate marker,
+uncertainty box, or dotted trail remains; only the rejection boundary bars are
+visible. The bright source object is therefore not falsely marked. The sidecar
+records `ground_truth=false`, `research_only=true`, and
+`production_eligible=false`. Ball identity and all downstream production gates
+remain unavailable.

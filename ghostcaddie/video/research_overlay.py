@@ -37,7 +37,8 @@ def overlay_lines(*, frame_index: int, fps: float, state: str,
     )
 
 
-def build_research_ffmpeg_filter(items, *, fps: float, width: int, height: int) -> str:
+def build_research_ffmpeg_filter(items, *, fps: float, width: int, height: int,
+                                visually_aligned: bool = True) -> str:
     """Build a dependency-free, pixel-space research candidate overlay.
 
     ``items`` are already-produced candidate coordinates from a local research
@@ -51,6 +52,8 @@ def build_research_ffmpeg_filter(items, *, fps: float, width: int, height: int) 
         raise ValueError("width must be a positive integer")
     if isinstance(height, bool) or not isinstance(height, int) or height <= 0:
         raise ValueError("height must be a positive integer")
+    if not isinstance(visually_aligned, bool):
+        raise ValueError("visually_aligned must be boolean")
     normalized = []
     previous = None
     for item in items:
@@ -72,7 +75,7 @@ def build_research_ffmpeg_filter(items, *, fps: float, width: int, height: int) 
             raise ValueError("research overlay candidate is outside image bounds")
         normalized.append((frame, x, y, radius, uncertainty))
         previous = frame
-    if not normalized:
+    if not normalized and visually_aligned:
         raise ValueError("at least one research overlay item is required")
 
     # Geometric filters are intentionally used instead of drawtext/drawline:
@@ -82,6 +85,8 @@ def build_research_ffmpeg_filter(items, *, fps: float, width: int, height: int) 
         f"drawbox=x=0:y=0:w={width}:h=4:color=yellow:t=fill",
         f"drawbox=x=0:y={height-4}:w={width}:h=4:color=red:t=fill",
     ]
+    if not visually_aligned:
+        return ",".join(filters)
     for index, (frame, x, y, radius, uncertainty) in enumerate(normalized):
         enable = f"enable='eq(n\\,{frame})'"
         filters.append(

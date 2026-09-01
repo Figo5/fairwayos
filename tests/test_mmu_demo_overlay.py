@@ -56,6 +56,18 @@ class MmuDemoOverlayTests(unittest.TestCase):
         self.assertIn("enable='eq(n\\,1)'", graph)
         self.assertIn("enable='gte(n\\,1)'", graph)
 
+    def test_research_ffmpeg_filter_suppresses_rejected_alignment(self):
+        graph = build_research_ffmpeg_filter(
+            [{"frame": 0, "x": 100, "y": 120, "radius": 8, "uncertainty_px": 4.0}],
+            fps=25.0,
+            width=600,
+            height=480,
+            visually_aligned=False,
+        )
+        self.assertNotIn("enable='eq(n\\,0)'", graph)
+        self.assertNotIn("color=yellow:t=2", graph)
+        self.assertIn("color=red", graph)
+
 
 if __name__ == "__main__":
     unittest.main()
