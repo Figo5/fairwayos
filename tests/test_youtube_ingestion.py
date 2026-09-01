@@ -81,11 +81,11 @@ class YtDlpBoundaryTests(unittest.TestCase):
 
     def test_probe_rejects_private_live_unavailable_and_protected(self):
         for metadata in (
-            {"is_live": True, "duration": 10},
-            {"availability": "private", "duration": 10},
-            {"availability": "unavailable", "duration": 10},
-            {"duration": 10, "live_status": "is_upcoming"},
-            {"duration": 10, "format": "login required"},
+            {"id": VIDEO_ID, "is_live": True, "duration": 10},
+            {"id": VIDEO_ID, "availability": "private", "duration": 10},
+            {"id": VIDEO_ID, "availability": "unavailable", "duration": 10},
+            {"id": VIDEO_ID, "duration": 10, "live_status": "is_upcoming"},
+            {"id": VIDEO_ID, "duration": 10, "format": "login required"},
         ):
             runner, _ = self._runner(metadata)
             with self.subTest(metadata=metadata), tempfile.TemporaryDirectory() as tmp:
