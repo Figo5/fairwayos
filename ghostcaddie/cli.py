@@ -40,6 +40,7 @@ from .video.youtube import DownloadError, DownloadLimits, YtDlpDownloader, parse
 from .video.youtube_auto_try import AUTO_FORMAT, AutoTryConfig, DEFAULT_YTDLP, auto_try
 from .video.fairwayos_research import sidecar_from_mapping, write_fairwayos_sidecar
 from .video.ai_demo import run_local_demo
+from .video.research_split import serialize_split_manifest
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -206,6 +207,12 @@ def _build_parser() -> argparse.ArgumentParser:
                            help="Output FairwayOS research sidecar JSON.")
     sidecar_p.add_argument("--source", default=None,
                            help="Optional human-readable source label; no video bytes are copied.")
+    split_p = sub.add_parser(
+        "research-split-validate",
+        help="Validate and canonicalize a frozen research split manifest; never runs video analytics.",
+    )
+    split_p.add_argument("--input", required=True, type=Path, help="Input golf-research-split.v1 JSON.")
+    split_p.add_argument("--out", required=True, type=Path, help="Output path for canonical validated JSON.")
     return parser
 
 
@@ -260,6 +267,10 @@ def main(argv=None) -> None:
         _run_fairwayos_ball_sidecar_command(args)
         return
 
+    if args.command == "research-split-validate":
+        _run_research_split_validate_command(args)
+        return
+
     config = Config.default()
     if args.seed is not None:
         config = replace(config, simulation=replace(config.simulation, random_seed=args.seed))
@@ -291,6 +302,14 @@ def _run_fairwayos_ball_sidecar_command(args) -> None:
     sidecar = sidecar_from_mapping(payload, source=args.source)
     write_fairwayos_sidecar(args.out, sidecar)
     print(f"Wrote research-only FairwayOS ball sidecar to {args.out}")
+
+
+def _run_research_split_validate_command(args) -> None:
+    with args.input.open() as fh:
+        payload = json.load(fh)
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(serialize_split_manifest(payload) + "\n")
+    print(f"Validated frozen research split manifest to {args.out}")
 
 
 def _run_provider_session_command(args) -> None:

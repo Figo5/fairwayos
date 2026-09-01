@@ -1,5 +1,11 @@
+import json
+import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
+from pathlib import Path
 
+from ghostcaddie.cli import main
 from ghostcaddie.video.errors import VideoContractError
 from ghostcaddie.video.research_split import (
     SCHEMA_VERSION,
@@ -59,6 +65,18 @@ class TestResearchSplitManifest(unittest.TestCase):
         payload["clips"][0]["sha256"] = "not-a-hash"
         with self.assertRaises(VideoContractError):
             validate_split_manifest(payload)
+
+    def test_cli_writes_deterministic_validated_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "manifest.json"
+            output = root / "validated.json"
+            source.write_text(json.dumps(self.valid_payload(), indent=2))
+            with redirect_stdout(StringIO()) as stdout:
+                main(["research-split-validate", "--input", str(source), "--out", str(output)])
+            self.assertTrue(output.is_file())
+            self.assertEqual(output.read_text(), serialize_split_manifest(self.valid_payload()) + "\n")
+            self.assertIn("validated", stdout.getvalue().lower())
 
 
 if __name__ == "__main__":

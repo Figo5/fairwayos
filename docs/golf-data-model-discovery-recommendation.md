@@ -114,7 +114,8 @@ Create the split manifest before any training:
 Minimum partitions are `train`, `validation`, and `held_out`; a second independent rights-cleared test set is preferred before any production discussion.
 
 FairwayOS now includes a pure standard-library validator for this narrow boundary:
-`ghostcaddie.video.research_split.validate_split_manifest`. It accepts only a
+`ghostcaddie.video.research_split.validate_split_manifest` and the
+`research-split-validate` CLI command. It accepts only a
 `golf-research-split.v1` manifest with frozen status, lowercase SHA-256 clip
 digests, and all three required partitions. It rejects duplicate clips or
 digests and any source, subject, or sequence identifier appearing in more than
