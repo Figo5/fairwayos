@@ -1,6 +1,6 @@
 # Research-training gauntlet status
 
-Date: 2026-08-28
+Date: 2026-08-31
 
 Status: **research-only / production blocked**.
 
@@ -14,7 +14,7 @@ out/research_training_gauntlet/manifest.json
 
 Downloaded media, extracted frames, annotations, reports, and model outputs remain under the ignored local directory `out/research_training_gauntlet/`.
 
-The YouTube ingestion boundary rejects provider metadata with boolean, non-finite, or non-positive duration before invoking the download subprocess. Estimated `filesize` metadata now has precedence over `filesize_approx`; when present it must be a finite, non-negative integer and is rejected as malformed metadata otherwise. Missing duration or size remains an explicit provider limitation rather than an invented value.
+The YouTube ingestion boundary rejects provider metadata with boolean, non-finite, or non-positive duration and rejects a returned video ID that differs from the requested ID before invoking the download subprocess. Estimated `filesize` metadata now has precedence over `filesize_approx`; when present it must be a finite, non-negative integer and is rejected as malformed metadata otherwise. Missing duration or size remains an explicit provider limitation rather than an invented value.
 
 The automatic YouTube boundary preserves distinct blocked categories for `duration_limit` and `segment_limit`; these are not collapsed into generic video-unavailable failures.
 
@@ -87,7 +87,7 @@ recommendation: null
 
 ## Verification
 
-- full unittest suite: 362 tests passed, 6 skipped;
+- full unittest suite: 365 tests passed, 6 skipped;
 - `compileall`: passed;
 - `git diff --check`: passed;
 - accepted Pexels 6573485 MP4: H.264, 1920x1080, 15 FPS, 121 frames, `yuv420p`;

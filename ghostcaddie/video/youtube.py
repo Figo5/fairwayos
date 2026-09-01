@@ -203,6 +203,9 @@ class YtDlpDownloader:
                 raise DownloadError("downloader returned invalid metadata", "malformed_metadata") from exc
             if not isinstance(metadata, dict):
                 raise DownloadError("downloader returned invalid metadata", "malformed_metadata")
+            returned_id = metadata.get("id")
+            if returned_id is not None and returned_id != source.video_id:
+                raise DownloadError("downloader returned a different video", "malformed_metadata")
             if metadata.get("is_live") or metadata.get("live_status") in {"is_live", "is_upcoming", "post_live"}:
                 raise DownloadError("live or upcoming videos are not allowed", "live_not_allowed")
             if metadata.get("is_private"):
