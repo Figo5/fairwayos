@@ -23,7 +23,7 @@ _PHASE_ALIASES = {
     "flight": "ball_flight",
     "ball flight": "ball_flight",
 }
-_VALID_WARNINGS = {"occlusion", "blur", "lighting", "camera_motion", "ball_missing", "low_confidence"}
+_VALID_WARNINGS = {"occlusion", "blur", "lighting", "camera_motion", "ball_missing", "anchor_missing", "low_confidence"}
 
 
 def _number(value: Any, name: str) -> float:
@@ -83,7 +83,7 @@ class PixelBBox:
 @dataclass(frozen=True)
 class GolferObservation:
     bbox: PixelBBox
-    anchor: Dict[str, Any]
+    anchor: Optional[Dict[str, Any]]
     confidence: float
 
     @classmethod
@@ -94,10 +94,11 @@ class GolferObservation:
         confidence = _number(item["confidence"], "golfer.confidence")
         if not 0 <= confidence <= 1:
             raise VideoContractError("golfer.confidence must be between 0 and 1")
-        return cls(PixelBBox.from_dict(item["bbox"], bounds), _point(item["anchor"], "golfer.anchor", bounds, confidence=False), confidence)
+        anchor = None if item["anchor"] is None else _point(item["anchor"], "golfer.anchor", bounds, confidence=False)
+        return cls(PixelBBox.from_dict(item["bbox"], bounds), anchor, confidence)
 
     def to_dict(self):
-        return {"bbox": self.bbox.to_dict(), "anchor": dict(self.anchor), "confidence": self.confidence}
+        return {"bbox": self.bbox.to_dict(), "anchor": None if self.anchor is None else dict(self.anchor), "confidence": self.confidence}
 
 
 @dataclass(frozen=True)
@@ -135,6 +136,8 @@ class PixelObservation:
         warnings = item["warnings"]
         if not isinstance(warnings, list) or any(w not in _VALID_WARNINGS for w in warnings):
             raise VideoContractError("warnings must use the defined warning codes")
+        if (item["golfer"].get("anchor") is None) != ("anchor_missing" in warnings):
+            raise VideoContractError("missing golfer anchor requires exactly anchor_missing warning")
         if item["ball"] is None and "ball_missing" not in warnings:
             raise VideoContractError("missing ball requires ball_missing warning")
         if item["ball"] is not None and "ball_missing" in warnings:

@@ -8,6 +8,20 @@ from ghostcaddie.video.yolo_pose_detector import create_detector
 
 
 class YoloPoseDetectorTests(unittest.TestCase):
+    def test_detector_leaves_anchor_unavailable_without_confident_ankles(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            frame = Path(tmp) / "frame_000001.jpg"
+            frame.write_bytes(b"placeholder")
+            fake_result = _FakeResult()
+            fake_result.keypoints = _FakeKeypointsWithoutAnkles()
+            with patch("ghostcaddie.video.yolo_pose_detector.cv2") as cv2, \
+                    patch("ghostcaddie.video.yolo_pose_detector.YOLO") as factory:
+                cv2.imread.return_value = _FakeImage()
+                factory.return_value.return_value = [fake_result]
+                result = create_detector().detect([str(frame)])
+
+        self.assertIsNone(result.items[0].golfer.anchor)
+
     def test_detector_returns_validated_pixel_observations_with_explicit_unknowns(self):
         with tempfile.TemporaryDirectory() as tmp:
             frame = Path(tmp) / "frame_000001.jpg"
@@ -66,6 +80,11 @@ class _FakeBoxes:
 class _FakeKeypoints:
     xy = _FakeTensor([[[60.0, 30.0]] * 17])
     conf = _FakeTensor([[0.9] * 17])
+
+
+class _FakeKeypointsWithoutAnkles:
+    xy = _FakeTensor([[[60.0, 30.0]] * 17])
+    conf = _FakeTensor([[0.9] * 15 + [0.1, 0.1]])
 
 
 class _FakeResult:

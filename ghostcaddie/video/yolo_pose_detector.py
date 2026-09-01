@@ -59,17 +59,19 @@ class YoloPoseDetector:
             keypoints = self._keypoints(result, index)
             ankles = [keypoints[i] for i in (15, 16) if i in keypoints]
             anchor = (sum(p[0] for p in ankles) / len(ankles),
-                      sum(p[1] for p in ankles) / len(ankles)) if ankles else ((x1 + x2) / 2, y2)
+                      sum(p[1] for p in ankles) / len(ankles)) if ankles else None
             match = _FRAME_RE.search(path.stem)
             sampled_index = int(match.group(1)) - 1 if match else len(records)
             warnings = ["ball_missing"]
+            if anchor is None:
+                warnings.append("anchor_missing")
             if confidence < 0.5:
                 warnings.append("low_confidence")
             records.append({
                 "frame_index": sampled_index,
                 "timestamp_seconds": round(sampled_index / self.sample_fps, 6),
                 "golfer": {"bbox": {"x": x1, "y": y1, "width": x2 - x1, "height": y2 - y1},
-                           "anchor": {"x": anchor[0], "y": anchor[1]}, "confidence": confidence},
+                           "anchor": None if anchor is None else {"x": anchor[0], "y": anchor[1]}, "confidence": confidence},
                 "club": None, "clubhead": None, "ball": None, "phase": "unknown",
                 "contact": None, "intended_direction": None, "landing": None,
                 "warnings": sorted(set(warnings)),

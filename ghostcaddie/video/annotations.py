@@ -88,8 +88,9 @@ def build_annotation_filter(observation: PixelObservation, calibration=None) -> 
     filters = []
     bbox = observation.golfer.bbox
     filters.append(f"drawbox=x={bbox.x:g}:y={bbox.y:g}:w={bbox.width:g}:h={bbox.height:g}:color=lime:t=3")
-    ax, ay = _point(observation.golfer.anchor)
-    filters.append(f"drawbox=x={ax-5:g}:y={ay-5:g}:w=10:h=10:color=cyan:t=fill")
+    if observation.golfer.anchor is not None:
+        ax, ay = _point(observation.golfer.anchor)
+        filters.append(f"drawbox=x={ax-5:g}:y={ay-5:g}:w=10:h=10:color=cyan:t=fill")
     filters.append(f"drawtext=text='phase={_text(observation.phase)}':x=12:y=12:fontsize=22:fontcolor=white:box=1:boxcolor=black@0.7")
     filters.append(f"drawtext=text='golfer confidence\\: {observation.golfer.confidence:.2f}':x=12:y=40:fontsize=18:fontcolor=white:box=1:boxcolor=black@0.7")
     if observation.club:
@@ -106,17 +107,21 @@ def build_annotation_filter(observation: PixelObservation, calibration=None) -> 
         else:
             filters.append(f"drawtext=text='{label}\\: unavailable':x=12:y={y}:fontsize=18:fontcolor=gray:box=1:boxcolor=black@0.7")
             y += 24
-    if observation.intended_direction is not None:
+    if observation.intended_direction is not None and observation.golfer.anchor is not None:
         dx, dy = _point(observation.intended_direction)
         length = (dx * dx + dy * dy) ** 0.5 or 1.0
-        filters.append(_line(ax, ay, ax + 120 * dx / length, ay + 120 * dy / length, "yellow"))
+        anchor_x, anchor_y = _point(observation.golfer.anchor)
+        filters.append(_line(anchor_x, anchor_y, anchor_x + 120 * dx / length, anchor_y + 120 * dy / length, "yellow"))
         filters.append("drawtext=text='intended direction':x=12:y=%d:fontsize=18:fontcolor=yellow:box=1:boxcolor=black@0.7" % y)
+    elif observation.intended_direction is not None:
+        filters.append("drawtext=text='intended direction\\: unavailable':x=12:y=%d:fontsize=18:fontcolor=gray:box=1:boxcolor=black@0.7" % y)
     else:
         filters.append("drawtext=text='intended direction\\: unavailable':x=12:y=%d:fontsize=18:fontcolor=gray:box=1:boxcolor=black@0.7" % y)
     y += 24
-    if observation.landing is not None:
+    if observation.landing is not None and observation.golfer.anchor is not None:
         lx, ly = _point(observation.landing)
-        filters.append(_line(ax, ay, lx, ly, "blue"))
+        anchor_x, anchor_y = _point(observation.golfer.anchor)
+        filters.append(_line(anchor_x, anchor_y, lx, ly, "blue"))
         filters.append(f"drawtext=text='trajectory\\: estimated landing':x=12:y={y}:fontsize=18:fontcolor=blue:box=1:boxcolor=black@0.7")
     else:
         filters.append(f"drawtext=text='trajectory\\: unavailable':x=12:y={y}:fontsize=18:fontcolor=gray:box=1:boxcolor=black@0.7")
@@ -215,8 +220,9 @@ def _fallback_render(rgb, width, height, observation, calibration=None):
 
     bbox = observation.golfer.bbox
     _fallback_rect(rgb, width, height, bbox.x, bbox.y, bbox.width, bbox.height, (80, 255, 80), thickness=3)
-    ax, ay = _point(observation.golfer.anchor)
-    _fallback_rect(rgb, width, height, ax - 5, ay - 5, 10, 10, (0, 255, 255), fill=True)
+    if observation.golfer.anchor is not None:
+        ax, ay = _point(observation.golfer.anchor)
+        _fallback_rect(rgb, width, height, ax - 5, ay - 5, 10, 10, (0, 255, 255), fill=True)
     for point, _, color in points:
         if point is not None:
             px, py = _point(point)
@@ -224,10 +230,13 @@ def _fallback_render(rgb, width, height, observation, calibration=None):
     if observation.intended_direction is not None:
         dx, dy = _point(observation.intended_direction)
         length = (dx * dx + dy * dy) ** 0.5 or 1.0
-        _fallback_line(rgb, width, height, ax, ay, ax + 120 * dx / length, ay + 120 * dy / length, (255, 230, 0))
-    if observation.landing is not None:
+        if observation.golfer.anchor is not None:
+            anchor_x, anchor_y = _point(observation.golfer.anchor)
+            _fallback_line(rgb, width, height, anchor_x, anchor_y, anchor_x + 120 * dx / length, anchor_y + 120 * dy / length, (255, 230, 0))
+    if observation.landing is not None and observation.golfer.anchor is not None:
         lx, ly = _point(observation.landing)
-        _fallback_line(rgb, width, height, ax, ay, lx, ly, (50, 100, 255))
+        anchor_x, anchor_y = _point(observation.golfer.anchor)
+        _fallback_line(rgb, width, height, anchor_x, anchor_y, lx, ly, (50, 100, 255))
     if calibration is not None:
         for point in calibration.source_points:
             _fallback_rect(rgb, width, height, point.x - 4, point.y - 4, 8, 8, (255, 255, 255), fill=True)

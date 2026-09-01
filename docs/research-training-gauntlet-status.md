@@ -25,6 +25,7 @@ Research ball sidecars reject booleans, strings, fractional values, and negative
 
 - ResearchBallTracker rejects non-finite/boolean `max_step_pixels` and coerced fractional/boolean `max_gap_frames` or `min_pixels`; bounds remain explicit constructor contracts.
 - Generated extraction outputs reject symlinked output directories and contact-sheet output files instead of resolving through them; stale `frame_manifest.json` files are removed before a rerun so a failed extraction cannot leave a manifest describing regenerated or missing frames.
+- The optional YOLO pose adapter now leaves the golfer anchor unavailable when neither ankle keypoint is confident; it no longer substitutes a bounding-box bottom, and emits `anchor_missing` explicitly.
 - Research impact brackets reject negative, boolean, or fractional frame indices, non-finite/boolean confidence, and single-frame brackets; `min/max` ordering no longer masks malformed input.
 - FFprobe metadata parsing accepts normal numeric strings but rejects boolean, fractional, non-finite, and malformed dimensions, frame counts, and durations.
 
@@ -95,7 +96,7 @@ recommendation: null
 
 ## Verification
 
-- full unittest suite: 381 tests passed, 6 skipped;
+- full unittest suite: 382 tests passed, 6 skipped;
 - `compileall`: passed;
 - `git diff --check`: passed;
 - accepted Pexels 6573485 MP4: H.264, 1920x1080, 15 FPS, 121 frames, `yuv420p`;
