@@ -566,3 +566,29 @@ H.264/yuv420p, 600x480, 25 FPS, 112 frames, 4.48 seconds, SHA-256
 source imagery is retained only as bounded local research material; no media is
 published. Output remains `research_only=true`, `ground_truth=false`, and
 `production_eligible=false`.
+
+## Cycle 27 spread availability and threshold diagnostic (2026-09-01)
+
+Temporal spread summaries now expose `spread_available`, allowing consumers to
+distinguish a usable finite spread measurement from an explicitly unavailable
+result without inferring state from a missing field. Identity remains unavailable
+and confidence remains `detection_quality_not_identity`.
+
+The new threshold-labeled render is:
+
+```text
+out/research_state_diagnostics/mmu_bounded_spread_diagnostic/mmu_bounded_spread_diagnostic_h264_yuv420p.mp4
+```
+
+It is H.264/yuv420p, 600x480, 25 FPS, 199 frames, and 7.96 seconds. Its
+verified SHA-256 is:
+
+```text
+f9d04df0c813d26ec5e4266c69c0ccfec188ac6969075b8d30780b0be33f941d
+```
+
+The diagnostic visibly labels `50 PX`, `BOUNDED`, `WIDE`, and `UNAVAILABLE`
+transitions through temporal bands only. No spatial marker, ball identity,
+impact, trajectory, landing, calibration, analytics, or recommendation is
+rendered. The artifact remains local and ignored with
+`research_only=true`, `ground_truth=false`, and `production_eligible=false`.

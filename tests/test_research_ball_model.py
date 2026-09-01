@@ -294,6 +294,19 @@ class TestResearchBallTrack(unittest.TestCase):
         self.assertEqual(wide["spread_status_description"], "centroid radius above threshold")
         self.assertEqual(unavailable["spread_status_description"], "no finite points available")
 
+    def test_temporal_spread_summary_exposes_availability_for_consumers(self):
+        from ghostcaddie.video.research_ball_model import aggregate_temporal_uncertainty
+
+        available = aggregate_temporal_uncertainty([
+            {"point": {"x": 0, "y": 0}, "confidence": 0.8},
+        ])
+        unavailable = aggregate_temporal_uncertainty([{"point": None}])
+
+        self.assertTrue(available["spread_available"])
+        self.assertFalse(unavailable["spread_available"])
+        self.assertEqual(available["spread_available"], available["spread_status"] != "unavailable")
+        self.assertEqual(unavailable["spread_available"], unavailable["spread_status"] != "unavailable")
+
 
 class TestResearchBallMultiHypothesisTrack(unittest.TestCase):
     def test_confidence_semantics_are_detection_quality_not_identity(self):

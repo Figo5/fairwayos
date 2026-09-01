@@ -59,6 +59,7 @@ def aggregate_temporal_uncertainty(observations: Iterable[dict], *, window: int 
         "spread_status": "unavailable",
         "spread_status_description": _SPREAD_STATUS_DESCRIPTIONS["unavailable"],
         "spread_threshold_px": _WIDE_SPREAD_THRESHOLD_PX,
+        "spread_available": bool(usable),
     }
     if not usable:
         return {**base, "state": "unavailable", "provenance": "unavailable"}
