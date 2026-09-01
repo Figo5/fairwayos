@@ -369,3 +369,29 @@ research candidate: misses and oversized/ambiguous boxes remain. The ONNX
 adapter collapses detections to a zero-height boundary, so its output is
 unavailable pending coordinate-decoding repair. Generic sports-ball detections
 were not relabeled as golf-ball evidence.
+
+## Cycle 19 research-only model comparison (2026-09-01)
+
+The local ball adapter now rejects degenerate or out-of-frame boxes before they
+reach research tracking. Candidate observations emitted by the local model are
+explicitly serialized with `research_only=true`, `ground_truth=false`, and
+`production_eligible=false`.
+
+A separate model-comparison renderer was added for local experimentation. It
+keeps PT and ONNX unavailable in this comparison, labels the generic output as
+`GENERIC CANDIDATE`, and displays `NOT GOLF-BALL IDENTITY | IDENTITY UNAVAILABLE`.
+It does not convert generic sports-ball output into golf-ball evidence.
+
+The rendered local artifact is:
+
+```text
+out/research_model_comparison/comparison_overlay_h264_yuv420p.mp4
+```
+
+It is H.264/yuv420p, 600x480, 25 FPS, 223 frames, and 8.92 seconds. Full
+contact-sheet QA confirmed persistent research-only/unavailable diagnostics and
+no unlabeled ball identity or production analytics. The artifact hash is:
+
+```text
+e2f14cf99fd08f7a79acf33f8bfccdb0e6b3e71655e1c956fb45e9c1efda930f
+```

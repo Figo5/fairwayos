@@ -49,6 +49,37 @@ class TestResearchBallModel(unittest.TestCase):
         with self.assertRaises(ValueError):
             normalize_box((0.1, 0.2, float("inf"), 0.3), 600, 480)
 
+    def test_rejects_degenerate_or_out_of_frame_boxes(self):
+        for box in (
+            (100.0, 200.0, 100.0, 210.0),
+            (100.0, 200.0, 110.0, 200.0),
+            (-1.0, 200.0, 10.0, 210.0),
+            (100.0, 470.0, 110.0, 481.0),
+        ):
+            with self.subTest(box=box), self.assertRaises(ValueError):
+                normalize_box(box, 600, 480)
+
+    def test_adapter_skips_collapsed_boundary_boxes_but_keeps_valid_pt_candidate(self):
+        from ghostcaddie.video import ai_demo
+
+        model = _FakeBallModel(boxes=[
+            (0.99, [0.0, 479.0, 600.0, 480.0]),
+            (0.65, [109.0, 209.0, 121.0, 221.0]),
+        ])
+        tracker = _RecordingTracker()
+
+        ball, warning = ai_demo._ball_observation(
+            model, tracker, _NumpyishFrame(600, 480), 600, 480
+        )
+
+        self.assertIsNone(warning)
+        self.assertEqual(len(tracker.seen), 1)
+        self.assertEqual(tracker.seen[0]["box"], [109.0, 209.0, 121.0, 221.0])
+        self.assertEqual(ball["point"], {"x": 115.0, "y": 215.0})
+        self.assertTrue(ball["research_only"])
+        self.assertFalse(ball["ground_truth"])
+        self.assertFalse(ball["production_eligible"])
+
 
 class TestBallModelBoxSkipping(unittest.TestCase):
     def test_implausible_box_skipped_and_real_box_kept(self):

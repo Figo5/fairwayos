@@ -269,4 +269,6 @@ def normalize_box(box: Iterable[float], width: int, height: int) -> Tuple[float,
         raise ValueError("box implausibly large for a golf ball")
     if box_width * box_height > 0.05 * width * height:
         raise ValueError("box implausibly large for a golf ball")
+    if not (0.0 <= x1 < x2 <= width and 0.0 <= y1 < y2 <= height):
+        raise ValueError("box must be within the image frame")
     return x1, y1, x2, y2

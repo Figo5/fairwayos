@@ -344,7 +344,8 @@ def _ball_observation(model, tracker, frame, width: int, height: int):
                     # genuine ball detection emitted in the same frame.
                     continue
                 candidates.append({"center": ((x1 + x2) / 2.0, (y1 + y2) / 2.0), "confidence": confidence,
-                                  "box": [x1, y1, x2, y2]})
+                                  "box": [x1, y1, x2, y2], "research_only": True,
+                                  "ground_truth": False, "production_eligible": False})
         tracked = tracker.update(candidates)
         raw_state = tracked.get("state", ObservationState.UNAVAILABLE.value)
         state = _normalize_tracker_state(raw_state)
@@ -353,13 +354,17 @@ def _ball_observation(model, tracker, frame, width: int, height: int):
         if point is None:
             return {"state": state, "confidence": 0.0,
                     "uncertainty": None, "candidate_count": len(candidates), "model": "local_golf_ball",
-                    "tracker_state": raw_state, "tracker_warning": warning}, None
+                    "tracker_state": raw_state, "tracker_warning": warning,
+                    "research_only": True, "ground_truth": False,
+                    "production_eligible": False}, None
         return {"state": state,
                 "confidence": round(float(tracked.get("confidence", 0.0)), 4),
                 "uncertainty": round(max(2.0, (1.0 - float(tracked.get("confidence", 0.0))) * 30.0), 2),
                 "point": {"x": round(float(point["x"]), 2), "y": round(float(point["y"]), 2)},
                 "candidate_count": len(candidates), "model": "local_golf_ball",
-                "tracker_warning": warning, "tracker_state": raw_state}, None
+                "tracker_warning": warning, "tracker_state": raw_state,
+                "research_only": True, "ground_truth": False,
+                "production_eligible": False}, None
     except Exception:
         return None, "ball_inference_failed"
 
