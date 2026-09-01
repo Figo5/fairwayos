@@ -255,7 +255,14 @@ class ImpactCandidateInterval:
             return cls(None, None, 0.0, None)
         if frame_rate <= 0:
             raise ValueError("frame_rate must be positive")
+        for value in frames:
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError("frame indices must be non-negative integers")
+        if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not math.isfinite(confidence):
+            raise ValueError("confidence must be a finite number between 0 and 1")
         start, end = min(frames), max(frames)
+        if start == end:
+            raise ValueError("impact candidate bracket requires two distinct frames")
         uncertainty = max(1, int(math.ceil(frame_rate / 30.0)))
         return cls(start, end, max(0.0, min(1.0, confidence)), uncertainty)
 

@@ -103,6 +103,20 @@ class TestAutomaticPerceptionContracts(unittest.TestCase):
         self.assertEqual((interval.start_frame, interval.end_frame), (3, 4))
         self.assertEqual(interval.uncertainty_frames, 2)
 
+    def test_impact_interval_rejects_malformed_frames_and_confidence(self):
+        with self.assertRaises(ValueError):
+            ImpactCandidateInterval.from_frames([-1, 2], confidence=0.8, frame_rate=60)
+        with self.assertRaises(ValueError):
+            ImpactCandidateInterval.from_frames([True, 2], confidence=0.8, frame_rate=60)
+        with self.assertRaises(ValueError):
+            ImpactCandidateInterval.from_frames([1.5, 2], confidence=0.8, frame_rate=60)
+        with self.assertRaises(ValueError):
+            ImpactCandidateInterval.from_frames([0, 2], confidence=float("nan"), frame_rate=60)
+        with self.assertRaises(ValueError):
+            ImpactCandidateInterval.from_frames([0, 2], confidence=float("inf"), frame_rate=60)
+        with self.assertRaises(ValueError):
+            ImpactCandidateInterval.from_frames([0, 2], confidence=True, frame_rate=60)
+
     def test_sequence_gates_block_motion_and_cuts_with_reasons(self):
         decision = evaluate_sequence_gates(
             camera_motion_displacements=[0.01, 0.05], cut_frames=[4],
