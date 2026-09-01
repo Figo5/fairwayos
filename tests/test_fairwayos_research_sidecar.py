@@ -82,6 +82,19 @@ class FairwayOSResearchSidecarTests(unittest.TestCase):
             self.assertEqual(written["track"]["items"][0]["frame_index"], 3)
             self.assertFalse(written["production_eligible"])
 
+    def test_sidecar_rejects_boolean_track_measurements(self):
+        for field, value in (("confidence", True), ("frame_index", False)):
+            with self.subTest(field=field):
+                payload = {
+                    "track_id": "ball-0",
+                    "items": [{"frame_index": 3, "center": [4, 5],
+                               "confidence": 0.8, "provenance": "candidate",
+                               "warnings": []}],
+                }
+                payload["items"][0][field] = value
+                with self.assertRaises(ValueError):
+                    sidecar_from_mapping(payload, source="clip.mp4")
+
     def test_writer_rejects_nonfinite_nested_values(self):
         with tempfile.TemporaryDirectory() as directory:
             output_path = Path(directory) / "sidecar.json"

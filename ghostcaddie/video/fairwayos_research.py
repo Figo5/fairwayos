@@ -20,6 +20,8 @@ FAIRWAYOS_BALL_RESEARCH_SCHEMA_VERSION = "fairwayos-ball-research.v1"
 
 
 def _json_number(value: Any, name: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be numeric")
     try:
         number = float(value)
     except (TypeError, ValueError) as exc:
@@ -106,6 +108,8 @@ def sidecar_from_mapping(payload: Mapping[str, Any], *, source: Optional[str] = 
         frame_value = raw.get("frame_index", raw.get("frame"))
         if frame_value is None:
             raise ValueError("each track item requires frame_index or frame")
+        if isinstance(frame_value, bool):
+            raise ValueError("frame_index must be an integer")
         center = raw.get("center")
         if center is None and raw.get("x") is not None and raw.get("y") is not None:
             center = (raw["x"], raw["y"])
@@ -113,8 +117,10 @@ def sidecar_from_mapping(payload: Mapping[str, Any], *, source: Optional[str] = 
             if not isinstance(center, (list, tuple)) or len(center) != 2:
                 raise ValueError("center must be null or a two-item array")
             center = (center[0], center[1])
+        confidence_value = raw.get("confidence", 0.0)
+        confidence = _json_number(confidence_value, "confidence")
         items.append(BallTrackItem(
-            int(frame_value), center, float(raw.get("confidence", 0.0)),
+            int(frame_value), center, confidence,
             str(raw.get("provenance", raw.get("state", "unavailable"))),
             tuple(raw.get("warnings", ()))
         ))
