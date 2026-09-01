@@ -135,7 +135,7 @@ python3 -m ghostcaddie youtube-auto-try \\
 
 The command uses the modern configured yt-dlp executable by default and passes `--js-runtimes node:/usr/local/bin/node`. `--yt-dlp` is optional and is validated as an executable regular file. The bounded low-resolution selector, 20-second maximum segment, size/disk/timeout limits, `--no-playlist`, `shell=False`, and no-credential/no-cookie/no-proxy policy remain enforced.
 
-Its output is useful even when blocked: `diagnostics.json`, extracted frames, a contact sheet, and copied annotated-frame artifacts are produced after successful ingestion. Missing detector, camera cuts, multiple golfers, low confidence, missing ball/club/contact, and missing calibration remain explicit blocking reasons. Without calibration, output remains pixel-space and no recommendation is emitted. `--fallback-human` only prepares the explicit human annotation workspace.
+Its output is useful even when blocked: `diagnostics.json`, extracted frames, a contact sheet, and copied annotated-frame artifacts are produced after successful ingestion. Missing detector, camera cuts, multiple golfers, low confidence, missing ball/club/contact/landing, and missing calibration remain explicit blocking reasons. Without calibration, output remains pixel-space and no recommendation is emitted. `--fallback-human` only prepares the explicit human annotation workspace.
 
 After an approved evaluator adapter is supplied, the planned data-dependent comparison command should have this shape:
 

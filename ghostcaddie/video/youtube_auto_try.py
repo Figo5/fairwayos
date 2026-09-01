@@ -100,7 +100,7 @@ def _blocking_reasons(observations, detector_result, *, validated=False):
         reasons.append("cut")
     if any(item.get("golfer_count", 0) > 1 or item.get("person_count", 0) > 1 for item in observations if isinstance(item, dict)):
         reasons.append("multiple_golfers")
-    fields = ("ball", "club", "clubhead", "contact")
+    fields = ("ball", "club", "clubhead", "contact", "landing")
     for field in fields:
         if not any(isinstance(item, dict) and item.get(field) is not None for item in observations):
             reasons.append(field + "_unavailable")

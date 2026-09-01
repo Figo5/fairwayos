@@ -97,6 +97,22 @@ class YoutubeAutoTryTests(unittest.TestCase):
             self.assertIn("detector_unavailable", result["blocking_reasons"])
             self.assertNotIn("recommendation", result)
 
+    def test_missing_landing_is_a_blocking_reason(self):
+        observation = {
+            "golfer_count": 1,
+            "person_count": 1,
+            "pose": {"anchor": {"x": 1, "y": 1}},
+            "ball": {"x": 2, "y": 2},
+            "club": {"x": 3, "y": 3},
+            "clubhead": {"x": 4, "y": 4},
+            "contact": {"frame": 5},
+            "landing": None,
+            "confidence": 0.9,
+        }
+        from ghostcaddie.video.youtube_auto_try import _blocking_reasons
+        reasons = _blocking_reasons([observation], {}, validated=True)
+        self.assertIn("landing_unavailable", reasons)
+
     def test_detector_evidence_reports_cuts_multiple_golfers_missing_items_and_low_confidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); source = root / "source.mp4"; source.write_bytes(b"video")
