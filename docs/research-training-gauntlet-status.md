@@ -126,3 +126,62 @@ near-ball observations at the clubface pass-through and marks the rest
 unavailable. No ground truth exists, so no ball precision/recall is claimed.
 
 The next genuine milestone requires legally usable paired annotations and a documented golf-ball/clubhead checkpoint or a consented FairwayOS-owned dataset. Until then, the project remains technically ready but data/model blocked.
+
+## Cycle 9 verification (2026-09-01, HEAD b99db9e)
+
+Baseline re-verified: accepted source `pexels_6573485/source.mp4` sha256
+`a6e48474045365d1de2d4af76f65da558531684d67da87172cdd15a6dc45e1d6`; accepted
+output 121/121 pose observed, ball explicitly unavailable on all 121 frames;
+H.264/yuv420p 1920x1080, 15 fps, 121 frames; full decode clean; provenance
+`source.video_id=6573485` matches local naming.
+
+Deterministic reruns: two fresh renders of the accepted clip at the accepted
+parameters (sample-fps 15, max-duration 8) produce byte-identical annotated
+frames and the identical annotated-video sha256 `eb01781a9a8b36768e5c403fe2a5b
+00996a5d85818f0bdd3461ac5f4fdd59950` as the accepted artifact. Diagnostics and
+provenance are semantically identical across reruns. Evidence:
+`run_c9_deterministic_rerun.py`, `c9_deterministic_rerun_check.json`. A
+`python3 -m ghostcaddie.cli` invocation silently did nothing before this cycle
+because `ghostcaddie/cli.py` had no `__main__` guard; the guard now runs `main()`.
+
+Renderer integrity: pose, ball, clubhead-candidate, and SwingNet overlays all
+consume one clean `clean_frame_for_components` copy and compose once; the
+accepted artifact contains zero ball-marker/tracer/inset structures on all 121
+frames, matching diagnostics (0 ball observations). Evidence: `c9_renderer_review/`.
+
+Pose stability: the accepted clip contains a second background person in all 39
+sampled frames (conf 0.56-0.84); the single `golfer-0` track stays viable only
+through top-confidence selection. `_pose_observation` now records honest
+`person_count`, `second_person_count`, and `multi_person_frame` metadata on
+every pose observation (no behavior change; accepted clip reports person_count=2
+on 121/121). Evidence: `c9_pose_eval/`.
+
+Ball evidence per clip (current code, separate rows, never merged):
+6573485 unavailable 104/104; 6573612 observed 15, predicted 2, unavailable 28;
+6573486 observed 5, predicted 1, unavailable 55; impact_candidate observed 147;
+flight_candidate observed 1; mmu_candidate observed 8. Implausible-box
+rejections: 125/123/134/99/131/220. Native QA of the 6573612 frame-74
+observation shows the marker/label rendered on the clubhead with no visible
+ball (single-frame low-confidence detection at clubface pass-through) — it
+stays recorded as non-ground-truth evidence, not promoted. Evidence:
+`c9_ball_eval/`.
+
+Trajectory/landing: no local clip reaches 8 defensible consecutive observed
+ball points; best is 2. Trajectory proposal and landing remain unavailable.
+Evidence: `c9_trajectory_eval/trajectory_proposal_verdict.json`.
+
+Clubhead/contact: every local candidate was re-triaged at native resolution
+(6573618 rejected: single-frame contact only; 5200687 cuts away before impact;
+6573486 no strike on screen; others framing-limited). No locally runnable,
+license-clear clubhead/contact checkpoint exists (SwingNet CC BY-NC code with
+unstated checkpoint license; ClubheadDB package ships no checkpoint; CADDIE/GolfClub
+has no public checkpoint). Evidence: `c9_clubhead_recon/recon_summary.json`.
+
+SwingNet (research-only): predictions for all three pexels clips reproduce
+exactly (rerun match <1e-6); same-frame event clustering and convention
+sensitivity (chunked vs whole-clip LSTM) recorded as honesty findings. Evidence:
+`c9_swingnet_eval/`.
+
+Video QA: all three annotated MP4s are H.264/yuv420p with monotonic
+decoded-order timestamps, clean full decodes, and provenance sha256 matching
+their sources. Evidence: `c9_video_qa/`.
