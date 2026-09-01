@@ -54,8 +54,8 @@ def evaluate_candidate_quality(
             try:
                 x, y = float(point["x"]), float(point["y"])
                 valid_point = math.isfinite(x) and math.isfinite(y)
-                if valid_point and width is not None:
-                    valid_point = 0 <= x <= width and 0 <= y <= height
+                if valid_point and width is not None and height is not None:
+                    valid_point = 0 <= x < width and 0 <= y < height
             except (TypeError, ValueError):
                 valid_point = False
         frame_reasons = []

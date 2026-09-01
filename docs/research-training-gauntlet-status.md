@@ -300,3 +300,21 @@ The output is H.264/yuv420p, 600x480, 25 FPS, 112 frames, 4.48 seconds, and
 fully decodes. Exhaustive contact-sheet QA confirmed blue semantic-rejection
 and red rejection bars with no candidate marker, uncertainty box, or dotted
 trail. Ball identity and downstream production gates remain unavailable.
+
+## Cycle 15 exclusive image-boundary validation (2026-09-01)
+
+The research candidate quality gate now treats image bounds as half-open:
+`0 <= x < width` and `0 <= y < height`. A point exactly at `(width, height)`
+is rejected as out of bounds instead of being accepted at the exclusive image
+edge. This is a geometry-contract fix only; it does not identify a golf ball or
+open any production gate.
+
+A fresh MMU render was generated from clean source frames:
+
+```text
+out/research_training_gauntlet/mmu_candidate/analysis/automatic_ball_tracer_object_consistency_rejected_v7.mp4
+```
+
+The output is H.264/yuv420p, 600x480, 25 FPS, 112 frames, 4.48 seconds, and
+fully decodes. Exhaustive contact-sheet QA confirmed the blue semantic-rejection
+and red unavailable bars remain visible with all candidate geometry suppressed.

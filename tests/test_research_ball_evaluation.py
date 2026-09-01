@@ -86,6 +86,21 @@ class TestResearchBallEvaluation(unittest.TestCase):
         self.assertFalse(result["passed"])
         self.assertIn("object_consistency_mismatch", result["reasons"])
 
+    def test_candidate_quality_gate_rejects_points_on_image_exclusive_boundary(self):
+        from ghostcaddie.video.research_ball_evaluation import evaluate_candidate_quality
+
+        result = evaluate_candidate_quality({"observations": [{
+            "frame_index": 0,
+            "ball": {"state": "observed", "point": {"x": 600, "y": 480},
+                     "rendered_overlay": {"marker": True}},
+        }]}, image_size=(600, 480))
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["status"], "rejected")
+        self.assertIn("marker_misalignment", result["reasons"])
+        self.assertTrue(result["observation_decisions"][0]["rejected"])
+        self.assertFalse(result["observation_decisions"][0]["overlay"]["marker"])
+        self.assertFalse(result["production_eligible"])
+
     def test_candidate_quality_gate_accepts_bounded_candidate_but_never_calls_it_truth(self):
         from ghostcaddie.video.research_ball_evaluation import evaluate_candidate_quality
 
