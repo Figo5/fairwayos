@@ -12,7 +12,7 @@ research-only visual artifact, not a validated golf-perception result:
 - Source SHA-256: `a6e48474045365d1de2d4af76f65da558531684d67da87172cdd15a6dc45e1d6`
 - Accepted output: `out/research_training_gauntlet/fairwayos_unified_pexels_6573485/`
 - Media: source 1920x1080 H.264/yuv420p at 30 FPS with 310 frames; encoded demo is 1920x1080 H.264/yuv420p at 15 FPS with 121 frames
-- Observations: 121/121 pose and ball observations; ball states include 117 observed and 4 predicted states
+- Observations: 121/121 pose observations; ball observations are explicitly unavailable on all 121 frames after the 2026-09-01 ball-plausibility correction (the earlier ball track followed background texture and is retained as rejected evidence in `fairwayos_unified_pexels_6573485_pre_ball_plausibility/`)
 - Provenance: `research_only: true`, `production_eligible: false`, `ground_truth: false`
 
 Open the accepted artifact and its QA contact sheet:
@@ -25,14 +25,17 @@ open out/research_training_gauntlet/fairwayos_unified_pexels_6573485/diagnostics
 ```
 
 Native-resolution frame inspection found consistently rendered pose, golfer
-box, feet anchor, ball marker, tracer, and zoom inset. The renderer now creates
-an explicit independent clean-frame copy before pose and ball inference, then
-composes overlays onto a separate output copy. The marker remains a
-research candidate: no ground-truth labels establish golf-ball identity,
-reacquisition, precision, recall, or false-positive rate. SwingNet event
-hypotheses are also research-only; exact impact, landing, calibration,
-course-space trajectory, `ShotEvent`, analytics, and recommendations remain
-unavailable. Do not use Pexels `6573474` for this artifact.
+box, and feet anchor overlays. After the 2026-09-01 ball-plausibility
+correction, ball marker, tracer, and zoom inset are absent because the ball
+track that fed them followed background texture (the flagstick base), not a
+golf ball; the renderer creates an explicit independent clean-frame copy
+before pose and ball inference, then composes overlays onto a separate output
+copy. Ball identity remains unestablished: no ground-truth labels establish
+golf-ball identity, reacquisition, precision, recall, or false-positive rate.
+SwingNet event hypotheses are also research-only; exact impact, landing,
+calibration, course-space trajectory, `ShotEvent`, analytics, and
+recommendations remain unavailable. Do not use Pexels `6573474` for this
+artifact.
 
 The research-only FairwayOS sidecar can be generated without entering the
 production observation or analytics contracts:

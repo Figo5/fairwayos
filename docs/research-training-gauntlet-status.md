@@ -107,4 +107,22 @@ recommendation: null
 - visual QA: person/pose/anchor overlays and honest unavailable/research-only labels visible;
 - artifact assertions: passed.
 
+## Ball-plausibility correction (2026-09-01)
+
+Native-resolution visual QA found the accepted clip's "ball" track following
+background texture (the flagstick base and grass), not any golf ball. Root
+cause: the local ball model emits frame-filling boxes on some clips; their box
+centers (frame center) seeded a phantom track. `normalize_box` now rejects
+boxes wider/taller than a quarter of a frame dimension or covering more than
+5% of frame area, and the demo skips such boxes individually so a real
+detection in the same frame survives. After the fix the accepted clip renders
+121/121 pose observations with ball observations explicitly unavailable on all
+121 frames; the prior ball track is retained as rejected evidence in
+`fairwayos_unified_pexels_6573485_pre_ball_plausibility/`. Close-up candidate
+Pexels 6573486 passed source triage but failed output ball-alignment QA
+(marker off-ball, tracker unavailable when the ball was largest); candidate
+Pexels 6573612 passed source triage and, after the fix, keeps 2 honest
+near-ball observations at the clubface pass-through and marks the rest
+unavailable. No ground truth exists, so no ball precision/recall is claimed.
+
 The next genuine milestone requires legally usable paired annotations and a documented golf-ball/clubhead checkpoint or a consented FairwayOS-owned dataset. Until then, the project remains technically ready but data/model blocked.

@@ -55,7 +55,11 @@ The demo can show:
 - golfer box and local pose keypoints;
 - local golf-ball candidates and a guarded pixel-space tracer; the renderer records
   `rendered_overlay.marker`, `rendered_overlay.tracer_points`, and
-  `rendered_overlay.zoom_inset` beside every rendered ball observation;
+  `rendered_overlay.zoom_inset` beside every rendered ball observation. Model
+  boxes wider/taller than a quarter of a frame dimension or covering more than
+  5% of the frame area are rejected as implausible ball geometry (a golf ball
+  cannot fill the frame), and such boxes are skipped individually so a genuine
+  detection in the same frame survives;
 - classical frame-difference motion used for swing-window selection;
 - sampled-frame ingestion is bounded by the requested duration in source-frame
   time (using the source FPS, plus one boundary frame), and further constrained
