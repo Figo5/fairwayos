@@ -23,6 +23,8 @@ The automatic YouTube boundary preserves distinct blocked categories for `durati
 
 Research ball sidecars reject booleans, strings, fractional values, and negative values for `frame_index` and `longest_gap`; these fields remain strict non-negative integers and are never silently coerced.
 
+- ResearchBallTracker rejects non-finite/boolean `max_step_pixels` and coerced fractional/boolean `max_gap_frames` or `min_pixels`; bounds remain explicit constructor contracts.
+
 ## Triage and automatic overlays
 The local generic YOLO pose checkpoint was run on the two downloaded clips:
 
@@ -90,7 +92,7 @@ recommendation: null
 
 ## Verification
 
-- full unittest suite: 375 tests passed, 6 skipped;
+- full unittest suite: 376 tests passed, 6 skipped;
 - `compileall`: passed;
 - `git diff --check`: passed;
 - accepted Pexels 6573485 MP4: H.264, 1920x1080, 15 FPS, 121 frames, `yuv420p`;

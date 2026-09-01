@@ -178,6 +178,23 @@ class ResearchBallTrackerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ResearchBallTracker(max_step_pixels=0)
 
+    def test_rejects_non_finite_or_coerced_tracking_bounds(self):
+        import math
+
+        invalid = (
+            {"max_step_pixels": math.nan},
+            {"max_step_pixels": math.inf},
+            {"max_step_pixels": True},
+            {"max_gap_frames": 1.5},
+            {"max_gap_frames": True},
+            {"min_pixels": 1.5},
+            {"min_pixels": True},
+        )
+        for kwargs in invalid:
+            with self.subTest(kwargs=kwargs):
+                with self.assertRaises(ValueError):
+                    ResearchBallTracker(**kwargs)
+
     def test_rejects_static_bottom_logo_and_tracks_moving_ball(self):
         frames = []
         for x in (12, 16, 20):

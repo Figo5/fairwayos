@@ -8,6 +8,7 @@ explicitly impossible by contract.
 
 from dataclasses import dataclass
 from typing import Iterable, Optional, Sequence, Tuple
+import math
 
 try:
     import numpy as np
@@ -66,6 +67,14 @@ class ResearchBallTracker:
             raise RuntimeError("numpy is required for the research ball adapter")
         if not 0 <= min_confidence <= 1:
             raise ValueError("min_confidence must be between 0 and 1")
+        if isinstance(max_gap_frames, bool) or not isinstance(max_gap_frames, int):
+            raise ValueError("max_gap_frames must be a non-negative integer")
+        if isinstance(min_pixels, bool) or not isinstance(min_pixels, int):
+            raise ValueError("min_pixels must be a positive integer")
+        if isinstance(max_step_pixels, bool) or not isinstance(max_step_pixels, (int, float)):
+            raise ValueError("max_step_pixels must be a finite positive number")
+        if not math.isfinite(max_step_pixels):
+            raise ValueError("max_step_pixels must be a finite positive number")
         if max_gap_frames < 0 or max_step_pixels <= 0 or min_pixels < 1:
             raise ValueError("tracking bounds must be non-negative, max_step_pixels positive, and min_pixels positive")
         if not 0 < max_component_fraction <= 1 or max_aspect_ratio < 1:
