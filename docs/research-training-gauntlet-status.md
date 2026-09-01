@@ -185,3 +185,29 @@ sensitivity (chunked vs whole-clip LSTM) recorded as honesty findings. Evidence:
 Video QA: all three annotated MP4s are H.264/yuv420p with monotonic
 decoded-order timestamps, clean full decodes, and provenance sha256 matching
 their sources. Evidence: `c9_video_qa/`.
+
+## Cycle 10 renderer portability probe (2026-09-01)
+
+A dependency-free research renderer was added to `research_overlay.py`. It
+consumes an existing candidate sidecar and clean source frames, drawing a
+current candidate box, an uncertainty envelope, a persistent dotted candidate
+trail, and portable boundary bars. It never changes production observations,
+ball identity, calibration, trajectory, landing, or analytics fields.
+
+The bounded MMU source window `[53, 164]` was rendered locally to:
+
+```text
+out/research_training_gauntlet/mmu_candidate/analysis/automatic_ball_tracer_research_overlay_v2.mp4
+```
+
+The output is H.264/yuv420p, 600x480, 25 FPS, 112 frames, 4.48 seconds, and
+fully decodes with FFmpeg. Native-resolution spot QA found the geometric
+overlay itself rendered correctly, but the inherited heuristic candidate was
+not aligned with the visible bright object in all inspected frames: early and
+late markers were on/near club or ground texture. The visual gate therefore
+failed; this is a renderer portability improvement and a rejected perception
+candidate, not a ball-tracking success. The candidate remains
+`ground_truth=false`, `research_only=true`, and `production_eligible=false`.
+
+The exact local QA sheets and sidecar are kept under the ignored MMU analysis
+directory. No generated media is published.
