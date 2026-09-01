@@ -16,7 +16,7 @@ from typing import Any, Optional
 
 from .automatic_perception import evaluate_sequence_gates
 from .extraction import extract_frames, generate_contact_sheet
-from .annotations import render_annotated_video
+from .annotations import clear_annotated_frames, render_annotated_video
 from .prepare import prepare_video
 from .youtube import (DownloadError, DownloadLimits, DownloaderUnavailable,
                       YtDlpDownloader, parse_youtube_url)
@@ -194,7 +194,7 @@ def auto_try(config: AutoTryConfig, *, downloader=None, detector=None, analytics
     if frames.frames:
         generate_contact_sheet(frames.output_directory, str(out / "contact_sheet.jpg"), columns=min(4, len(frames.frames)))
         refs.append("contact_sheet.jpg")
-    annotated = out / "annotated_frames"; annotated.mkdir(parents=True, exist_ok=True)
+    annotated = out / "annotated_frames"; clear_annotated_frames(annotated)
     for frame in frames.frames:
         # Copying is intentional: without observations, no visual mark is claimed.
         shutil.copy2(Path(frames.output_directory) / frame.filename, annotated / frame.filename)

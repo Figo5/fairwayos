@@ -18,7 +18,7 @@ from .session import (InMemoryCourseSource, InMemoryPlayerSource, InMemoryShotSo
                       parse_session, run_session, serialize_session_report)
 from .adapters.provider_session import run_provider_session
 from .geometry import Point2D
-from .video.annotations import annotate_frame, render_annotated_video
+from .video.annotations import annotate_frame, clear_annotated_frames, render_annotated_video
 from .video.calibration import load_video_calibration
 from .video.diagnostics import build_video_diagnostics, serialize_video_diagnostics
 from .video.errors import VideoContractError, VideoReconstructionUnavailable
@@ -397,7 +397,7 @@ def _run_video_human_analyze_command(args) -> None:
     (out / "normalized_shot.json").write_text(json.dumps(normalized, indent=2, default=str) + "\n")
     human_observations = observations_from_human_annotations(document)
     annotated_dir = out / "annotated_frames"
-    annotated_dir.mkdir(parents=True, exist_ok=True)
+    clear_annotated_frames(annotated_dir)
     for frame in frames.frames:
         selected = min(human_observations.items,
                        key=lambda item: abs(item.frame_index - (frame.frame_index - 1)))
@@ -451,7 +451,7 @@ def _run_video_automatic_analyze_command(args) -> None:
     generate_contact_sheet(frames.output_directory, str(out / "contact_sheet.jpg"),
                            columns=min(4, len(frames.frames)))
     annotated_dir = out / "annotated_frames"
-    annotated_dir.mkdir(parents=True, exist_ok=True)
+    clear_annotated_frames(annotated_dir)
     for index, frame in enumerate(frames.frames):
         observation = observations.items[min(index, len(observations.items) - 1)]
         render_automatic_frame(Path(frames.output_directory) / frame.filename,
@@ -574,7 +574,7 @@ def _run_video_analyze_command(args) -> None:
     frames = extract_frames(str(video), str(out / "frames"), sample_fps=args.sample_fps, max_frames=args.max_frames)
     generate_contact_sheet(frames.output_directory, str(out / "contact_sheet.jpg"), columns=min(4, len(frames.frames)))
     annotated_dir = out / "annotated_frames"
-    annotated_dir.mkdir(parents=True, exist_ok=True)
+    clear_annotated_frames(annotated_dir)
     for index, frame in enumerate(frames.frames):
         observation = observations.items[min(index, len(observations.items) - 1)]
         annotate_frame(Path(frames.output_directory) / frame.filename, annotated_dir / frame.filename, observation, calibration)

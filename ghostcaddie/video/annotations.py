@@ -56,6 +56,18 @@ for _char, _rows in {
     _FONT[_char] = _rows
 
 
+def clear_annotated_frames(frames_directory):
+    """Remove only renderer-owned numbered JPEGs before a fresh render."""
+    frames = Path(frames_directory).expanduser()
+    frames.mkdir(parents=True, exist_ok=True)
+    if not frames.is_dir():
+        raise VideoExtractionError("annotated frames path is not a directory")
+    for frame in frames.glob("frame_*.jpg"):
+        if frame.is_symlink() or frame.is_file():
+            frame.unlink()
+    return frames
+
+
 def _point(value):
     return float(value["x"]), float(value["y"])
 
