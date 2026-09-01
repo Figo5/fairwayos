@@ -29,11 +29,23 @@ class MmuDemoOverlayTests(unittest.TestCase):
         self.assertIn("FRAME 8", lines[0])
         self.assertIn("TIME 0.280s", lines[0])
 
-    def test_overlay_explicitly_disclaims_validated_ball_identity(self):
-        lines = overlay_lines(frame_index=0, fps=25.0, state="tracked",
-                              confidence=0.8, uncertainty_px=3.0)
-
+    def test_overlay_carries_relative_source_and_diagnostic(self):
+        lines = overlay_lines(
+            frame_index=3, fps=25.0, state="unavailable",
+            confidence=0.0, uncertainty_px=0.0,
+            source_label="mmu_candidate/source.mp4",
+            diagnostic="object consistency unavailable",
+        )
+        self.assertIn("SOURCE: mmu_candidate/source.mp4", lines)
+        self.assertIn("DIAGNOSTIC: object consistency unavailable", lines)
         self.assertIn("VALIDATED BALL IDENTITY: UNAVAILABLE", lines)
+
+    def test_overlay_rejects_absolute_or_url_source_labels(self):
+        for source_label in ("/tmp/source.mp4", "https://example.test/source.mp4"):
+            with self.assertRaises(ValueError):
+                overlay_lines(frame_index=0, fps=25.0, state="unavailable",
+                              confidence=0.0, uncertainty_px=0.0,
+                              source_label=source_label)
 
     def test_boundary_helper_and_overlay_mark_clipped_target(self):
         self.assertTrue(is_clipped(20, 2, 8, 100, 100))
@@ -77,6 +89,17 @@ class MmuDemoOverlayTests(unittest.TestCase):
         self.assertNotIn("enable='eq(n\\,0)'", graph)
         self.assertNotIn("color=yellow:t=2", graph)
         self.assertIn("color=red", graph)
+
+    def test_unavailable_state_adds_red_corner_endcaps(self):
+        graph = build_research_ffmpeg_filter(
+            [{"frame": 0, "x": 100, "y": 120, "radius": 8, "uncertainty_px": 4.0}],
+            fps=25.0,
+            width=600,
+            height=480,
+            visually_aligned=False,
+        )
+        self.assertIn("drawbox=x=0:y=460:w=4:h=16:color=red:t=fill", graph)
+        self.assertIn("drawbox=x=596:y=460:w=4:h=16:color=red:t=fill", graph)
 
 
 if __name__ == "__main__":

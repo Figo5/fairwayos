@@ -1,6 +1,7 @@
 """Dependency-free text overlays for research video diagnostics."""
 
 from pathlib import Path
+from typing import Optional
 import math
 
 
@@ -20,13 +21,20 @@ def is_clipped(x: float, y: float, radius: float, width: int, height: int) -> bo
 
 def overlay_lines(*, frame_index: int, fps: float, state: str,
                   confidence: float, uncertainty_px: float,
-                  clipped: bool = False) -> tuple[str, ...]:
+                  clipped: bool = False, source_label: Optional[str] = None,
+                  diagnostic: Optional[str] = None) -> tuple[str, ...]:
     """Return human-readable research labels for a zero-based frame index."""
     if frame_index < 0:
         raise ValueError("frame_index must be non-negative")
     if fps <= 0:
         raise ValueError("fps must be positive")
-    return (
+    if source_label is not None:
+        if (not isinstance(source_label, str) or not source_label or
+                source_label.startswith(("/", "\\")) or "://" in source_label):
+            raise ValueError("source_label must be a non-empty relative label")
+    if diagnostic is not None and (not isinstance(diagnostic, str) or not diagnostic):
+        raise ValueError("diagnostic must be a non-empty string")
+    lines = [
         f"FRAME {frame_index + 1}  TIME {frame_index / fps:.3f}s",
         "SHARED RESEARCH ADAPTER  track_id: ball-0",
         "NOT A GOLF-BALL DETECTOR | RESEARCH ONLY",
@@ -34,7 +42,12 @@ def overlay_lines(*, frame_index: int, fps: float, state: str,
         + ("  CLIPPED TARGET" if clipped else ""),
         "WARNING: false positives possible; no production analytics",
         "VALIDATED BALL IDENTITY: UNAVAILABLE",
-    )
+    ]
+    if source_label is not None:
+        lines.append(f"SOURCE: {source_label}")
+    if diagnostic is not None:
+        lines.append(f"DIAGNOSTIC: {diagnostic}")
+    return tuple(lines)
 
 
 def build_research_ffmpeg_filter(items, *, fps: float, width: int, height: int,
@@ -89,6 +102,15 @@ def build_research_ffmpeg_filter(items, *, fps: float, width: int, height: int,
         f"drawbox=x=0:y={height-4}:w={width}:h=4:color=red:t=fill",
     ]
     if not visually_aligned:
+        # Add short endcaps to the unavailable bar, forming a portable red U
+        # that remains legible without text filters or color interpretation.
+        endcap_height = 16
+        endcap_width = 4
+        endcap_y = height - 4 - endcap_height
+        filters.extend([
+            f"drawbox=x=0:y={endcap_y}:w={endcap_width}:h={endcap_height}:color=red:t=fill",
+            f"drawbox=x={width-endcap_width}:y={endcap_y}:w={endcap_width}:h={endcap_height}:color=red:t=fill",
+        ])
         return ",".join(filters)
     for index, (frame, x, y, radius, uncertainty) in enumerate(normalized):
         enable = f"enable='eq(n\\,{frame})'"
