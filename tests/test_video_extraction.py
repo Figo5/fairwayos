@@ -73,6 +73,21 @@ class TestExtractFrames(unittest.TestCase):
                 extract_frames(str(source), str(output), max_frames=1)
             self.assertEqual(run.call_args.kwargs["timeout"], 120)
 
+    def test_removes_stale_manifest_before_ffmpeg_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "round.mp4"
+            source.write_bytes(b"video")
+            output = root / "frames"
+            output.mkdir()
+            (output / "frame_000001.jpg").write_bytes(b"old")
+            (output / "frame_manifest.json").write_text('{"stale": true}')
+            failed = subprocess.CompletedProcess(["ffmpeg"], 1, "", "decode failed")
+            with patch("ghostcaddie.video.extraction.subprocess.run", return_value=failed):
+                with self.assertRaises(VideoExtractionError):
+                    extract_frames(str(source), str(output), max_frames=1)
+            self.assertFalse((output / "frame_manifest.json").exists())
+
     def test_reports_ffmpeg_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -83,6 +98,45 @@ class TestExtractFrames(unittest.TestCase):
                 with self.assertRaises(VideoExtractionError) as context:
                     extract_frames(str(source), str(root / "frames"), sample_fps=1)
             self.assertIn("decode failed", str(context.exception))
+
+    def test_rejects_symlinked_extraction_output_directory(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside:
+            root, external = Path(tmp), Path(outside)
+            source = root / "round.mp4"
+            source.write_bytes(b"video")
+            output = root / "frames"
+            output.symlink_to(external, target_is_directory=True)
+
+            def write_frames(args, **kwargs):
+                pattern = Path(args[-1])
+                pattern.parent.mkdir(parents=True, exist_ok=True)
+                (pattern.parent / "frame_000001.jpg").write_bytes(b"jpeg")
+                return subprocess.CompletedProcess(["ffmpeg"], 0, "", "")
+
+            with patch("ghostcaddie.video.extraction.subprocess.run", side_effect=write_frames):
+                with self.assertRaises(VideoExtractionError):
+                    extract_frames(str(source), str(output), max_frames=1)
+
+            if external.exists():
+                self.assertEqual(sorted(p.name for p in external.iterdir()), [])
+
+    def test_rejects_symlinked_contact_sheet_output(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside:
+            from ghostcaddie.video.extraction import generate_contact_sheet
+
+            root, external = Path(tmp), Path(outside)
+            frames = root / "frames"
+            frames.mkdir()
+            (frames / "frame_000001.jpg").write_bytes(b"jpeg")
+            sheet = root / "sheet.jpg"
+            sheet.symlink_to(external / "sheet.jpg", target_is_directory=False)
+
+            completed = subprocess.CompletedProcess(["ffmpeg"], 0, "", "")
+            with patch("ghostcaddie.video.extraction.subprocess.run", return_value=completed):
+                with self.assertRaises(VideoExtractionError):
+                    generate_contact_sheet(str(frames), str(sheet), columns=1)
+
+            self.assertFalse((external / "sheet.jpg").exists())
 
 
 if __name__ == "__main__":

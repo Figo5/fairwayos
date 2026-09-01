@@ -74,8 +74,22 @@ def _source_path(source: str) -> Path:
     return resolved
 
 
+def _reject_symlinked_output(path: Path, role: str) -> None:
+    """Reject a generated-output path whose final component is a symlink.
+
+    Resolving an output path would silently follow such a symlink and write
+    generated artifacts through it; outputs must be real paths. Ancestor
+    components are not checked: system roots like ``/var`` on macOS are
+    legitimate symlinks, and the source/destination containment checks still
+    apply after resolution.
+    """
+    if path.is_symlink():
+        raise VideoExtractionError(f"{role} must not be a symlink: {path.name}")
+
+
 def _output_directory(path_text: str, source: Path) -> Path:
     path = Path(path_text).expanduser()
+    _reject_symlinked_output(path, "output directory")
     resolved = path.resolve()
     if resolved == source or resolved == source.parent and path.suffix:
         raise VideoExtractionError("output path must be a directory separate from the source video")
@@ -123,6 +137,11 @@ def extract_frames(source: str, output_directory: str, *, sample_fps: Optional[f
     # Remove only our own numbered artifacts so reruns cannot inherit stale frames.
     for old_frame in output_path.glob("frame_*.jpg"):
         old_frame.unlink()
+    # Drop any previous manifest up front: a failed rerun must not leave a
+    # manifest describing frames that no longer exist or were not regenerated.
+    stale_manifest = output_path / MANIFEST_NAME
+    if stale_manifest.exists():
+        stale_manifest.unlink()
     pattern = output_path / "frame_%06d.jpg"
     args = [ffmpeg, "-v", "error", "-i", str(source_path)]
     if sample_fps is not None:
@@ -166,18 +185,20 @@ def generate_contact_sheet(frames_directory: str, output_path: str, *, columns: 
     files = sorted(frames_path.glob("frame_*.jpg"))
     if not files:
         raise VideoExtractionError("frames directory contains no extracted frames")
-    output = Path(output_path).expanduser().resolve()
+    output = Path(output_path).expanduser()
+    _reject_symlinked_output(output, "contact sheet output")
+    resolved = output.resolve()
     try:
-        output.relative_to(frames_path)
+        resolved.relative_to(frames_path)
     except ValueError:
         pass
     else:
         raise VideoExtractionError("contact sheet output path is unsafe")
-    output.parent.mkdir(parents=True, exist_ok=True)
+    resolved.parent.mkdir(parents=True, exist_ok=True)
     count = len(files)
     rows = (count + columns - 1) // columns
     args = [ffmpeg, "-v", "error", "-framerate", "1", "-start_number", "1",
             "-i", "frame_%06d.jpg", "-frames:v", str(count), "-vf",
-            f"scale={frame_width}:{frame_height},tile={columns}x{rows}", "-q:v", "2", str(output)]
+            f"scale={frame_width}:{frame_height},tile={columns}x{rows}", "-q:v", "2", str(resolved)]
     _run_ffmpeg(args, cwd=frames_path)
-    return ContactSheetResult(str(output), count, columns, rows, columns * frame_width, rows * frame_height)
+    return ContactSheetResult(str(resolved), count, columns, rows, columns * frame_width, rows * frame_height)
