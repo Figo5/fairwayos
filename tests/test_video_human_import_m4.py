@@ -54,6 +54,19 @@ class TestHumanImportM4(unittest.TestCase):
         self.assertEqual(result.metadata["contact_frame_index"], 20)
         self.assertEqual(result.metadata["landing_timestamp_seconds"], 1.345)
 
+    def test_import_rejects_inferred_contact_at_human_submit_boundary(self):
+        inferred = copy.deepcopy(self.payload)
+        inferred["contact"]["source"] = "inferred"
+        class Calibration:
+            width, height = 1920, 1080
+            def to_engine(self, point):
+                return point
+        with self.assertRaises(VideoContractError):
+            import_human_annotations(inferred, Calibration(), event_id="E1", player_id="P1", tournament_id="T1",
+                                      hole_number=1, shot_number=1, distance_to_pin=1,
+                                      wind={"speed_mph": 0, "direction_deg": 0}, timestamp="t",
+                                      target_pixel={"x": 1, "y": 1})
+
     def test_import_rejects_unsubmitted_and_missing_evidence(self):
         with self.assertRaises(VideoContractError):
             import_human_annotations(dict(self.payload, status="draft", explicit_submit=False), None,
