@@ -60,6 +60,32 @@ class TestResearchBallEvaluation(unittest.TestCase):
         self.assertIn("low_temporal_plausibility", result["reasons"])
         self.assertEqual(result["metrics"]["max_step_pixels"], 290.0)
 
+    def test_candidate_quality_gate_rejects_missing_required_object_consistency(self):
+        from ghostcaddie.video.research_ball_evaluation import evaluate_candidate_quality
+
+        result = evaluate_candidate_quality({"observations": [{
+            "frame_index": 0,
+            "ball": {"state": "observed", "point": {"x": 10, "y": 10},
+                     "rendered_overlay": {"marker": True}},
+        }]}, image_size=(600, 480), require_object_consistency=True)
+        self.assertFalse(result["passed"])
+        self.assertIn("object_consistency_unavailable", result["reasons"])
+        self.assertTrue(result["observation_decisions"][0]["rejected"])
+        self.assertFalse(result["observation_decisions"][0]["overlay"]["marker"])
+
+    def test_candidate_quality_gate_rejects_roi_object_mismatch(self):
+        from ghostcaddie.video.research_ball_evaluation import evaluate_candidate_quality
+
+        result = evaluate_candidate_quality({"observations": [{
+            "frame_index": 0,
+            "ball": {"state": "observed", "point": {"x": 10, "y": 10},
+                     "rendered_overlay": {"marker": True},
+                     "object_consistency": {"matched": False, "center_offset_px": 18.0}},
+        }]}, image_size=(600, 480), require_object_consistency=True,
+        max_object_center_offset_px=8.0)
+        self.assertFalse(result["passed"])
+        self.assertIn("object_consistency_mismatch", result["reasons"])
+
     def test_candidate_quality_gate_accepts_bounded_candidate_but_never_calls_it_truth(self):
         from ghostcaddie.video.research_ball_evaluation import evaluate_candidate_quality
 

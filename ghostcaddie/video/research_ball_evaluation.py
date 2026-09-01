@@ -11,16 +11,27 @@ def evaluate_candidate_quality(
     *,
     image_size: tuple[int, int] | None = None,
     max_step_per_frame: float = 120.0,
+    require_object_consistency: bool = False,
+    max_object_center_offset_px: float = 8.0,
 ) -> dict:
     """Apply bounded sanity checks to research candidate diagnostics.
 
     This is a rejection/visualization gate, not a detector or ground-truth
     evaluator.  Rejected frames explicitly disable their marker and trail;
-    unavailable frames retain their unavailable metadata.  No production
-    eligibility is inferred or changed.
+    unavailable frames retain their unavailable metadata.  When
+    ``require_object_consistency`` is enabled, an upstream human review or
+    bounded ROI probe must provide ``ball.object_consistency`` with
+    ``matched=True`` and a finite ``center_offset_px`` within the configured
+    bound.  No production eligibility is inferred or changed.
     """
     if not math.isfinite(float(max_step_per_frame)) or max_step_per_frame <= 0:
         raise ValueError("max_step_per_frame must be a finite positive number")
+    if not isinstance(require_object_consistency, bool):
+        raise ValueError("require_object_consistency must be boolean")
+    if (isinstance(max_object_center_offset_px, bool) or
+            not math.isfinite(float(max_object_center_offset_px)) or
+            max_object_center_offset_px < 0):
+        raise ValueError("max_object_center_offset_px must be a finite non-negative number")
     if image_size is not None:
         width, height = image_size
         if not isinstance(width, int) or not isinstance(height, int) or width <= 0 or height <= 0:
@@ -54,6 +65,19 @@ def evaluate_candidate_quality(
             frame_reasons.append("marker_misalignment")
         if has_point and not valid_point:
             frame_reasons.append("marker_misalignment")
+        if require_object_consistency and has_point and valid_point:
+            consistency = ball.get("object_consistency")
+            if not isinstance(consistency, Mapping):
+                frame_reasons.append("object_consistency_unavailable")
+            else:
+                matched = consistency.get("matched")
+                offset = consistency.get("center_offset_px")
+                valid_offset = (isinstance(offset, (int, float)) and
+                                not isinstance(offset, bool) and
+                                math.isfinite(float(offset)) and offset >= 0)
+                offset_value = float(offset) if isinstance(offset, (int, float)) and not isinstance(offset, bool) else math.inf
+                if matched is not True or not valid_offset or offset_value > float(max_object_center_offset_px):
+                    frame_reasons.append("object_consistency_mismatch")
         if frame_reasons:
             reasons.update(frame_reasons)
             rejected.append(index)

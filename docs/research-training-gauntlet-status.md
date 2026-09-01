@@ -257,3 +257,26 @@ This establishes that temporal smoothness and image bounds are insufficient to
 establish target identity. The explicit visual-alignment suppression path from
 Cycle 11 remains required, and no ball capability or production gate was
 promoted.
+
+## Cycle 13 object-consistency gate (2026-09-01)
+
+The research-only quality gate now supports an explicit
+`require_object_consistency` mode. When enabled, every candidate point must carry
+upstream object-match evidence with `matched=true` and a finite center offset
+within the configured bound. Missing evidence is rejected as
+`object_consistency_unavailable`; contradictory evidence is rejected as
+`object_consistency_mismatch`. This is a conservative evidence gate, not a
+ball detector or ground-truth evaluator.
+
+The MMU diagnostics contain no object-match evidence, so the required mode
+correctly rejected the inherited candidate. A fresh clean-source render is:
+
+```text
+out/research_training_gauntlet/mmu_candidate/analysis/automatic_ball_tracer_object_consistency_rejected_v5.mp4
+```
+
+The output is H.264/yuv420p, 600x480, 25 FPS, 112 frames, 4.48 seconds, and
+fully decodes. Exhaustive contact-sheet QA confirmed that no candidate marker,
+uncertainty box, or dotted trail is visible; only the yellow/red rejection
+boundary bars remain. The bright source object is not asserted to be a golf
+ball. Ball identity and downstream production gates remain unavailable.
