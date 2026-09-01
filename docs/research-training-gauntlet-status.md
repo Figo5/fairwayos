@@ -592,3 +592,30 @@ transitions through temporal bands only. No spatial marker, ball identity,
 impact, trajectory, landing, calibration, analytics, or recommendation is
 rendered. The artifact remains local and ignored with
 `research_only=true`, `ground_truth=false`, and `production_eligible=false`.
+
+## Cycle 28 machine-readable temporal spread diagnostics (2026-09-01)
+
+Temporal uncertainty summaries now expose `schema_version=1` and integer
+`spread_status_code` values: `0` for unavailable, `1` for bounded, and `2` for
+wide. Existing text descriptions, threshold values, availability, and identity
+unavailable semantics remain unchanged.
+
+The new local threshold/spread diagnostic render is:
+
+```text
+out/research_training_gauntlet/mmu_candidate/analysis/temporal_threshold_spread_diagnostics_h264_yuv420p.mp4
+```
+
+It is H.264/yuv420p, 600x480, 25 FPS, 112 frames, and 4.48 seconds. Its
+verified SHA-256 is:
+
+```text
+75074879d145e4d53fb73c55a9fb8e2f66128e044390c0db16ec8a7e8cdabdfd
+```
+
+The decoded 112-frame contact sheet shows temporal threshold and spread labels
+in diagnostic bands only. Domain ball, contact, landing, and calibration values
+remain unavailable. No spatial marker, ball identity, impact, trajectory,
+analytics, recommendation, or production claim is rendered. The artifact remains
+local and ignored with `research_only=true`, `ground_truth=false`, and
+`production_eligible=false`.
