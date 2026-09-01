@@ -235,6 +235,16 @@ class TestResearchBallMultiHypothesisTrack(unittest.TestCase):
         self.assertEqual(result["point"], {"x": 120.0, "y": 200.0})
         self.assertGreaterEqual(result["hypothesis_count"], 2)
 
+    def test_ambiguous_continuity_quality_tie_stays_unavailable(self):
+        track = ResearchBallMultiHypothesisTrack(max_step=35, ambiguity_margin=0.05)
+        track.update([candidate(100, 200, 0.8)])
+        track.update([candidate(110, 200, 0.8)])
+        result = track.update([candidate(120, 200, 0.76), candidate(125, 200, 0.77)])
+        self.assertEqual(result["state"], "unavailable")
+        self.assertIsNone(result["point"])
+        self.assertEqual(result["warning"], "ambiguous_candidates")
+        self.assertEqual(result["hypothesis_count"], 2)
+
     def test_ambiguous_frame_is_not_promoted_to_reacquisition(self):
         track = ResearchBallMultiHypothesisTrack(reacquire_confidence=0.75, max_misses=1)
         track.update([candidate(100, 200, 0.9)])

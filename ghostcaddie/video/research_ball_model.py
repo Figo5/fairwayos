@@ -96,16 +96,20 @@ class ResearchBallMultiHypothesisTrack:
         max_step: float = 80.0,
         max_misses: int = 2,
         max_hypotheses: int = 3,
+        ambiguity_margin: float = 0.05,
     ) -> None:
         if not 0.0 <= min_confidence <= reacquire_confidence <= 1.0:
             raise ValueError("invalid confidence thresholds")
-        if not math.isfinite(float(max_step)) or max_step <= 0 or max_misses < 1 or max_hypotheses < 1:
+        if (not math.isfinite(float(max_step)) or max_step <= 0 or max_misses < 1 or
+                max_hypotheses < 1 or not math.isfinite(float(ambiguity_margin)) or
+                not 0.0 <= ambiguity_margin <= 1.0):
             raise ValueError("invalid track limits")
         self.min_confidence = float(min_confidence)
         self.reacquire_confidence = float(reacquire_confidence)
         self.max_step = float(max_step)
         self.max_misses = int(max_misses)
         self.max_hypotheses = int(max_hypotheses)
+        self.ambiguity_margin = float(ambiguity_margin)
         self._hypotheses = []
         self._terminated = False
         self._pending_reacquisition = None
@@ -181,6 +185,9 @@ class ResearchBallMultiHypothesisTrack:
         if not self._hypotheses:
             self._terminated = True
             return self._result("terminated", None, 0.0, "track_terminated")
+        if (len(self._hypotheses) > 1 and
+                self._hypotheses[0]["score"] - self._hypotheses[1]["score"] <= self.ambiguity_margin):
+            return self._result("unavailable", None, 0.0, "ambiguous_candidates", hypothesis_count=len(self._hypotheses))
         best = self._hypotheses[0]
         return self._result("predicted" if best["misses"] else "observed", best["point"], best["confidence"], "confidence_decayed" if best["misses"] else None, hypothesis_count=len(self._hypotheses))
 

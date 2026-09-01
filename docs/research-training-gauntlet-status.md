@@ -395,3 +395,32 @@ no unlabeled ball identity or production analytics. The artifact hash is:
 ```text
 e2f14cf99fd08f7a79acf33f8bfccdb0e6b3e71655e1c956fb45e9c1efda930f
 ```
+
+## Cycle 20 temporal arbitration and availability timeline (2026-09-01)
+
+The multi-hypothesis research tracker now returns `unavailable` with
+`ambiguous_candidates` when its leading continuity/quality hypotheses are within
+the configured ambiguity margin. This prevents a near-tie from being silently
+reported as an observed ball track; it does not establish identity or ground
+truth.
+
+A separate temporal comparison render shows per-frame backend availability lanes
+for PT, ONNX, and GENERIC without drawing any spatial candidate markers. The
+artifact is:
+
+```text
+out/research_model_comparison_temporal/temporal_comparison_h264_yuv420p.mp4
+```
+
+It is H.264/yuv420p, 600x480, 25 FPS, 165 frames, and 6.60 seconds. PT output
+is present on 146/165 frames, ONNX on 139/165, and GENERIC on 152/165. The
+artifact hash is:
+
+```text
+7c03a42855de99d2b0b424734392a203851ab21f6bfe7b2d18ea94f84ddb9c10
+```
+
+The local temporal comparison remains diagnostic only: `research_only=true`,
+`ground_truth=false`, and `production_eligible=false`. No calibration, golf-ball
+identity, impact point, trajectory, landing, analytics, or recommendation is
+asserted.
