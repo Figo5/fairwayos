@@ -363,7 +363,7 @@ through a single seeded `random.Random` consumed sequentially; the global
 
 ## Current research status
 
-A bounded local research demo remains available for the MMU biomechanics sequence, but it is a separate ball/tracer research probe: the source is 600x480 and encoded at 25 FPS, with capture FPS and reuse rights unverified. The current accepted continuous golfer-plus-ball visual baseline is the local Pexels 6573485 artifact documented in [`STATUS.md`](STATUS.md). The MMU marker was inspected across all 160 rendered frames (source indices 0–159) and remained on the visible ball from pre-impact through upward/rightward translation; it must not be combined with the Pexels golfer track or treated as ground truth.
+A bounded local research demo remains available for the MMU biomechanics sequence, but it is a separate ball/tracer research probe: the source is 600x480 and encoded at 25 FPS, with capture FPS and reuse rights unverified. The current accepted continuous golfer/pose visual baseline is the local Pexels 6573485 artifact; ball observations are unavailable after the plausibility correction documented in [`STATUS.md`](STATUS.md). The MMU marker was inspected across all 160 rendered frames (source indices 0–159) and remained on the visible ball from pre-impact through upward/rightward translation; it must not be combined with the Pexels golfer track or treated as ground truth.
 
 Best local artifacts:
 

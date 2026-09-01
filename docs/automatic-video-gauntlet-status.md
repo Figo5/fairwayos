@@ -11,9 +11,11 @@ The following commands are available without changing the existing fixture or hu
 ```bash
 python3 -m ghostcaddie video-auto-analyze \
   --video /path/to/golf_video.mp4 \
-  --calibration /path/to/calibration.json \
-  --course /path/to/course.json \
-  --player /path/to/player.json \
+  --project-root /path/to/project \
+  --calibration calibration.json \
+  --course course.json \
+  --player player.json \
+  --observations observations.json \
   --out out/automatic-analysis
 ```
 
