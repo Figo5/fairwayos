@@ -174,6 +174,10 @@ class ResearchBallTrackerTests(unittest.TestCase):
         )
         self.assertTrue(all(item.provenance in ("candidate", "tracked") for item in result.items))
 
+    def test_rejects_non_positive_max_step_pixels(self):
+        with self.assertRaises(ValueError):
+            ResearchBallTracker(max_step_pixels=0)
+
     def test_rejects_static_bottom_logo_and_tracks_moving_ball(self):
         frames = []
         for x in (12, 16, 20):
