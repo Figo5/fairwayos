@@ -846,3 +846,7 @@ def _print_terminal_summary(result) -> None:
     print("-" * 72)
     print(best.explanation)
     print("=" * 72)
+
+
+if __name__ == "__main__":
+    main()

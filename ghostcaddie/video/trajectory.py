@@ -46,7 +46,10 @@ def _explicit(observation: Any):
         return None
     try:
         x, y, confidence = float(ball["x"]), float(ball["y"]), float(ball["confidence"])
-        frame = int(_field(observation, "frame_index"))
+        raw_frame = _field(observation, "frame_index")
+        if isinstance(raw_frame, bool) or not isinstance(raw_frame, int) or raw_frame < 0:
+            raise ValueError("ball observation frame_index must be a non-negative integer")
+        frame = raw_frame
         timestamp = float(_field(observation, "timestamp_seconds"))
     except (KeyError, TypeError, ValueError):
         raise ValueError("ball observations require frame_index, timestamp_seconds, and ball x/y/confidence")

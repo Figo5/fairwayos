@@ -362,6 +362,17 @@ class TestAIDemoContracts(unittest.TestCase):
             self.assertEqual(raised.exception.code, 2)
             self.assertFalse(any((out / name).exists() for name in ("recommendation.json", "normalized_shot.json", "overlay.svg")))
 
+    def test_cli_module_entrypoint_runs_main_when_executed(self):
+        import subprocess
+        import sys
+        repo_root = Path(__file__).resolve().parents[1]
+        proc = subprocess.run(
+            [sys.executable, "-m", "ghostcaddie.cli"],
+            cwd=str(repo_root), capture_output=True, text=True, timeout=60,
+        )
+        self.assertIn(proc.returncode, (1, 2))
+        self.assertIn("usage", (proc.stdout + proc.stderr).lower())
+
     def test_help_exposes_ai_demo_without_invoking_analytics(self):
         with redirect_stdout(StringIO()) as stdout:
             with self.assertRaises(SystemExit) as raised:
@@ -371,6 +382,102 @@ class TestAIDemoContracts(unittest.TestCase):
         self.assertIn("bounded", text)
         self.assertIn("research-only", text)
         self.assertIn("h.264", text)
+
+
+    def test_pose_observation_records_person_count_and_second_persons(self):
+        import numpy as np
+        from ghostcaddie.video.ai_demo import _pose_observation
+        frame = np.full((240, 320, 3), 45, dtype=np.uint8)
+        pose, warning = _pose_observation(_FakeMultiPersonYolo(), frame, 320, 240)
+        self.assertIsNotNone(pose)
+        self.assertIsNone(warning)
+        assert pose is not None
+        self.assertEqual(pose["state"], "observed")
+        self.assertEqual(pose["person_count"], 2)
+        self.assertEqual(pose["second_person_count"], 1)
+        self.assertTrue(pose["multi_person_frame"])
+
+    def test_pose_observation_single_person_has_no_multi_person_flag(self):
+        import numpy as np
+        from ghostcaddie.video.ai_demo import _pose_observation
+        frame = np.full((240, 320, 3), 45, dtype=np.uint8)
+        pose, warning = _pose_observation(_FakeSinglePersonYolo(), frame, 320, 240)
+        self.assertIsNotNone(pose)
+        self.assertIsNone(warning)
+        assert pose is not None
+        self.assertEqual(pose["person_count"], 1)
+        self.assertEqual(pose["second_person_count"], 0)
+        self.assertFalse(pose["multi_person_frame"])
+
+
+class _FakePersonTensor:
+    def __init__(self, value):
+        self._value = value
+
+    def cpu(self):
+        return self
+
+    def numpy(self):
+        return self._value
+
+    def tolist(self):
+        return self._value
+
+    def __float__(self):
+        return float(self._value)
+
+    def __getitem__(self, index):
+        return _FakePersonTensor(self._value[index])
+
+    def __len__(self):
+        return len(self._value)
+
+
+class _FakePersonBoxes:
+    def __init__(self, cls, conf, xyxy):
+        self.cls = _FakePersonTensor(cls)
+        self.conf = _FakePersonTensor(conf)
+        self.xyxy = _FakePersonTensor(xyxy)
+
+    def __len__(self):
+        return len(self.cls)
+
+
+class _FakePersonKeypoints:
+    def __init__(self, xy, conf):
+        self.xy = _FakePersonTensor(xy)
+        self.conf = _FakePersonTensor(conf)
+
+
+class _FakeMultiPersonYolo:
+    def __call__(self, frame, verbose=False):
+        result = _FakePersonResult()
+        result.boxes = _FakePersonBoxes(
+            cls=[0, 0], conf=[0.91, 0.62],
+            xyxy=[[10.0, 20.0, 110.0, 220.0], [200.0, 30.0, 300.0, 230.0]],
+        )
+        result.keypoints = _FakePersonKeypoints(
+            xy=[[[60.0, 30.0]] * 17, [[250.0, 40.0]] * 17],
+            conf=[[0.9] * 17, [0.8] * 17],
+        )
+        return [result]
+
+
+class _FakeSinglePersonYolo:
+    def __call__(self, frame, verbose=False):
+        result = _FakePersonResult()
+        result.boxes = _FakePersonBoxes(
+            cls=[0], conf=[0.91], xyxy=[[10.0, 20.0, 110.0, 220.0]],
+        )
+        result.keypoints = _FakePersonKeypoints(
+            xy=[[[60.0, 30.0]] * 17], conf=[[0.9] * 17],
+        )
+        return [result]
+
+
+class _FakePersonResult:
+    boxes = None
+    keypoints = None
 
 
 if __name__ == "__main__":

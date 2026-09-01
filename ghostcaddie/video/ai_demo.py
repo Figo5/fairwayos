@@ -282,10 +282,14 @@ def _pose_observation(model, frame, width: int, height: int):
         if result.boxes is None or len(result.boxes) == 0:
             return None, "golfer_not_detected"
         best = None
+        person_count = 0
         for index, cls in enumerate(result.boxes.cls.tolist()):
             if int(cls) != 0:
                 continue
-            confidence = float(result.boxes.conf[index])
+            person_count += 1
+            raw_confidence = result.boxes.conf[index]
+            confidence_value = raw_confidence.tolist() if hasattr(raw_confidence, "tolist") else raw_confidence
+            confidence = float(confidence_value)
             if best is None or confidence > best[0]:
                 best = (confidence, index, result.boxes.xyxy[index].tolist())
         if best is None:
@@ -294,8 +298,10 @@ def _pose_observation(model, frame, width: int, height: int):
         x1, y1, x2, y2 = [max(0.0, min(float(value), limit)) for value, limit in zip(raw_box, (width, height, width, height))]
         keypoints = []
         if result.keypoints is not None:
-            points = result.keypoints.xy[index].cpu().numpy()
-            point_conf = result.keypoints.conf[index].cpu().numpy() if result.keypoints.conf is not None else []
+            raw_points = result.keypoints.xy[index]
+            points = raw_points.cpu().numpy() if hasattr(raw_points, "cpu") else raw_points.tolist()
+            raw_conf = result.keypoints.conf[index] if result.keypoints.conf is not None else []
+            point_conf = raw_conf.cpu().numpy() if hasattr(raw_conf, "cpu") else (raw_conf.tolist() if hasattr(raw_conf, "tolist") else raw_conf)
             for point_index, point in enumerate(points):
                 score = float(point_conf[point_index]) if len(point_conf) > point_index else 0.0
                 keypoints.append([round(float(point[0]), 2), round(float(point[1]), 2), round(score, 4)])
@@ -311,6 +317,9 @@ def _pose_observation(model, frame, width: int, height: int):
             "anchor": anchor,
             "track_id": "golfer-0",
             "track_confidence": round(max(0.0, min(1.0, confidence)), 4),
+            "person_count": person_count,
+            "second_person_count": max(0, person_count - 1),
+            "multi_person_frame": person_count > 1,
             "model": "local_yolo_pose",
         }, None
     except Exception:

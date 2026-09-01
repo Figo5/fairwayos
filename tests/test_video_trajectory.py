@@ -167,6 +167,19 @@ class BallTrajectoryTests(unittest.TestCase):
         self.assertEqual((trace.points[-1].x, trace.points[-1].y), (102.0, 24.0))
         self.assertEqual(trace.points[-1].provenance, "predicted")
         self.assertIn("predicted_track", trace.warnings)
+    def test_rejects_fractional_frame_index_instead_of_coercing(self):
+        with self.assertRaisesRegex(ValueError, "frame_index"):
+            trace_ball_observations([
+                {"frame_index": 1.5, "timestamp_seconds": 0.1,
+                 "ball": {"x": 1, "y": 2, "confidence": 1}},
+            ])
+
+    def test_rejects_negative_frame_index(self):
+        with self.assertRaisesRegex(ValueError, "frame_index"):
+            trace_ball_observations([
+                {"frame_index": -1, "timestamp_seconds": 0.1,
+                 "ball": {"x": 1, "y": 2, "confidence": 1}},
+            ])
 
 
 if __name__ == "__main__":
