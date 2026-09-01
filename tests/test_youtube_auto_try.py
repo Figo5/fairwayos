@@ -61,7 +61,17 @@ class YoutubeAutoTryTests(unittest.TestCase):
                 "/custom/yt-dlp", js_runtime="/usr/local/bin/node",
                 limits=unittest.mock.ANY, format_selector=unittest.mock.ANY)
 
-    def test_missing_calibration_is_pixel_only_without_recommendation(self):
+    def test_non_rendering_rerun_removes_stale_annotated_video(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); source = root / "source.mp4"; source.write_bytes(b"video")
+            out = root / "out"; out.mkdir()
+            stale = out / "annotated_video.mp4"; stale.write_bytes(b"stale")
+            downloader = Mock(); downloader.download.return_value = Mock(path=str(source))
+            with patch("ghostcaddie.video.youtube_auto_try.extract_frames") as extract:
+                extract.return_value = Mock(frames=[], output_directory=str(root / "frames"))
+                auto_try(AutoTryConfig(URL, out), downloader=downloader, detector=None)
+            self.assertFalse(stale.exists())
+
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); source = root / "source.mp4"; source.write_bytes(b"video")
             out = root / "out"

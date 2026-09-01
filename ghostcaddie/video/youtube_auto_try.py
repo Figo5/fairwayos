@@ -147,7 +147,7 @@ def auto_try(config: AutoTryConfig, *, downloader=None, detector=None, analytics
     """Run bounded ingestion and best-effort perception, returning safe diagnostics."""
     out = Path(config.out).expanduser().resolve()
     out.mkdir(parents=True, exist_ok=True)
-    for name in ("recommendation.json", "normalized_shot.json", "overlay.svg"):
+    for name in ("recommendation.json", "normalized_shot.json", "overlay.svg", "annotated_video.mp4"):
         (out / name).unlink(missing_ok=True)
     try:
         _, start, duration = validate_segment(config.url, config.segment_start, config.segment_duration)

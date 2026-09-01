@@ -1,6 +1,6 @@
 # Research-training gauntlet status
 
-Date: 2026-08-31
+Date: 2026-09-01
 
 Status: **research-only / production blocked**.
 
@@ -24,6 +24,7 @@ The automatic YouTube boundary preserves distinct blocked categories for `durati
 Research ball sidecars reject booleans, strings, fractional values, and negative values for `frame_index` and `longest_gap`; these fields remain strict non-negative integers and are never silently coerced.
 
 - ResearchBallTracker rejects non-finite/boolean `max_step_pixels` and coerced fractional/boolean `max_gap_frames` or `min_pixels`; bounds remain explicit constructor contracts.
+- The automatic YouTube rerun removes stale `annotated_video.mp4` before processing when the current run does not request video rendering, so diagnostics cannot point to an unreferenced prior render.
 - Generated extraction outputs reject symlinked output directories and contact-sheet output files instead of resolving through them; stale `frame_manifest.json` files are removed before a rerun so a failed extraction cannot leave a manifest describing regenerated or missing frames.
 - The optional YOLO pose adapter leaves the golfer anchor unavailable when neither ankle keypoint is confident; it no longer substitutes a bounding-box bottom, and emits `anchor_missing` explicitly.
 - VideoDiagnostics rejects malformed top-level container shapes with VideoContractError before iteration, membership checks, or serialization.

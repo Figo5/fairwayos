@@ -363,7 +363,7 @@ through a single seeded `random.Random` consumed sequentially; the global
 
 ## Current research status
 
-A bounded local research demo now automatically tracks a visibly moving ball in the MMU biomechanics sequence. The source is 600x480 and encoded at 25 FPS; capture FPS and reuse rights are unverified. The marker was inspected across all 160 rendered frames (source indices 0–159) and remained on the visible ball from pre-impact through upward/rightward translation.
+A bounded local research demo remains available for the MMU biomechanics sequence, but it is a separate ball/tracer research probe: the source is 600x480 and encoded at 25 FPS, with capture FPS and reuse rights unverified. The current accepted continuous golfer-plus-ball visual baseline is the local Pexels 6573485 artifact documented in [`STATUS.md`](STATUS.md). The MMU marker was inspected across all 160 rendered frames (source indices 0–159) and remained on the visible ball from pre-impact through upward/rightward translation; it must not be combined with the Pexels golfer track or treated as ground truth.
 
 Best local artifacts:
 
@@ -383,8 +383,7 @@ This remains heuristic pixel-space research evidence. Clubhead, validated impact
 
 ## Dependencies
 
-Pure Python 3.9 standard library only (dataclasses, json, math, random,
-statistics, argparse, unittest, pathlib, enum, typing). No network access was
-available during this build, so no third-party packages are installed or
-used. numpy/scipy/pydantic/fastapi/opencv/Pillow/pytest are documented as
-future upgrades in `requirements.txt` (commented out), not used.
+Pure Python 3.9 standard library only for the analytics core and default workflow (dataclasses, json, math, random,
+statistics, argparse, unittest, pathlib, enum, typing). Optional video/research environments may use third-party
+packages such as numpy, OpenCV, PyTorch, and Ultralytics; those dependencies and downloaded weights remain outside
+this public source tree. They are documented as future/optional upgrades in `requirements.txt` (commented out).

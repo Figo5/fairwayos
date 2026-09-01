@@ -152,7 +152,7 @@ The automatic-perception production gates, human fallback, and existing analytic
 
 ## Accepted real automatic person/pose visual-demo milestone
 
-The real-footage automatic person/pose visual-demo milestone is accepted at **268 passing unittest tests**. The bounded local clip produced annotated H.264/yuv420p output with generic person boxes, pose keypoints/skeletons, body/feet anchors, heuristic track IDs, confidence, frame/timestamp ordering, and camera-motion/cut warning states.
+The real-footage automatic person/pose visual-demo milestone was accepted at **268 passing unittest tests** in the historical 2026-08-28 run. The current verified suite is 384 passed with 6 skipped. The bounded local clip produced annotated H.264/yuv420p output with generic person boxes, pose keypoints/skeletons, body/feet anchors, heuristic track IDs, confidence, frame/timestamp ordering, and camera-motion/cut warning states.
 
 This is **not full automatic golf analysis** and is not validated for GhostCaddie recommendations.
 
