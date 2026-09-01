@@ -10,7 +10,7 @@ research-only visual artifact, not a validated golf-perception result:
 - Source: Pexels video `6573485`, https://www.pexels.com/video/boy-hitting-a-golf-ball-6573485/
 - Local source: `out/research_training_gauntlet/pexels_6573485/source.mp4`
 - Source SHA-256: `a6e48474045365d1de2d4af76f65da558531684d67da87172cdd15a6dc45e1d6`
-- Accepted output: `out/research_training_gauntlet/fairwayos_unified_pexels_6573485/`
+- Accepted verification output: `out/research_training_gauntlet/fairwayos_unified_pexels_6573485_pre_ball_plausibility/`
 - Media: source 1920x1080 H.264/yuv420p at 30 FPS with 310 frames; encoded demo is 1920x1080 H.264/yuv420p at 15 FPS with 121 frames
 - Observations: 121/121 pose observations; ball observations are explicitly unavailable on all 121 frames after the 2026-09-01 ball-plausibility correction (the earlier ball track followed background texture and is retained as rejected evidence in `fairwayos_unified_pexels_6573485_pre_ball_plausibility/`)
 - Provenance: `research_only: true`, `production_eligible: false`, `ground_truth: false`
@@ -18,10 +18,10 @@ research-only visual artifact, not a validated golf-perception result:
 Open the accepted artifact and its QA contact sheet:
 
 ```bash
-open out/research_training_gauntlet/fairwayos_unified_pexels_6573485/annotated_video.mp4
-open out/research_training_gauntlet/fairwayos_unified_pexels_6573485/contact_sheet_current.jpg
-open out/research_training_gauntlet/fairwayos_unified_pexels_6573485/provenance.json
-open out/research_training_gauntlet/fairwayos_unified_pexels_6573485/diagnostics.json
+open out/research_training_gauntlet/fairwayos_unified_pexels_6573485_pre_ball_plausibility/annotated_video.mp4
+open out/research_training_gauntlet/fairwayos_unified_pexels_6573485_pre_ball_plausibility/contact_sheet_current.jpg
+open out/research_training_gauntlet/fairwayos_unified_pexels_6573485_pre_ball_plausibility/provenance.json
+open out/research_training_gauntlet/fairwayos_unified_pexels_6573485_pre_ball_plausibility/diagnostics.json
 ```
 
 Native-resolution frame inspection found consistently rendered pose, golfer
@@ -96,4 +96,4 @@ ffmpeg -v error -i out/research_training_gauntlet/mmu_candidate/analysis/automat
 git diff --check
 ```
 
-The current full suite passes 389 tests with 6 optional-dependency tests skipped. YouTube acquisition now requires probe metadata to contain a canonical returned video ID matching the requested source before download. Research media and generated artifacts remain local under ignored `out/` paths. Diagnostic source labels are relative to the research artifact root, so reruns do not serialize local filesystem paths. YouTube provenance metadata is strict JSON; research sidecars reject traversal, URL, and home-relative source identifiers, boolean or non-finite numeric values, and promoted production flags. YouTube duration metadata is rejected when boolean, non-finite, non-positive, or inconsistent with the requested video ID; filesize metadata is rejected when malformed, non-finite, negative, fractional, or boolean, and an explicit zero `filesize` is not replaced by `filesize_approx`.
+The current full suite passes 396 tests with 6 optional-dependency tests skipped. YouTube acquisition now requires probe metadata to contain a canonical returned video ID matching the requested source before download. Research media and generated artifacts remain local under ignored `out/` paths. Diagnostic source labels are relative to the research artifact root, so reruns do not serialize local filesystem paths. YouTube provenance metadata is strict JSON; research sidecars reject traversal, URL, and home-relative source identifiers, boolean or non-finite numeric values, and promoted production flags. YouTube duration metadata is rejected when boolean, non-finite, non-positive, or inconsistent with the requested video ID; filesize metadata is rejected when malformed, non-finite, negative, fractional, or boolean, and an explicit zero `filesize` is not replaced by `filesize_approx`.
