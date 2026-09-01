@@ -100,6 +100,11 @@ def build_research_impact_bracket(events: Sequence[Mapping[str, Any]], *,
                 "reason": "no SwingNet impact event or sampled frames",
                 "research_only": True, "ground_truth": False,
                 "production_eligible": False}
+    if len(samples) < 2:
+        return {"state": "unavailable", "frames": [],
+                "reason": "impact bracket requires two distinct sampled frames",
+                "research_only": True, "ground_truth": False,
+                "production_eligible": False}
     predicted = impact_frames[0]
     nearest = min(range(len(samples)), key=lambda index: (abs(samples[index] - predicted), samples[index]))
     left = samples[max(0, nearest - 1)]

@@ -93,6 +93,16 @@ class TestAIDemoContracts(unittest.TestCase):
         self.assertFalse(bracket["ground_truth"])
         self.assertFalse(bracket["production_eligible"])
 
+    def test_single_sample_impact_is_unavailable_not_a_collapsed_bracket(self):
+        from ghostcaddie.video.ai_demo import build_research_impact_bracket
+        bracket = build_research_impact_bracket([
+            {"event": "Impact", "frame_index": 182, "research_only": True,
+             "ground_truth": False, "production_eligible": False},
+        ], frame_numbers=[182])
+        self.assertEqual(bracket["state"], "unavailable")
+        self.assertEqual(bracket["frames"], [])
+        self.assertIn("two distinct", bracket["reason"])
+
     def test_obvious_false_positive_is_rejected(self):
         candidate = {"point": [4.0, 5.0], "confidence": 0.88, "inside_golfer": False, "temporal_support": 1}
         decision = reject_obvious_false_positive(candidate, image_width=100, image_height=100)
