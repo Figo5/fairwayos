@@ -215,6 +215,8 @@ class YtDlpDownloader:
                 raise DownloadError("video requires protected access", "protected_content")
             duration = metadata.get("duration")
             if duration is not None:
+                if isinstance(duration, bool):
+                    raise DownloadError("downloader returned invalid duration", "malformed_metadata")
                 try:
                     parsed_duration = float(duration)
                 except (TypeError, ValueError) as exc:
