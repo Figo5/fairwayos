@@ -16,6 +16,31 @@ RESEARCH_FLAGS = {
 }
 
 
+def validate_framewise_labels(labels):
+    """Validate strict Luna-style per-frame pseudo-label records."""
+    validate_pseudo_labels(labels)
+    required = ("ball", "clubhead", "shaft")
+    scalar_fields = {
+        "ball": ("x", "y", "radius", "confidence"),
+        "clubhead": ("x", "y", "confidence"),
+        "shaft": ("x1", "y1", "x2", "y2", "confidence"),
+    }
+    for record in labels:
+        for name in required:
+            value = record.get(name)
+            if not isinstance(value, dict):
+                raise ValueError("framewise label object is missing")
+            for field in scalar_fields[name]:
+                number = value.get(field)
+                if isinstance(number, bool) or not isinstance(number, (int, float)) or not math.isfinite(float(number)):
+                    raise ValueError("framewise coordinates and confidence must be finite numbers")
+            if name != "shaft" and not isinstance(value.get("visible"), bool):
+                raise ValueError("framewise visibility must be boolean")
+            if not 0.0 <= float(value["confidence"]) <= 1.0:
+                raise ValueError("framewise confidence must be bounded")
+    return labels
+
+
 def _inside(point, box):
     x, y = point
     return box[0] <= x <= box[2] and box[1] <= y <= box[3]

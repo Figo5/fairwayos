@@ -23,6 +23,16 @@ class LunaRoiExperimentTests(unittest.TestCase):
             "research_only": True, "production_eligible": False,
         })
 
+    def test_framewise_schema_requires_requested_objects_and_flags(self):
+        from ghostcaddie.video.luna_roi_experiment import validate_framewise_labels
+        labels = [{
+            "ball": {"x": 960, "y": 560, "radius": 30, "visible": True, "confidence": 0.8},
+            "clubhead": {"x": 1050, "y": 620, "visible": True, "confidence": 0.7},
+            "shaft": {"x1": 700, "y1": 0, "x2": 1000, "y2": 600, "confidence": 0.8},
+            "pseudo_label": True, "ground_truth": False, "research_only": True, "production_eligible": False,
+        }]
+        self.assertEqual(validate_framewise_labels(labels), labels)
+
     def test_temporal_track_rejects_person_and_club_regions(self):
         candidates = [
             {"frame_index": 0, "center": [950, 560], "radius_px": 18, "confidence": 0.8},
