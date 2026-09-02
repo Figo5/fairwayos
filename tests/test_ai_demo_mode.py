@@ -384,14 +384,15 @@ class TestAIDemoContracts(unittest.TestCase):
         class EmptyResult:
             boxes = None
         class Model:
-            def __call__(self, frame, verbose=False):
-                calls.append(frame)
-                return [EmptyResult()]
+            def __call__(self, frames, verbose=False):
+                calls.append(frames)
+                return [EmptyResult() for _ in frames]
         candidates, warning = _coarse_ball_candidates(
-            Model(), list(range(10)), 640, 360, max_frames=4)
+            Model(), list(range(10)), 640, 360, max_frames=10)
         self.assertEqual(candidates, [])
         self.assertIsNone(warning)
-        self.assertEqual(len(calls), 4)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(calls[0]), 4)
 
         from ghostcaddie.video.ai_demo import build_bounded_roi
         plan = build_bounded_roi(
@@ -405,6 +406,33 @@ class TestAIDemoContracts(unittest.TestCase):
         self.assertTrue(plan["research_only"])
         self.assertFalse(plan["ground_truth"])
         self.assertFalse(plan["production_eligible"])
+
+    def test_coarse_batch_result_count_mismatch_fails_closed(self):
+        from ghostcaddie.video.ai_demo import _coarse_ball_candidates
+        class EmptyResult:
+            boxes = None
+        class ShortBatchModel:
+            def __call__(self, frames, verbose=False):
+                return [EmptyResult() for _ in frames[:-1]]
+        candidates, warning = _coarse_ball_candidates(
+            ShortBatchModel(), list(range(4)), 640, 360, max_frames=4)
+        self.assertEqual(candidates, [])
+        self.assertEqual(warning, "coarse_ball_inference_failed")
+
+    def test_coarse_probe_does_not_consume_past_four_frames(self):
+        from ghostcaddie.video.ai_demo import _coarse_ball_candidates
+        class EmptyResult:
+            boxes = None
+        class Model:
+            def __call__(self, frames, verbose=False):
+                return [EmptyResult() for _ in frames]
+        def frames():
+            for index in range(4):
+                yield index
+            raise AssertionError("coarse probe over-consumed frames")
+        candidates, warning = _coarse_ball_candidates(Model(), frames(), 640, 360)
+        self.assertEqual(candidates, [])
+        self.assertIsNone(warning)
 
     def test_processing_budget_hard_stops_frames_time_memory_and_candidates(self):
         from ghostcaddie.video.ai_demo import BoundedProcessingBudget

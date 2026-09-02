@@ -6,6 +6,7 @@ may add observations, but missing or ambiguous evidence remains explicit.
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import math
 import os
@@ -681,8 +682,14 @@ def _coarse_ball_candidates(model, frames, width: int, height: int, *, limit: in
     candidates = []
     try:
         from .research_ball_model import normalize_box
-        for frame in list(frames)[:max(0, int(max_frames))]:
-            result = _run_with_timeout(lambda: model(frame, verbose=False)[0], seconds=2.0)
+        probe_frames = list(itertools.islice(frames, min(4, max(0, int(max_frames)))))
+        if not probe_frames:
+            return candidates, None
+        results = _run_with_timeout(
+            lambda: model(probe_frames, verbose=False), seconds=2.0)
+        if not isinstance(results, (list, tuple)) or len(results) != len(probe_frames):
+            raise ValueError("coarse result count mismatch")
+        for result in results:
             if result.boxes is None:
                 continue
             for box in result.boxes:

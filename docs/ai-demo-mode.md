@@ -72,7 +72,8 @@ both remain `6573485`.
 ## Bounded coarse-to-fine processing
 
 When a local ball model is available, the demo first probes at most four sampled
-full frames to locate a research candidate region. It then rereads only that
+full frames to locate a research candidate region. Those probes are submitted as one
+bounded detector batch. It then rereads only that
 motion window at native FPS and runs ball inference on one padded, clipped ROI.
 The native ROI pass is hard-bounded to eight frames, 120 seconds, 64 MiB of
 frame memory, and 64 candidate records. Pose runs only on the coarse frames and
