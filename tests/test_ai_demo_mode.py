@@ -418,7 +418,7 @@ class TestAIDemoContracts(unittest.TestCase):
         budget = BoundedProcessingBudget(max_frames=5, max_seconds=1.0,
                                          max_memory_bytes=1000, max_candidates=10,
                                          started_at=100.0)
-        self.assertFalse(budget.allow(frame_bytes=1, candidate_count=0, now=101.1))
+        self.assertFalse(budget.allow(frame_bytes=1, candidate_count=0, now=101.0))
         self.assertEqual(budget.reason, "time_limit")
         budget = BoundedProcessingBudget(max_frames=5, max_seconds=10.0,
                                          max_memory_bytes=10, max_candidates=10,

@@ -877,13 +877,20 @@ class BoundedProcessingBudget:
     candidates: int = 0
     reason: Optional[str] = None
 
+    def expired(self, now: Optional[float] = None) -> bool:
+        current = time.monotonic() if now is None else float(now)
+        if current - self.started_at >= self.max_seconds:
+            self.reason = "time_limit"
+            return True
+        return False
+
     def allow(self, *, frame_bytes: int, candidate_count: int, now: Optional[float] = None) -> bool:
         if self.started_at == 0.0:
             self.started_at = time.monotonic() if now is None else float(now)
         current = time.monotonic() if now is None else float(now)
         limits = (
             (self.frames >= self.max_frames, "frame_limit"),
-            (current - self.started_at > self.max_seconds, "time_limit"),
+            (current - self.started_at >= self.max_seconds, "time_limit"),
             (self.memory_bytes + max(0, int(frame_bytes)) > self.max_memory_bytes, "memory_limit"),
             (self.candidates + max(0, int(candidate_count)) > self.max_candidates, "candidate_limit"),
         )
@@ -992,12 +999,16 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
         # the ROI, while the heuristic tracker still sees the clean full frame.
         native_budget = BoundedProcessingBudget(
             max_frames=min(sample_limit if sample_limit is not None else 8, 8),
-            max_seconds=120.0, max_memory_bytes=64 * 1024 * 1024, max_candidates=64)
+            max_seconds=120.0, max_memory_bytes=64 * 1024 * 1024, max_candidates=64,
+            started_at=time.monotonic())
         source_start, source_end = frame_numbers[0], frame_numbers[-1]
         native_cap = cv2.VideoCapture(str(video))
         native_frames, native_numbers = [], []
         native_index = 0
         while native_index <= source_end:
+            if native_budget.expired():
+                budget_warning = "native_roi_" + str(native_budget.reason)
+                break
             ok, native_frame = native_cap.read()
             if not ok:
                 break
