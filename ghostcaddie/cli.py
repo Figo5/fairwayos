@@ -180,8 +180,9 @@ def _build_parser() -> argparse.ArgumentParser:
     auto_p.add_argument("--fallback-human", action="store_true")
     auto_p.add_argument("--yt-dlp", default=DEFAULT_YTDLP,
                         help="Explicit executable path for bounded yt-dlp download.")
-    demo_p = sub.add_parser("ai-demo", help="Run bounded research-only AI demo and render H.264.",
-                             description="Bounded research-only AI Demo Mode; H.264 output with visible uncertainty and warnings.")
+    demo_p = sub.add_parser("ai-demo", aliases=["fairwayos-demo"],
+                             help="Run bounded research-only FairwayOS demo and render H.264.",
+                             description="Bounded research-only FairwayOS Demo Mode; H.264 output with visible pose, candidate evidence, uncertainty, warnings, and closed production gates.")
     source_group = demo_p.add_mutually_exclusive_group(required=True)
     source_group.add_argument("--url", help="Explicit public HTTPS YouTube video URL.")
     source_group.add_argument("--video", type=Path, help="Existing local video for offline demo validation.")
@@ -259,7 +260,7 @@ def main(argv=None) -> None:
         _run_youtube_auto_try_command(args)
         return
 
-    if args.command == "ai-demo":
+    if args.command in {"ai-demo", "fairwayos-demo"}:
         _run_ai_demo_command(args)
         return
 

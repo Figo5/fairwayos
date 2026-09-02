@@ -1,13 +1,39 @@
-# FairwayOS AI Demo Mode
+# FairwayOS video demo
 
-`ghostcaddie ai-demo` is a bounded, local-first, research-only visual demo. It is
-separate from `run_pipeline()` and cannot produce validated golf analytics.
+`ghostcaddie fairwayos-demo` is the user-facing name for the bounded,
+local-first visual demo. `ghostcaddie ai-demo` remains an equivalent
+compatibility alias. Both commands are separate from `run_pipeline()` and
+cannot produce validated golf analytics.
 
 ## Usage
 
+Local video:
+
 ```text
-ghostcaddie ai-demo --url https://www.youtube.com/watch?v=<11-char-id> --out <dir>
-ghostcaddie ai-demo --video <local-file> --out <dir>
+ghostcaddie fairwayos-demo \
+  --video /path/to/local.mp4 \
+  --out out/my-demo
+```
+
+Bounded YouTube segment:
+
+```text
+ghostcaddie fairwayos-demo \
+  --url https://www.youtube.com/watch?v=<11-char-id> \
+  --segment-start 12 \
+  --segment-duration 8 \
+  --out out/my-demo
+```
+
+For the existing Pexels regression baseline:
+
+```text
+ghostcaddie fairwayos-demo \
+  --video out/research_training_gauntlet/fairwayos_unified_pexels_6573485/source.mp4 \
+  --out out/research_training_gauntlet/fairwayos_unified_pexels_6573485 \
+  --source-platform pexels \
+  --source-video-id 6573485 \
+  --source-url https://www.pexels.com/video/boy-hitting-a-golf-ball-6573485/
 ```
 
 YouTube input uses the existing allowlisted, no-playlist downloader boundary.
@@ -19,9 +45,9 @@ Important bounds are explicit in the CLI:
 
 - HTTPS canonical YouTube URLs only;
 - one video, never a playlist;
-- bounded segment duration (default 20 seconds at the ingestion boundary);
-- bounded sample rate and frame count;
-- local OpenCV/Ultralytics inference only;
+- bounded segment duration (maximum 20 seconds at the ingestion boundary);
+- bounded sample rate, source-time read, and optional frame count;
+- local OpenCV/Ultralytics/SwingNet inference only when installed and loaded;
 - no cookies, credentials, cloud upload, DRM bypass, scraping, or proxies.
 
 ## Outputs
@@ -39,7 +65,9 @@ and safe relative artifact references. Absolute local paths and credentials are
 not serialized. For a local copy of externally hosted media, pass
 `--source-platform`, `--source-video-id`, and `--source-url` so the provenance
 identifies the external asset rather than the local filename. The accepted
-The accepted research-only visual-demo example uses Pexels video `6573485`; it is not paired ground-truth evidence. Its local output directory and `source.video_id` must both remain `6573485`.
+research-only visual-demo example uses Pexels video `6573485`; it is not paired
+ground-truth evidence. Its local output directory and `source.video_id` must
+both remain `6573485`.
 
 ## Evidence states and labels
 

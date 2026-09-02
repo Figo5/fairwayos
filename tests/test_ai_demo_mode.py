@@ -20,6 +20,19 @@ from ghostcaddie.video.ai_demo import (
 
 
 class TestAIDemoContracts(unittest.TestCase):
+    def test_fairwayos_demo_alias_uses_same_research_only_runner(self):
+        output = StringIO()
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.mp4"
+            source.write_bytes(b"source")
+            with patch("ghostcaddie.cli.run_local_demo", return_value={"status": "research_only"}) as run:
+                with redirect_stdout(output):
+                    main([
+                        "fairwayos-demo", "--video", str(source), "--out", str(Path(directory) / "out"),
+                    ])
+            self.assertTrue(run.called)
+            self.assertIn('"status": "research_only"', output.getvalue())
+
     def test_local_demo_accepts_explicit_source_provenance(self):
         output = StringIO()
         with tempfile.TemporaryDirectory() as directory:
