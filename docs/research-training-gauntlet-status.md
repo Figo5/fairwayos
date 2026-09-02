@@ -665,3 +665,94 @@ check changes diagnostics, not pixels. The decoded contact sheet contains only
 temporal bands and no spatial marker, identity, impact, trajectory, landing,
 calibration, analytics, recommendation, or production claim. Output remains
 `research_only=true`, `ground_truth=false`, and `production_eligible=false`.
+
+## Cycle 31 render-coverage documentation and multi-specialist re-verification (2026-09-01)
+
+The unified AI-demo diagnostics contract now declares render coverage and audio
+state explicitly. `build_demo_report` accepts an additive, optional `render`
+block (omitted when not provided, so legacy reports are unchanged), and
+`run_local_demo` populates it with `rendered_frames` (observation count),
+`sample_fps`, `duration_seconds` (rendered frames / sample fps), and
+`audio="unavailable_dropped_by_reencode"` with the reason that the annotated
+re-render covers sampled frames only and the source audio is not carried into
+the re-encode. The block carries `research_only=true`, `ground_truth=false`,
+and `production_eligible=false`. This documents what was already true: the
+accepted annotated video is 121 frames at 15 fps (8.067 s) while the source is
+310 frames at 30 fps (10.347 s) with AAC audio that the re-encode drops.
+
+The accepted artifact `out/research_training_gauntlet/fairwayos_unified_pexels_6573485`
+was re-rendered in place with the change. The annotated video sha256 is
+unchanged at `eb01781a9a8b36768e5c403fe2a5b00996a5d85818f0bdd3461ac5f4fdd59950`,
+all 121 annotated frames are byte-identical, provenance.json is semantically
+identical, and diagnostics.json differs only by the additive render block
+(verification: `out/research_training_gauntlet/c23_deterministic_rerun/promotion_check.json`
+and `out/research_training_gauntlet/c23_deterministic_rerun_check.json`, both
+`all_checks_pass=true`; a second fresh render reproduced the accepted video
+sha256, frames, provenance, and diagnostics exactly).
+
+Eight bounded read-only specialists re-verified the accepted artifact and local
+clips (evidence under `out/research_training_gauntlet/c23_*/`):
+
+- Video QA (`c23_video_qa/qa_report.json`): annotated_video.mp4 passes H.264
+  High / yuv420p / 1920x1080 / strict CFR 15 fps with 0 negative or
+  non-monotonic PTS, 0.0 s VFR drift, clean full decode, and a valid 5280x2970
+  contact sheet; the audio drop and 78% source coverage were undocumented
+  before this cycle.
+- Renderer review (`c23_renderer_review/verdict.json`): one decode per sampled
+  frame, one composition canvas, overlays drawn exactly once
+  (`ghostcaddie/video/ai_demo.py` clean-frame path), no ghosting, double-draw,
+  or misalignment in native-resolution crops; annotated_frames, video frames,
+  and contact sheet are mutually consistent; no change proposed.
+- Tests/visual QA (`c23_tests_visualqa/qa_report.json`): 436 tests OK
+  (skipped=6), compileall clean, 121 annotated frames == 121 observations with
+  pose observed in all and ball honestly `unavailable` in all (the ball is
+  visible in-scene but never resolved), provenance sha256 matches the
+  recomputed source sha256, and zero overlay pixels fall outside the banner and
+  golfer bbox in 8 frame pairs.
+- Pose stability (`c23_pose_eval/verdict.json`): stable, correctly localized
+  pose across 19 sampled frames; camera is a slow handheld pan (~166 px) that
+  the pipeline does not compensate (per-frame `camera_motion:not_assessed`
+  warning is honest); golfer-0 selection never jumped. Honesty caveat: the
+  `person_count=2` / `second_person_count=1` fields are faithful to model
+  output, but native-resolution inspection found no second human; the
+  humanoid-shaped golf bag at the left edge is the plausible source.
+- SwingNet research-only (`c23_swingnet_eval/c23_swingnet_eval.json`): fresh
+  full-clip predictions are bitwise-identical to stored c21/c22 values (max
+  abs confidence delta 0.0), original 8 event labels and checkpoint sha256
+  unchanged, same-frame clustering honesty finding preserved. Bracket sanity:
+  frames 170-195 show a stationary standing pose with no swing, and visual
+  contact evidence sits near frames 50-52 (ball airborne by ~55), so the
+  predicted bracket [180,184] is not a defensible visual contact bracket; it
+  remains a faithfully recorded `candidate_bracket_only` SwingNet prediction
+  and is preserved unchanged with exact contact unavailable.
+- Ball tracking (`c23_ball_eval/c23_ball_eval_report.json`): the accepted clip
+  stays honestly unavailable end-to-end (all 52 raw boxes rejected, no false
+  markers rendered, tracer correctly absent). On secondary clips the plausibility
+  gate accepted non-ball objects: 9 of 10 point-checked detections on
+  pexels_6573486 were trouser/shoe false positives (confidence up to 0.97), and
+  pexels_6573612 mixed a verified static-ball track with a degenerate y=540
+  center-line false track. Geometry-only gating cannot separate these safely,
+  so no gate change was made; these remain per-clip evidence, not cross-clip
+  truth.
+- Trajectory/landing (`c23_trajectory_eval/c23_trajectory_eval_verdict.json`):
+  a c23 HSV-heuristic candidate on pexels_6573612 produced 22 consecutive
+  visually-verified pixel-space flight points (frames 155-176), exceeding the
+  8-point gate and the prior best of 2 - but the repo's gated ball model never
+  accepted these points, the tail is faint, and the prior "best 2" points on
+  6573486 were visually rejected (shoe tread). NOT promoted: trajectory and
+  landing remain unavailable in accepted diagnostics, and no course-space claim
+  exists. Promotion would require the gated model itself to produce and verify
+  the points.
+- Clubhead/contact recon (`c23_clubhead_recon/recon_summary.json`): still no
+  local, runnable, license-clear clubhead/contact checkpoint (only ball-only
+  YOLOv8n weights, AGPL-3.0). Exactly one local clip passes the content gate -
+  highfps_candidate (V1 Sports 240fps close-up, clubhead+ball sharp at
+  ~25.6-26.4 s) - but it is license-unclear proprietary footage, so the
+  unavailable state is preserved. pexels_6573618's clubhead is a single-frame
+  motion-blur streak at 30 fps; contact exists near 1.83 s but the clubhead is
+  never resolvable.
+
+All outputs remain `research_only=true`, `ground_truth=false`, and
+`production_eligible=false`. Analytics, shot event, landing, calibration, and
+recommendation stay unavailable in the accepted diagnostics; production gates
+remain closed and human fallback unchanged.

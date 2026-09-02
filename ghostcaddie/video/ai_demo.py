@@ -150,12 +150,13 @@ def build_demo_report(*, source: Mapping[str, Any], media: Mapping[str, Any],
                       swing_window: Mapping[str, Any], observations: Sequence[Mapping[str, Any]],
                       artifact_references: Iterable[str], warnings: Iterable[str],
                       swingnet_events: Sequence[Mapping[str, Any]] = (),
-                      impact_bracket: Optional[Mapping[str, Any]] = None) -> dict[str, Any]:
+                      impact_bracket: Optional[Mapping[str, Any]] = None,
+                      render: Optional[Mapping[str, Any]] = None) -> dict[str, Any]:
     """Create the stable report contract; analytics fields are always unavailable."""
     refs = sorted({str(ref) for ref in artifact_references})
     if any(not ref or os.path.isabs(ref) or ".." in Path(ref).parts for ref in refs):
         raise ValueError("artifact references must be safe relative paths")
-    return {
+    report = {
         "schema_version": DEMO_SCHEMA_VERSION,
         "status": "research_only",
         "source": dict(source),
@@ -182,6 +183,13 @@ def build_demo_report(*, source: Mapping[str, Any], media: Mapping[str, Any],
         "calibration": None,
         "recommendation": None,
     }
+    if render is not None:
+        render_view = dict(render)
+        render_view["research_only"] = True
+        render_view["ground_truth"] = False
+        render_view["production_eligible"] = False
+        report["render"] = render_view
+    return report
 
 
 def _default_model_path(name: str) -> Optional[str]:
@@ -665,6 +673,14 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
     subprocess.run(build_demo_encoding_command(
         ffmpeg, str(annotated), str(rendered), fps / step), check=True)
     media = {"fps": fps, "width": width, "height": height, "frame_count": total, "sample_fps": fps / step}
+    sample_fps = media["sample_fps"]
+    render_block = {
+        "rendered_frames": len(observations),
+        "sample_fps": sample_fps,
+        "duration_seconds": len(observations) / sample_fps if sample_fps else 0.0,
+        "audio": "unavailable_dropped_by_reencode",
+        "reason": "annotated re-render covers sampled frames only; source audio not carried into re-encode",
+    }
     provenance = build_demo_provenance(source=source or {"platform": "local", "video_id": video.stem},
                                        video_path=video, media=media)
     (out / "provenance.json").write_text(json.dumps(provenance, indent=2, sort_keys=True) + "\n")
@@ -676,6 +692,7 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
         impact_bracket=impact_bracket,
         artifact_references=["annotated_video.mp4", "annotated_frames/", "diagnostics.json", "provenance.json"],
         warnings=["research_only", "ground_truth_false", "production_analytics_unavailable", "clubhead_not_validated"],
+        render=render_block,
     )
     (out / "diagnostics.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     return report

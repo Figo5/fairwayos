@@ -124,6 +124,40 @@ class TestAIDemoContracts(unittest.TestCase):
         self.assertTrue(provenance["research_only"])
         self.assertFalse(provenance["production_eligible"])
 
+    def test_report_declares_render_coverage_and_audio_state(self):
+        report = build_demo_report(
+            source={"platform": "pexels", "video_id": "6573485"},
+            media={"fps": 30.0, "width": 1920, "height": 1080, "frame_count": 310, "sample_fps": 15.0},
+            swing_window={"start_frame": 0, "end_frame": 6, "peak_frame": 5},
+            observations=[],
+            artifact_references=["annotated_video.mp4", "diagnostics.json"],
+            warnings=["research_only_demo"],
+            render={"rendered_frames": 121, "sample_fps": 15.0,
+                    "duration_seconds": 8.066667,
+                    "audio": "unavailable_dropped_by_reencode",
+                    "reason": "annotated re-render covers sampled frames only; source audio not carried into re-encode",
+                    "research_only": False},
+        )
+        render_block = report["render"]
+        self.assertTrue(render_block["research_only"])
+        self.assertFalse(render_block["ground_truth"])
+        self.assertFalse(render_block["production_eligible"])
+        self.assertEqual(render_block["rendered_frames"], 121)
+        self.assertEqual(render_block["sample_fps"], 15.0)
+        self.assertEqual(render_block["duration_seconds"], 8.066667)
+        self.assertEqual(render_block["audio"], "unavailable_dropped_by_reencode")
+
+    def test_report_omits_render_block_without_render_media_fields(self):
+        report = build_demo_report(
+            source={"platform": "youtube", "video_id": "ABCDEFGHIJK"},
+            media={"fps": 30.0, "width": 640, "height": 360, "frame_count": 7},
+            swing_window={"start_frame": 0, "end_frame": 6, "peak_frame": 5},
+            observations=[],
+            artifact_references=["annotated_video.mp4", "diagnostics.json"],
+            warnings=["research_only_demo"],
+        )
+        self.assertNotIn("render", report)
+
     def test_report_cannot_open_validated_analytics(self):
         report = build_demo_report(
             source={"platform": "youtube", "video_id": "ABCDEFGHIJK"},
