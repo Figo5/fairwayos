@@ -69,7 +69,24 @@ research-only visual-demo example uses Pexels video `6573485`; it is not paired
 ground-truth evidence. Its local output directory and `source.video_id` must
 both remain `6573485`.
 
-## Evidence states and labels
+## Bounded coarse-to-fine processing
+
+When a local ball model is available, the demo first probes at most four sampled
+full frames to locate a research candidate region. It then rereads only that
+motion window at native FPS and runs ball inference on one padded, clipped ROI.
+The native ROI pass is hard-bounded to eight frames, 120 seconds, 64 MiB of
+frame memory, and 64 candidate records. Pose runs only on the coarse frames and
+SwingNet is skipped on the native ROI path to keep optional model work bounded.
+Per-inference timeouts and budget termination are recorded in
+`render.processing`; partial frames are encoded cleanly when a limit is reached.
+A coarse probe that finds no candidate does not invent an ROI and remains in the
+sampled full-frame fallback.
+
+ROI candidates are still research candidates, not labels. Rejected candidates
+are rendered only as rejected diagnostics; they never become `observed`, and all
+outputs remain `research_only=true`, `ground_truth=false`, and
+`production_eligible=false`.
+
 
 Every visual field uses one of:
 

@@ -10,7 +10,10 @@ import json
 import math
 import os
 import shutil
+import signal
 import subprocess
+import time
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional, Sequence
@@ -31,6 +34,25 @@ def _finite(value: Any, default: float = 0.0) -> float:
     except (TypeError, ValueError):
         return default
     return result if math.isfinite(result) else default
+
+
+class _InferenceTimeout(TimeoutError):
+    pass
+
+
+def _run_with_timeout(function, *, seconds: float):
+    """Run one optional model call with a clean local wall-clock boundary."""
+    if not hasattr(signal, "setitimer"):
+        return function()
+    def alarm_handler(signum, frame):
+        raise _InferenceTimeout("bounded model inference timed out")
+    previous = signal.signal(signal.SIGALRM, alarm_handler)
+    signal.setitimer(signal.ITIMER_REAL, max(0.1, float(seconds)))
+    try:
+        return function()
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0.0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 def _evidence(value: Optional[Mapping[str, Any]]) -> dict[str, Any]:
@@ -146,12 +168,33 @@ def reject_obvious_false_positive(candidate: Mapping[str, Any], *, image_width: 
             "production_eligible": False}
 
 
+def build_visual_review(verdicts: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Return a research-only visual review block; flags can never be promoted."""
+    items = []
+    for verdict in verdicts:
+        item = dict(verdict)
+        action = str(item.get("recommended_action", item.get("verdict", ""))).lower()
+        if action == "reject" or item.get("false_positive") is True:
+            item["ball_marker_aligned"] = False
+        item["research_only"] = True
+        item["ground_truth"] = False
+        item["production_eligible"] = False
+        items.append(item)
+    return {
+        "verdicts": items,
+        "research_only": True,
+        "ground_truth": False,
+        "production_eligible": False,
+    }
+
+
 def build_demo_report(*, source: Mapping[str, Any], media: Mapping[str, Any],
                       swing_window: Mapping[str, Any], observations: Sequence[Mapping[str, Any]],
                       artifact_references: Iterable[str], warnings: Iterable[str],
                       swingnet_events: Sequence[Mapping[str, Any]] = (),
                       impact_bracket: Optional[Mapping[str, Any]] = None,
-                      render: Optional[Mapping[str, Any]] = None) -> dict[str, Any]:
+                      render: Optional[Mapping[str, Any]] = None,
+                      visual_review: Optional[Mapping[str, Any]] = None) -> dict[str, Any]:
     """Create the stable report contract; analytics fields are always unavailable."""
     refs = sorted({str(ref) for ref in artifact_references})
     if any(not ref or os.path.isabs(ref) or ".." in Path(ref).parts for ref in refs):
@@ -189,6 +232,12 @@ def build_demo_report(*, source: Mapping[str, Any], media: Mapping[str, Any],
         render_view["ground_truth"] = False
         render_view["production_eligible"] = False
         report["render"] = render_view
+    if visual_review is not None:
+        review_view = dict(visual_review)
+        review_view["research_only"] = True
+        review_view["ground_truth"] = False
+        review_view["production_eligible"] = False
+        report["visual_review"] = review_view
     return report
 
 
@@ -286,7 +335,7 @@ def _pose_observation(model, frame, width: int, height: int):
     if model is None:
         return None, None
     try:
-        result = model(frame, verbose=False)[0]
+        result = _run_with_timeout(lambda: model(frame, verbose=False)[0], seconds=2.0)
         if result.boxes is None or len(result.boxes) == 0:
             return None, "golfer_not_detected"
         best = None
@@ -330,6 +379,8 @@ def _pose_observation(model, frame, width: int, height: int):
             "multi_person_frame": person_count > 1,
             "model": "local_yolo_pose",
         }, None
+    except _InferenceTimeout:
+        return None, "pose_inference_timeout"
     except Exception:
         return None, "pose_inference_failed"
 
@@ -464,15 +515,19 @@ class ResearchBallEvidenceGate:
     """Require pose-safe model/heuristic agreement on consecutive clean frames."""
 
     def __init__(self, tracker, research_tracker, *, min_consecutive=2,
-                 match_distance=28.0):
+                 match_distance=28.0, static_distance=2.0, static_streak=2):
         if min_consecutive < 2 or match_distance <= 0:
             raise ValueError("invalid evidence gate limits")
         self.tracker = tracker
         self.research_tracker = research_tracker
         self.min_consecutive = int(min_consecutive)
         self.match_distance = float(match_distance)
+        self.static_distance = float(static_distance)
+        self.static_streak = int(static_streak)
         self.previous_frame = None
         self.agreement_streak = 0
+        self.static_streak_count = 0
+        self.static_anchor = None
 
     def update(self, model_candidates, frame, *, pose, image_width, image_height):
         accepted, rejected = filter_ball_model_candidates(
@@ -495,8 +550,33 @@ class ResearchBallEvidenceGate:
                 rejected.append({"candidate": dict(candidate), "reasons": ["research_tracker_disagreement"]})
         if len(agreements) == 1:
             self.agreement_streak += 1
+            center = tuple(float(value) for value in agreements[0]["center"])
+            if (self.static_anchor is not None and
+                    math.hypot(center[0] - self.static_anchor[0], center[1] - self.static_anchor[1]) <= self.static_distance):
+                self.static_streak_count += 1
+            else:
+                self.static_streak_count = 1
+            self.static_anchor = center
         else:
             self.agreement_streak = 0
+            self.static_streak_count = 0
+            self.static_anchor = None
+        if (len(agreements) == 1 and image_height >= 720 and
+                agreements[0]["center"][1] >= image_height * 0.72 and
+                self.static_streak_count >= self.static_streak):
+            rejected.append({"candidate": dict(agreements[0]),
+                             "reasons": ["static_ground_or_trouser_false_positive"]})
+            self.tracker.update([])
+            return {
+                "state": ObservationState.UNAVAILABLE.value, "point": None,
+                "confidence": 0.0, "uncertainty": None,
+                "candidate_count": len(model_candidates),
+                "research_candidate_count": len(research_candidates),
+                "agreement_streak": self.agreement_streak,
+                "rejected_candidates": rejected,
+                "tracker_warning": "static_ground_or_trouser_false_positive",
+                "research_only": True, "ground_truth": False, "production_eligible": False,
+            }
         if self.agreement_streak < self.min_consecutive or len(agreements) != 1:
             self.tracker.update([])
             return {
@@ -527,23 +607,33 @@ class ResearchBallEvidenceGate:
             "research_only": True, "ground_truth": False, "production_eligible": False,
         }
 def _ball_observation(model, tracker, frame, width: int, height: int,
-                      pose=None, evidence_gate=None):
+                      pose=None, evidence_gate=None, roi=None):
     if model is None:
         return None, "ball_model_unavailable"
     try:
         from .research_ball_model import normalize_box
-        result = model(frame, verbose=False)[0]
+        offset_x = offset_y = 0
+        inference_frame = frame
+        inference_width, inference_height = width, height
+        if roi is not None:
+            offset_x, offset_y, roi_x2, roi_y2 = [int(value) for value in roi]
+            inference_frame = frame[offset_y:roi_y2, offset_x:roi_x2]
+            inference_height, inference_width = inference_frame.shape[:2]
+        result = _run_with_timeout(lambda: model(inference_frame, verbose=False)[0], seconds=2.0)
         candidates = []
         if result.boxes is not None:
             for box in result.boxes:
                 confidence = float(box.conf[0])
                 try:
-                    x1, y1, x2, y2 = normalize_box(box.xyxy[0].tolist(), width, height)
+                    x1, y1, x2, y2 = normalize_box(
+                        box.xyxy[0].tolist(), inference_width, inference_height)
                 except ValueError:
                     # Implausible ball geometry (e.g. a frame-filling box) is
                     # skipped per box so one hallucination cannot discard a
                     # genuine ball detection emitted in the same frame.
                     continue
+                x1, x2 = x1 + offset_x, x2 + offset_x
+                y1, y2 = y1 + offset_y, y2 + offset_y
                 candidates.append({"center": ((x1 + x2) / 2.0, (y1 + y2) / 2.0), "confidence": confidence,
                                   "box": [x1, y1, x2, y2], "research_only": True,
                                   "ground_truth": False, "production_eligible": False})
@@ -572,8 +662,36 @@ def _ball_observation(model, tracker, frame, width: int, height: int,
                 "tracker_warning": warning, "tracker_state": raw_state,
                 "research_only": True, "ground_truth": False,
                 "production_eligible": False}, None
+    except _InferenceTimeout:
+        return None, "ball_inference_timeout"
     except Exception:
         return None, "ball_inference_failed"
+
+
+def _coarse_ball_candidates(model, frames, width: int, height: int, *, limit: int = 8):
+    """Probe sparse full frames only to locate a bounded native-FPS ROI."""
+    if model is None:
+        return [], "coarse_ball_model_unavailable"
+    candidates = []
+    try:
+        from .research_ball_model import normalize_box
+        for frame in frames:
+            result = _run_with_timeout(lambda: model(frame, verbose=False)[0], seconds=2.0)
+            if result.boxes is None:
+                continue
+            for box in result.boxes:
+                if len(candidates) >= limit:
+                    return candidates, "coarse_candidate_limit"
+                confidence = float(box.conf[0])
+                x1, y1, x2, y2 = normalize_box(box.xyxy[0].tolist(), width, height)
+                candidates.append({"box": [x1, y1, x2, y2], "confidence": confidence,
+                                   "research_only": True, "ground_truth": False,
+                                   "production_eligible": False})
+        return candidates, None
+    except _InferenceTimeout:
+        return candidates, "coarse_ball_inference_timeout"
+    except Exception:
+        return candidates, "coarse_ball_inference_failed"
 
 
 POSE_SKELETON = ((5, 6), (5, 7), (7, 9), (6, 8), (8, 10),
@@ -740,10 +858,69 @@ def clean_frame_for_components(frame: Any) -> Any:
     return frame.copy()
 
 
+@dataclass
+class BoundedProcessingBudget:
+    """Hard limits for the native-FPS ROI pass; never opens production gates."""
+    max_frames: int
+    max_seconds: float
+    max_memory_bytes: int
+    max_candidates: int
+    started_at: float = 0.0
+    frames: int = 0
+    memory_bytes: int = 0
+    candidates: int = 0
+    reason: Optional[str] = None
+
+    def allow(self, *, frame_bytes: int, candidate_count: int, now: Optional[float] = None) -> bool:
+        if self.started_at == 0.0:
+            self.started_at = time.monotonic() if now is None else float(now)
+        current = time.monotonic() if now is None else float(now)
+        limits = (
+            (self.frames >= self.max_frames, "frame_limit"),
+            (current - self.started_at > self.max_seconds, "time_limit"),
+            (self.memory_bytes + max(0, int(frame_bytes)) > self.max_memory_bytes, "memory_limit"),
+            (self.candidates + max(0, int(candidate_count)) > self.max_candidates, "candidate_limit"),
+        )
+        for exceeded, reason in limits:
+            if exceeded:
+                self.reason = reason
+                return False
+        self.frames += 1
+        self.memory_bytes += max(0, int(frame_bytes))
+        self.candidates += max(0, int(candidate_count))
+        return True
+
+
+def build_bounded_roi(candidates: Sequence[Mapping[str, Any]], *, image_width: int,
+                      image_height: int, padding: int = 64, max_candidates: int = 8) -> dict[str, Any]:
+    """Build one clipped ROI from coarse candidates, with explicit hard bounds."""
+    valid = []
+    for candidate in list(candidates)[:max(0, int(max_candidates))]:
+        try:
+            box = [float(value) for value in candidate["box"]]
+            if len(box) == 4 and all(math.isfinite(value) for value in box):
+                x1, y1, x2, y2 = box
+                if 0 <= x1 < x2 <= image_width and 0 <= y1 < y2 <= image_height:
+                    valid.append(box)
+        except (KeyError, TypeError, ValueError):
+            continue
+    if not valid:
+        return {"state": "unavailable", "candidate_count": 0, "reason": "no_coarse_candidate",
+                "research_only": True, "ground_truth": False, "production_eligible": False}
+    x1 = max(0, int(math.floor(min(box[0] for box in valid) - padding)))
+    y1 = max(0, int(math.floor(min(box[1] for box in valid) - padding)))
+    x2 = min(int(image_width), int(math.ceil(max(box[2] for box in valid) + padding)))
+    y2 = min(int(image_height), int(math.ceil(max(box[3] for box in valid) + padding)))
+    return {"state": "candidate_region", "box": [x1, y1, x2, y2],
+            "candidate_count": len(valid), "padding": int(padding),
+            "research_only": True, "ground_truth": False, "production_eligible": False}
+
+
 def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
                    max_duration_seconds: float = 8.0, max_frames: Optional[int] = None,
                    source: Optional[Mapping[str, Any]] = None,
-                   pose_model: Optional[str] = None, ball_model: Optional[str] = None) -> dict[str, Any]:
+                   pose_model: Optional[str] = None, ball_model: Optional[str] = None,
+                   visual_review: Optional[Mapping[str, Any]] = None) -> dict[str, Any]:
     """Run bounded local demo perception and render H.264 output.
 
     Model adapters are intentionally optional. The guaranteed fallback emits
@@ -794,7 +971,54 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
         window["peak_frame"] = max(0, int(window["peak_frame"]) - start_index)
     pose_model, pose_warning = _load_yolo(pose_model or _default_model_path("pose"), "pose")
     ball_model, ball_warning = _load_yolo(ball_model or _default_model_path("ball"), "detect")
-    swingnet_bundle, swingnet_warning = _load_swingnet()
+    coarse_candidates, coarse_warning = _coarse_ball_candidates(ball_model, frames, width, height)
+    # Four full-frame probes are enough to seed a bounded ROI; never let a
+    # requested output frame count silently turn the coarse pass into a scan.
+    coarse_frames, coarse_numbers = list(frames[:4]), list(frame_numbers[:4])
+    roi_plan = build_bounded_roi(coarse_candidates, image_width=width, image_height=height,
+                                 padding=64, max_candidates=8)
+    native_budget = None
+    budget_warning = None
+    pose_cache = {}
+    if roi_plan["state"] == "candidate_region":
+        # Re-read only the selected motion window at native FPS. The model sees
+        # the ROI, while the heuristic tracker still sees the clean full frame.
+        native_budget = BoundedProcessingBudget(
+            max_frames=min(sample_limit if sample_limit is not None else 8, 8),
+            max_seconds=120.0, max_memory_bytes=64 * 1024 * 1024, max_candidates=64)
+        source_start, source_end = frame_numbers[0], frame_numbers[-1]
+        native_cap = cv2.VideoCapture(str(video))
+        native_frames, native_numbers = [], []
+        native_index = 0
+        while native_index <= source_end:
+            ok, native_frame = native_cap.read()
+            if not ok:
+                break
+            if native_index >= source_start:
+                if not native_budget.allow(frame_bytes=getattr(native_frame, "nbytes", 0),
+                                           candidate_count=8):
+                    budget_warning = "native_roi_" + str(native_budget.reason)
+                    break
+                native_frames.append(native_frame)
+                native_numbers.append(native_index)
+            native_index += 1
+        native_cap.release()
+        if native_frames:
+            frames, frame_numbers, scores, step = native_frames, native_numbers, motion_scores(native_frames), 1
+            for coarse_frame, coarse_number in zip(coarse_frames[:8], coarse_numbers[:8]):
+                pose_cache[coarse_number] = _pose_observation(
+                    pose_model, coarse_frame, width, height)
+            window["native_roi"] = True
+            window["roi"] = dict(roi_plan)
+        else:
+            budget_warning = budget_warning or "native_roi_no_frames"
+    else:
+        window["native_roi"] = False
+        window["roi"] = dict(roi_plan)
+    if roi_plan["state"] == "candidate_region":
+        swingnet_bundle, swingnet_warning = None, "swingnet_skipped_for_native_roi_budget"
+    else:
+        swingnet_bundle, swingnet_warning = _load_swingnet()
     try:
         from .research_ball_model import ResearchBallMultiHypothesisTrack
         from .research_ball import ResearchBallTracker
@@ -810,7 +1034,7 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
         ball_evidence_gate = None
         ball_warning = ball_warning or "ball_tracker_unavailable"
     swingnet_events, swingnet_inference_warning = _swingnet_events(
-        swingnet_bundle, frames, frame_numbers, fps)
+        swingnet_bundle, coarse_frames, coarse_numbers, fps)
     event_by_frame = {}
     for event in swingnet_events:
         event_by_frame.setdefault(event["frame_index"], []).append(event)
@@ -825,10 +1049,21 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
     for ordinal, (frame, number) in enumerate(zip(frames, frame_numbers)):
         clean_frame = clean_frame_for_components(frame)
         item = clean_frame.copy()
-        pose, pose_frame_warning = _pose_observation(pose_model, clean_frame, width, height)
-        ball, ball_frame_warning = (_ball_observation(
-            ball_model, ball_tracker, clean_frame, width, height, pose, ball_evidence_gate
-        ) if ball_tracker else (None, "ball_tracker_unavailable"))
+        if roi_plan["state"] == "candidate_region":
+            pose, pose_frame_warning = pose_cache.get(number, (None, "coarse_pose_not_available"))
+        else:
+            pose, pose_frame_warning = _pose_observation(pose_model, clean_frame, width, height)
+        roi_box = roi_plan.get("box") if roi_plan["state"] == "candidate_region" else None
+        if ball_tracker:
+            if roi_box is None:
+                ball, ball_frame_warning = _ball_observation(
+                    ball_model, ball_tracker, clean_frame, width, height, pose, ball_evidence_gate)
+            else:
+                ball, ball_frame_warning = _ball_observation(
+                    ball_model, ball_tracker, clean_frame, width, height, pose,
+                    ball_evidence_gate, roi=roi_box)
+        else:
+            ball, ball_frame_warning = None, "ball_tracker_unavailable"
         if not ball or not ball.get("point") or ball.get("state") == ObservationState.UNAVAILABLE.value:
             trail.clear()
         else:
@@ -859,7 +1094,7 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
         warnings = ["research_only", "ground_truth_false", "production_analytics_unavailable",
                     "camera_motion:not_assessed", "blur:not_assessed", "occlusion:not_assessed"]
         warnings.extend(value for value in (pose_warning, ball_warning, pose_frame_warning,
-                                             ball_frame_warning, swingnet_warning,
+                                             ball_frame_warning, coarse_warning, budget_warning, swingnet_warning,
                                              swingnet_inference_warning) if value)
         if not pose:
             warnings.append("golfer_track_lost")
@@ -916,6 +1151,16 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
     render_block = {
         "rendered_frames": len(observations),
         "sample_fps": sample_fps,
+        "processing": {"mode": "coarse_full_frame_then_native_roi" if roi_plan["state"] == "candidate_region" else "bounded_sampled_full_frame",
+                        "roi": dict(roi_plan),
+                        "budget": None if native_budget is None else {
+                            "frames": native_budget.frames, "max_frames": native_budget.max_frames,
+                            "memory_bytes": native_budget.memory_bytes,
+                            "max_memory_bytes": native_budget.max_memory_bytes,
+                            "candidates": native_budget.candidates,
+                            "max_candidates": native_budget.max_candidates,
+                            "termination": native_budget.reason,
+                        }},
         "duration_seconds": len(observations) / sample_fps if sample_fps else 0.0,
         "audio": "unavailable_dropped_by_reencode",
         "reason": "annotated re-render covers sampled frames only; source audio not carried into re-encode",
@@ -932,6 +1177,7 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
         artifact_references=["annotated_video.mp4", "annotated_frames/", "diagnostics.json", "provenance.json"],
         warnings=["research_only", "ground_truth_false", "production_analytics_unavailable", "clubhead_not_validated"],
         render=render_block,
+        visual_review=visual_review,
     )
     (out / "diagnostics.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     return report

@@ -39,7 +39,7 @@ from .video.human_import import observations_from_human_annotations
 from .video.youtube import DownloadError, DownloadLimits, YtDlpDownloader, parse_youtube_url
 from .video.youtube_auto_try import AUTO_FORMAT, AutoTryConfig, DEFAULT_YTDLP, auto_try
 from .video.fairwayos_research import sidecar_from_mapping, write_fairwayos_sidecar
-from .video.ai_demo import run_local_demo
+from .video.ai_demo import build_visual_review, run_local_demo
 from .video.research_split import serialize_split_manifest
 
 
@@ -195,6 +195,8 @@ def _build_parser() -> argparse.ArgumentParser:
     demo_p.add_argument("--max-frames", type=int, default=None)
     demo_p.add_argument("--pose-model", default=None, help="Optional local pose checkpoint path/adapter hint.")
     demo_p.add_argument("--ball-model", default=None, help="Optional local ball checkpoint path/adapter hint.")
+    demo_p.add_argument("--visual-review", type=Path, default=None,
+                         help="Optional sanitized Luna visual-review JSON file.")
     demo_p.add_argument("--source-platform", default=None, help="Explicit source platform for a local video.")
     demo_p.add_argument("--source-video-id", default=None, help="Explicit source asset ID for a local video.")
     demo_p.add_argument("--source-url", default=None, help="Explicit source page URL for a local video.")
@@ -646,7 +648,18 @@ def _run_ai_demo_command(args) -> None:
     ingest_dir = None
     source = None
     video = args.video
+    visual_review = None
     try:
+        if args.visual_review is not None:
+            review_path = args.visual_review.expanduser().resolve(strict=True)
+            payload = json.loads(review_path.read_text())
+            if isinstance(payload, dict) and isinstance(payload.get("verdicts"), list):
+                verdicts = payload["verdicts"]
+            elif isinstance(payload, list):
+                verdicts = payload
+            else:
+                raise ValueError("visual review must contain a verdicts list")
+            visual_review = build_visual_review(verdicts)
         if args.url:
             source = parse_youtube_url(args.url)
             ingest_dir = Path(tempfile.mkdtemp(prefix=".ai-demo-ingest-", dir=str(out.parent)))
@@ -669,6 +682,7 @@ def _run_ai_demo_command(args) -> None:
             str(video), str(out), sample_fps=args.sample_fps,
             max_duration_seconds=args.max_duration, max_frames=args.max_frames,
             source=source, pose_model=args.pose_model, ball_model=args.ball_model,
+            visual_review=visual_review,
         )
         print(json.dumps({"status": report["status"], "output": str(args.out)}))
     except (DownloadError, OSError, RuntimeError, ValueError) as exc:

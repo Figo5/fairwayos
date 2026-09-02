@@ -33,6 +33,42 @@ class TestAIDemoContracts(unittest.TestCase):
             self.assertTrue(run.called)
             self.assertIn('"status": "research_only"', output.getvalue())
 
+    def test_cli_forwards_sanitized_visual_review_file(self):
+        output = StringIO()
+        review = {"verdicts": [{"verdict": "reject", "ball_marker_aligned": True}],
+                  "research_only": True, "ground_truth": False, "production_eligible": False}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            review_path = root / "review.json"
+            source.write_bytes(b"source")
+            review_path.write_text(json.dumps(review))
+            with patch("ghostcaddie.cli.run_local_demo", return_value={"status": "research_only"}) as run:
+                with redirect_stdout(output):
+                    main(["ai-demo", "--video", str(source), "--out", str(root / "out"),
+                          "--visual-review", str(review_path)])
+            self.assertFalse(run.call_args.kwargs["visual_review"]["verdicts"][0]["ball_marker_aligned"])
+
+    def test_cli_accepts_bare_sanitized_verdict_list(self):
+        output = StringIO()
+        verdicts = [{"recommended_action": "reject", "false_positive": True,
+                     "false_positive_type": "static_ground_ball_not_flight",
+                     "ball_marker_aligned": True}]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            review_path = root / "review.json"
+            source.write_bytes(b"source")
+            review_path.write_text(json.dumps(verdicts))
+            with patch("ghostcaddie.cli.run_local_demo", return_value={"status": "research_only"}) as run:
+                with redirect_stdout(output):
+                    main(["ai-demo", "--video", str(source), "--out", str(root / "out"),
+                          "--visual-review", str(review_path)])
+            forwarded = run.call_args.kwargs["visual_review"]["verdicts"][0]
+            self.assertEqual(forwarded["false_positive"], True)
+            self.assertEqual(forwarded["false_positive_type"], "static_ground_ball_not_flight")
+            self.assertFalse(forwarded["ball_marker_aligned"])
+
     def test_local_demo_accepts_explicit_source_provenance(self):
         output = StringIO()
         with tempfile.TemporaryDirectory() as directory:
@@ -155,6 +191,66 @@ class TestAIDemoContracts(unittest.TestCase):
         self.assertEqual(second["agreement_streak"], 2)
         self.assertEqual(sum(bool(items) for items in tracker.seen), 1)
 
+    def test_ball_evidence_fails_closed_on_static_ground_or_trouser_marker(self):
+        from ghostcaddie.video.ai_demo import ResearchBallEvidenceGate
+        current = {"center": (250.0, 200.0)}
+
+        class ResearchCandidates:
+            def extract_candidates(self, image, previous_image=None, context=None):
+                return (type("Candidate", (), {"center": current["center"], "confidence": 0.9})(),)
+
+        class RecordingTracker:
+            def __init__(self):
+                self.seen = []
+            def update(self, candidates):
+                self.seen.append(list(candidates))
+                if not candidates:
+                    return {"state": "unavailable", "point": None, "confidence": 0.0}
+                return {"state": "observed", "point": candidates[0]["center"],
+                        "confidence": candidates[0]["confidence"]}
+
+        tracker = RecordingTracker()
+        gate = ResearchBallEvidenceGate(tracker, ResearchCandidates(), min_consecutive=2)
+        # Sanitized observed centers from vision-review iter3-6573612 frames
+        # 96..152: effectively stationary, so this is ground/trouser, not ball.
+        stationary = [(1123.66, 844.99), (1124.14, 846.08), (1124.70, 845.24),
+                      (1124.98, 846.04), (1124.80, 845.90), (1125.31, 845.52),
+                      (1125.46, 844.42), (1125.42, 844.47)]
+        static_rejections = 0
+        for center in stationary:
+            current["center"] = center
+            result = gate.update(
+                [{"center": center, "box": [center[0] - 4.0, center[1] - 4.0,
+                                            center[0] + 4.0, center[1] + 4.0],
+                  "confidence": 0.9}],
+                object(), pose=None, image_width=1920, image_height=1080)
+            self.assertEqual(result["state"], "unavailable")
+            self.assertIsNone(result["point"])
+            self.assertTrue(result["research_only"])
+            self.assertFalse(result["ground_truth"])
+            self.assertFalse(result["production_eligible"])
+            static_rejections += sum(
+                1 for record in result["rejected_candidates"]
+                if "static_ground_or_trouser_false_positive" in record["reasons"])
+        self.assertGreaterEqual(static_rejections, 1)
+        self.assertTrue(all(not items for items in tracker.seen))
+        # A genuinely moving candidate is never flagged by the static-ground gate.
+        tracker = RecordingTracker()
+        gate = ResearchBallEvidenceGate(tracker, ResearchCandidates(), min_consecutive=2)
+        final_state = None
+        for step in range(3):
+            center = (900.0 + 12.0 * step, 700.0 - 6.0 * step)
+            current["center"] = center
+            result = gate.update(
+                [{"center": center, "box": [center[0] - 4.0, center[1] - 4.0,
+                                            center[0] + 4.0, center[1] + 4.0],
+                  "confidence": 0.9}],
+                object(), pose=None, image_width=1920, image_height=1080)
+            final_state = result["state"]
+        self.assertEqual(final_state, "observed")
+        self.assertFalse(any("static_ground_or_trouser_false_positive" in record["reasons"]
+                             for result_items in tracker.seen for record in []))
+
     def test_ball_hat_fixture_renders_rejected_without_inside_golfer_marker(self):
         from ghostcaddie.video.ai_demo import _draw_ball_overlay, filter_ball_model_candidates
         fixture = json.loads((Path(__file__).parent / "fixtures" / "ball_hat_false_positive.json").read_text())
@@ -232,6 +328,83 @@ class TestAIDemoContracts(unittest.TestCase):
             warnings=["research_only_demo"],
         )
         self.assertNotIn("render", report)
+
+    def test_visual_review_block_flags_and_reject_alignment_invariant(self):
+        from ghostcaddie.video.ai_demo import build_visual_review
+        block = build_visual_review([
+            {"frame_index": 12, "verdict": "accept", "ball_marker_aligned": True},
+            {"frame_index": 13, "verdict": "reject", "ball_marker_aligned": True},
+            {"frame_index": 14, "verdict": "reject"},
+        ])
+        self.assertTrue(block["research_only"])
+        self.assertFalse(block["ground_truth"])
+        self.assertFalse(block["production_eligible"])
+        for verdict in block["verdicts"]:
+            self.assertTrue(verdict["research_only"])
+            self.assertFalse(verdict["ground_truth"])
+            self.assertFalse(verdict["production_eligible"])
+        self.assertTrue(block["verdicts"][0]["ball_marker_aligned"])
+        self.assertFalse(block["verdicts"][1]["ball_marker_aligned"])
+        self.assertFalse(block["verdicts"][2].get("ball_marker_aligned", False))
+        report = build_demo_report(
+            source={"platform": "youtube", "video_id": "ABCDEFGHIJK"},
+            media={"fps": 30.0, "width": 640, "height": 360, "frame_count": 7},
+            swing_window={"start_frame": 0, "end_frame": 6, "peak_frame": 5},
+            observations=[],
+            artifact_references=["annotated_video.mp4", "diagnostics.json"],
+            warnings=["research_only_demo"],
+            visual_review=block,
+        )
+        review = report["visual_review"]
+        self.assertTrue(review["research_only"])
+        self.assertFalse(review["ground_truth"])
+        self.assertFalse(review["production_eligible"])
+        self.assertEqual(review["verdicts"], block["verdicts"])
+
+    def test_run_local_demo_accepts_optional_visual_review_without_required_call(self):
+        import inspect
+        from ghostcaddie.video.ai_demo import run_local_demo
+        parameter = inspect.signature(run_local_demo).parameters["visual_review"]
+        self.assertIsNone(parameter.default)
+
+    def test_bounded_roi_plan_is_padded_clipped_and_candidate_limited(self):
+        from ghostcaddie.video.ai_demo import build_bounded_roi
+        plan = build_bounded_roi(
+            [{"box": [100.0, 120.0, 140.0, 160.0], "confidence": 0.9},
+             {"box": [700.0, 500.0, 730.0, 530.0], "confidence": 0.8}],
+            image_width=800, image_height=600, padding=32, max_candidates=4,
+        )
+        self.assertEqual(plan["state"], "candidate_region")
+        self.assertEqual(plan["box"], [68, 88, 762, 562])
+        self.assertLessEqual(plan["candidate_count"], 4)
+        self.assertTrue(plan["research_only"])
+        self.assertFalse(plan["ground_truth"])
+        self.assertFalse(plan["production_eligible"])
+
+    def test_processing_budget_hard_stops_frames_time_memory_and_candidates(self):
+        from ghostcaddie.video.ai_demo import BoundedProcessingBudget
+        budget = BoundedProcessingBudget(max_frames=2, max_seconds=10.0,
+                                         max_memory_bytes=100, max_candidates=3,
+                                         started_at=100.0)
+        self.assertTrue(budget.allow(frame_bytes=40, candidate_count=2, now=101.0))
+        self.assertTrue(budget.allow(frame_bytes=40, candidate_count=1, now=102.0))
+        self.assertFalse(budget.allow(frame_bytes=1, candidate_count=0, now=103.0))
+        self.assertEqual(budget.reason, "frame_limit")
+        budget = BoundedProcessingBudget(max_frames=5, max_seconds=1.0,
+                                         max_memory_bytes=1000, max_candidates=10,
+                                         started_at=100.0)
+        self.assertFalse(budget.allow(frame_bytes=1, candidate_count=0, now=101.1))
+        self.assertEqual(budget.reason, "time_limit")
+        budget = BoundedProcessingBudget(max_frames=5, max_seconds=10.0,
+                                         max_memory_bytes=10, max_candidates=10,
+                                         started_at=100.0)
+        self.assertFalse(budget.allow(frame_bytes=11, candidate_count=0, now=100.1))
+        self.assertEqual(budget.reason, "memory_limit")
+        budget = BoundedProcessingBudget(max_frames=5, max_seconds=10.0,
+                                         max_memory_bytes=1000, max_candidates=2,
+                                         started_at=100.0)
+        self.assertFalse(budget.allow(frame_bytes=1, candidate_count=3, now=100.1))
+        self.assertEqual(budget.reason, "candidate_limit")
 
     def test_report_cannot_open_validated_analytics(self):
         report = build_demo_report(
@@ -491,6 +664,52 @@ class TestAIDemoContracts(unittest.TestCase):
         self.assertIn("bounded", text)
         self.assertIn("research-only", text)
         self.assertIn("h.264", text)
+
+    def test_ball_overlay_with_unavailable_ball_reports_no_marker_but_counts_rejected(self):
+        from ghostcaddie.video.ai_demo import _draw_ball_overlay
+        try:
+            import cv2
+            import numpy as np
+        except ImportError:
+            self.skipTest("optional NumPy/OpenCV stack unavailable")
+        rejected = [{
+            "reasons": ["golfer_bbox_overlap", "head_region"],
+            "candidate": {"center": (160.0, 75.0), "box": [145.0, 60.0, 175.0, 90.0],
+                          "confidence": 0.99},
+        }]
+        frame = np.zeros((240, 320, 3), dtype="uint8")
+        rendered = _draw_ball_overlay(
+            frame,
+            {"state": "unavailable", "point": None, "rejected_candidates": rejected},
+            [],
+            frame.copy(),
+        )
+        self.assertFalse(rendered["marker"])
+        self.assertEqual(rendered["tracer_points"], 0)
+        self.assertFalse(rendered["zoom_inset"])
+        self.assertEqual(rendered["rejected_markers"], 1)
+
+    def test_ball_overlay_rejected_rendering_ignores_records_without_valid_box(self):
+        from ghostcaddie.video.ai_demo import _draw_ball_overlay
+        try:
+            import cv2
+            import numpy as np
+        except ImportError:
+            self.skipTest("optional NumPy/OpenCV stack unavailable")
+        frame = np.zeros((240, 320, 3), dtype="uint8")
+        rendered = _draw_ball_overlay(
+            frame,
+            {"state": "unavailable", "point": None,
+             "rejected_candidates": [{"reasons": ["candidate_rejected"], "candidate": None},
+                                     {"reasons": ["candidate_rejected"]},
+                                     "not-a-record"]},
+            [],
+            frame.copy(),
+        )
+        self.assertFalse(rendered["marker"])
+        self.assertEqual(rendered["rejected_markers"], 0)
+        self.assertEqual(rendered["tracer_points"], 0)
+        self.assertFalse(rendered["zoom_inset"])
 
 
     def test_pose_observation_records_person_count_and_second_persons(self):
