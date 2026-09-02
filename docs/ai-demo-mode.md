@@ -79,8 +79,8 @@ frame memory, and 64 candidate records. Pose runs only on the coarse frames and
 SwingNet is skipped on the native ROI path to keep optional model work bounded.
 Per-inference timeouts and budget termination are recorded in
 `render.processing`; partial frames are encoded cleanly when a limit is reached.
-A coarse probe that finds no candidate does not invent an ROI and remains in the
-sampled full-frame fallback.
+Per-inference and model-load timeouts are recorded as distinct warnings; a timeout
+leaves the affected model unavailable rather than promoting partial output.
 
 ROI candidates are still research candidates, not labels. Rejected candidates
 are rendered only as rejected diagnostics; they never become `observed`, and all

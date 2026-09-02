@@ -326,7 +326,12 @@ def _load_yolo(path: Optional[str], task: str):
         return None, "model_unavailable"
     try:
         from ultralytics import YOLO
-        return YOLO(str(Path(path).expanduser().resolve(strict=True)), task=task), None
+        model = _run_with_timeout(
+            lambda: YOLO(str(Path(path).expanduser().resolve(strict=True)), task=task),
+            seconds=10.0)
+        return model, None
+    except _InferenceTimeout:
+        return None, "model_load_timeout"
     except Exception:
         return None, "model_load_failed"
 

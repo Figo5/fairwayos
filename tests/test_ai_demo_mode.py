@@ -367,7 +367,18 @@ class TestAIDemoContracts(unittest.TestCase):
         parameter = inspect.signature(run_local_demo).parameters["visual_review"]
         self.assertIsNone(parameter.default)
 
-    def test_coarse_probe_hard_limits_full_frame_inputs(self):
+    def test_model_load_timeout_is_reported_as_unavailable(self):
+        import sys
+        import types
+        from ghostcaddie.video.ai_demo import _InferenceTimeout, _load_yolo
+        fake_ultralytics = types.SimpleNamespace(YOLO=object())
+        with patch.dict(sys.modules, {"ultralytics": fake_ultralytics}), \
+             patch("ghostcaddie.video.ai_demo._run_with_timeout",
+                   side_effect=_InferenceTimeout("load timed out")):
+            model, warning = _load_yolo("/tmp/model.pt", "detect")
+        self.assertIsNone(model)
+        self.assertEqual(warning, "model_load_timeout")
+
         from ghostcaddie.video.ai_demo import _coarse_ball_candidates
         calls = []
         class EmptyResult:
