@@ -43,6 +43,20 @@ class TemporalCandidateGateTests(unittest.TestCase):
         ]
         self.assertEqual(accept_candidate_run(candidates, min_consecutive=2), [])
 
+    def test_run_selector_rejects_invalid_candidates_without_prefilter(self):
+        invalid = [
+            Candidate(-1, 300, 400, 4, 3.0, 0.8),
+            Candidate(0, 300, 400, 4, 0.0, 0.8),
+            Candidate(1, float("nan"), 400, 4, 3.0, 0.8),
+            Candidate(2, 300, 400, 31, 3.0, 0.8),
+        ]
+        self.assertEqual(accept_candidate_run(invalid), [])
+
+    def test_run_selector_rejects_nonfinite_step_limit(self):
+        candidates = [Candidate(0, 300, 400, 4, 3.0, 0.8)]
+        with self.assertRaises(ValueError):
+            accept_candidate_run(candidates, max_step=float("nan"))
+
 
 if __name__ == "__main__":
     unittest.main()

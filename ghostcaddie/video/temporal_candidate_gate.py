@@ -61,14 +61,23 @@ def accept_candidate_run(
     max_step: float = 100.0,
 ) -> List[Candidate]:
     """Select the longest unambiguous, consecutive, motion-supported run."""
-    if min_consecutive < 2 or max_step <= 0.0:
+    if min_consecutive < 2 or isinstance(max_step, bool) or not isinstance(max_step, (int, float)):
+        raise ValueError("invalid temporal limits")
+    if not isfinite(float(max_step)) or max_step <= 0.0:
         raise ValueError("invalid temporal limits")
     by_frame = {}
     for candidate in candidates:
+        values = (candidate.frame_index, candidate.x, candidate.y,
+                  candidate.radius, candidate.residual_motion,
+                  candidate.appearance_score)
+        if (not isinstance(candidate.frame_index, int) or candidate.frame_index < 0 or
+                any(not isfinite(float(value)) for value in values[1:]) or
+                not (2.0 <= candidate.radius <= 30.0) or
+                candidate.residual_motion <= 0.0 or
+                not (0.0 <= candidate.appearance_score <= 1.0)):
+            continue
         if candidate.frame_index in by_frame:
             by_frame[candidate.frame_index] = None
-        elif by_frame.get(candidate.frame_index, "missing") != "missing":
-            continue
         else:
             by_frame[candidate.frame_index] = candidate
     usable = [c for c in by_frame.values() if c is not None]
