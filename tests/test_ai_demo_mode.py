@@ -367,7 +367,21 @@ class TestAIDemoContracts(unittest.TestCase):
         parameter = inspect.signature(run_local_demo).parameters["visual_review"]
         self.assertIsNone(parameter.default)
 
-    def test_bounded_roi_plan_is_padded_clipped_and_candidate_limited(self):
+    def test_coarse_probe_hard_limits_full_frame_inputs(self):
+        from ghostcaddie.video.ai_demo import _coarse_ball_candidates
+        calls = []
+        class EmptyResult:
+            boxes = None
+        class Model:
+            def __call__(self, frame, verbose=False):
+                calls.append(frame)
+                return [EmptyResult()]
+        candidates, warning = _coarse_ball_candidates(
+            Model(), list(range(10)), 640, 360, max_frames=4)
+        self.assertEqual(candidates, [])
+        self.assertIsNone(warning)
+        self.assertEqual(len(calls), 4)
+
         from ghostcaddie.video.ai_demo import build_bounded_roi
         plan = build_bounded_roi(
             [{"box": [100.0, 120.0, 140.0, 160.0], "confidence": 0.9},

@@ -668,14 +668,15 @@ def _ball_observation(model, tracker, frame, width: int, height: int,
         return None, "ball_inference_failed"
 
 
-def _coarse_ball_candidates(model, frames, width: int, height: int, *, limit: int = 8):
+def _coarse_ball_candidates(model, frames, width: int, height: int, *, limit: int = 8,
+                            max_frames: int = 4):
     """Probe sparse full frames only to locate a bounded native-FPS ROI."""
     if model is None:
         return [], "coarse_ball_model_unavailable"
     candidates = []
     try:
         from .research_ball_model import normalize_box
-        for frame in frames:
+        for frame in list(frames)[:max(0, int(max_frames))]:
             result = _run_with_timeout(lambda: model(frame, verbose=False)[0], seconds=2.0)
             if result.boxes is None:
                 continue
@@ -971,10 +972,11 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
         window["peak_frame"] = max(0, int(window["peak_frame"]) - start_index)
     pose_model, pose_warning = _load_yolo(pose_model or _default_model_path("pose"), "pose")
     ball_model, ball_warning = _load_yolo(ball_model or _default_model_path("ball"), "detect")
-    coarse_candidates, coarse_warning = _coarse_ball_candidates(ball_model, frames, width, height)
     # Four full-frame probes are enough to seed a bounded ROI; never let a
     # requested output frame count silently turn the coarse pass into a scan.
     coarse_frames, coarse_numbers = list(frames[:4]), list(frame_numbers[:4])
+    coarse_candidates, coarse_warning = _coarse_ball_candidates(
+        ball_model, coarse_frames, width, height, max_frames=4)
     roi_plan = build_bounded_roi(coarse_candidates, image_width=width, image_height=height,
                                  padding=64, max_candidates=8)
     native_budget = None
