@@ -119,12 +119,20 @@ positives are rejected using bounds, golfer support, confidence, and temporal
 support checks. A generic `sports ball` detector is not relabeled as a golf-ball
 truth source.
 
-The automatic ball demo rejects implausibly large frame-filling model boxes per detection, preserving any realistic same-frame candidate; this is a false-positive guard only and does not establish golf-ball identity.
+The automatic ball demo now applies strict fail-closed gates before tracking: candidates
+inside or overlapping the golfer box, head/hat/torso/hand/foot pose regions, or
+wrist-to-ground club/shaft corridors are rejected. Implausible size, aspect ratio,
+area, bounds, and confidence are rejected as well. A model candidate must agree
+with a `ResearchBallTracker` candidate on consecutive clean source frames before
+it can become `ball=observed`; otherwise confidence decays through the tracker and
+false tracks terminate quickly. Rejected boxes are rendered with a crossed-out
+`BALL REJECTED` label, never as observed markers or zooms. This remains a
+false-positive guard only and does not establish golf-ball identity.
 
-cleared on unavailable, terminated, or reacquisition-gap states so unrelated
-candidate positions are never joined by a misleading line. Before each render,
-only stale generated `annotated_frames/frame_*.jpg` files are removed, so a
-shorter rerun cannot encode frames left by an earlier run.
+Tracer state is cleared on unavailable, terminated, or reacquisition-gap states so
+unrelated candidate positions are never joined by a misleading line. Before each
+render, only stale generated `annotated_frames/frame_*.jpg` files are removed, so
+a shorter rerun cannot encode frames left by an earlier run.
 
 The unified renderer consumes one clean source frame per iteration for every
 component, then composes all accepted evidence exactly once. The ball zoom is

@@ -116,12 +116,74 @@ class TestAIDemoContracts(unittest.TestCase):
         self.assertEqual(bracket["frames"], [])
         self.assertIn("two distinct", bracket["reason"])
 
-    def test_obvious_false_positive_is_rejected(self):
-        candidate = {"point": [4.0, 5.0], "confidence": 0.88, "inside_golfer": False, "temporal_support": 1}
-        decision = reject_obvious_false_positive(candidate, image_width=100, image_height=100)
-        self.assertFalse(decision["accepted"])
-        self.assertIn("insufficient_temporal_support", decision["reasons"])
-        self.assertFalse(decision["production_eligible"])
+    def test_hat_candidate_is_rejected_by_pose_region_gate(self):
+        from ghostcaddie.video.ai_demo import filter_ball_model_candidates
+        pose = {
+            "bbox": [100, 50, 220, 260],
+            "keypoints": [[160, 75, 0.95]] * 17,
+        }
+        accepted, rejected = filter_ball_model_candidates(
+            [{"center": (160.0, 75.0), "box": [145.0, 60.0, 175.0, 90.0], "confidence": 0.99}],
+            pose=pose, image_width=320, image_height=240,
+        )
+        self.assertEqual(accepted, [])
+        self.assertIn("golfer_bbox_overlap", rejected[0]["reasons"])
+        self.assertIn("head_region", rejected[0]["reasons"])
+
+    def test_ball_evidence_requires_two_consecutive_model_research_agreements(self):
+        from ghostcaddie.video.ai_demo import ResearchBallEvidenceGate
+        class ResearchCandidates:
+            def extract_candidates(self, image, previous_image=None, context=None):
+                return (type("Candidate", (), {"center": (250.0, 200.0), "confidence": 0.9})(),)
+        class RecordingTracker:
+            def __init__(self):
+                self.seen = []
+            def update(self, candidates):
+                self.seen.append(list(candidates))
+                if not candidates:
+                    return {"state": "unavailable", "point": None, "confidence": 0.0}
+                return {"state": "observed", "point": candidates[0]["center"],
+                        "confidence": candidates[0]["confidence"]}
+        tracker = RecordingTracker()
+        gate = ResearchBallEvidenceGate(tracker, ResearchCandidates(), min_consecutive=2)
+        model_candidates = [{"center": (250.0, 200.0), "box": [246.0, 196.0, 254.0, 204.0], "confidence": 0.9}]
+        first = gate.update(model_candidates, object(), pose=None, image_width=320, image_height=240)
+        self.assertEqual(first["state"], "unavailable")
+        self.assertEqual(first["agreement_streak"], 1)
+        second = gate.update(model_candidates, object(), pose=None, image_width=320, image_height=240)
+        self.assertEqual(second["state"], "observed")
+        self.assertEqual(second["agreement_streak"], 2)
+        self.assertEqual(sum(bool(items) for items in tracker.seen), 1)
+
+    def test_ball_hat_fixture_renders_rejected_without_inside_golfer_marker(self):
+        from ghostcaddie.video.ai_demo import _draw_ball_overlay, filter_ball_model_candidates
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "ball_hat_false_positive.json").read_text())
+        candidate = fixture["candidate"]
+        pose = {"bbox": fixture["golfer_bbox"],
+                "keypoints": [[candidate["center"][0], candidate["center"][1], 0.9]] * 17}
+        accepted, rejected = filter_ball_model_candidates(
+            [candidate], pose=pose, image_width=fixture["image_width"], image_height=fixture["image_height"])
+        self.assertEqual(accepted, [])
+        self.assertTrue(set(fixture["expected_reasons"]).issubset(set(rejected[0]["reasons"])))
+        try:
+            import numpy as np
+            frame = np.zeros((fixture["image_height"], fixture["image_width"], 3), dtype="uint8")
+            rendered = _draw_ball_overlay(frame, {"state": "unavailable", "point": None,
+                                                   "rejected_candidates": rejected}, [], frame.copy())
+        except ImportError:
+            self.skipTest("optional NumPy/OpenCV stack unavailable")
+        self.assertFalse(rendered["marker"])
+        self.assertEqual(rendered["rejected_markers"], 1)
+
+    def test_rendered_marker_validator_rejects_inside_golfer_box(self):
+        from ghostcaddie.video.ai_demo import validate_rendered_ball_markers
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "ball_hat_false_positive.json").read_text())
+        observation = {"frame_index": fixture["frame_index"],
+                       "golfer": {"bbox": fixture["golfer_bbox"]},
+                       "ball": {"state": "observed", "point": {"x": fixture["candidate"]["center"][0],
+                                                                    "y": fixture["candidate"]["center"][1]}}}
+        violations = validate_rendered_ball_markers([observation])
+        self.assertEqual(violations[0]["reason"], "accepted_marker_inside_golfer_bbox")
 
     def test_provenance_hashes_local_object_without_absolute_path(self):
         with tempfile.TemporaryDirectory() as directory:

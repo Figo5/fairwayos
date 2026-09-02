@@ -334,7 +334,200 @@ def _pose_observation(model, frame, width: int, height: int):
         return None, "pose_inference_failed"
 
 
-def _ball_observation(model, tracker, frame, width: int, height: int):
+def _box_area(box):
+    return max(0.0, box[2] - box[0]) * max(0.0, box[3] - box[1])
+
+
+def _boxes_overlap(left, right):
+    return not (left[2] <= right[0] or right[2] <= left[0] or
+                left[3] <= right[1] or right[3] <= left[1])
+
+
+def _distance_to_segment(point, start, end):
+    px, py = point
+    x1, y1 = start
+    x2, y2 = end
+    dx, dy = x2 - x1, y2 - y1
+    if dx == 0.0 and dy == 0.0:
+        return math.hypot(px - x1, py - y1)
+    scale = max(0.0, min(1.0, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)))
+    return math.hypot(px - (x1 + scale * dx), py - (y1 + scale * dy))
+
+
+def _pose_exclusion_reasons(box, pose):
+    if not pose:
+        return []
+    reasons = []
+    bbox = pose.get("bbox")
+    if isinstance(bbox, (list, tuple)) and len(bbox) == 4:
+        try:
+            expanded = (float(bbox[0]) - 8.0, float(bbox[1]) - 8.0,
+                        float(bbox[2]) + 8.0, float(bbox[3]) + 8.0)
+            if _boxes_overlap(box, expanded):
+                reasons.append("golfer_bbox_overlap")
+        except (TypeError, ValueError):
+            pass
+    points = []
+    for index, raw in enumerate(pose.get("keypoints") or ()):
+        if not isinstance(raw, (list, tuple)) or len(raw) < 3:
+            continue
+        try:
+            x, y, confidence = float(raw[0]), float(raw[1]), float(raw[2])
+        except (TypeError, ValueError):
+            continue
+        if confidence < 0.25 or not all(math.isfinite(value) for value in (x, y, confidence)):
+            continue
+        points.append((index, (x, y)))
+        radius = 24.0 if index <= 4 else 16.0
+        if math.hypot(max(box[0] - x, 0.0, x - box[2]),
+                      max(box[1] - y, 0.0, y - box[3])) <= radius:
+            reasons.append("head_region" if index <= 4 else "pose_region")
+    point_map = dict(points)
+    for left, right in POSE_SKELETON:
+        if left not in point_map or right not in point_map:
+            continue
+        if _distance_to_segment(((box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0),
+                                point_map[left], point_map[right]) <= 16.0:
+            reasons.append("pose_limb_region")
+    # Hands/wrists are the usual entry point for club/shaft false positives;
+    # exclude a conservative corridor from each wrist toward the ground.
+    for wrist in (9, 10):
+        if wrist not in point_map:
+            continue
+        wx, wy = point_map[wrist]
+        corridor_end = (wx, wy + max(40.0, (box[3] - box[1]) * 0.8))
+        if _distance_to_segment(((box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0),
+                                (wx, wy), corridor_end) <= 12.0:
+            reasons.append("club_or_shaft_region")
+    return sorted(set(reasons))
+
+
+def filter_ball_model_candidates(candidates, *, pose=None, image_width, image_height):
+    """Apply strict pixel-space gates before a model candidate can be tracked."""
+    accepted, rejected = [], []
+    for candidate in candidates:
+        reasons = []
+        if not isinstance(candidate, dict):
+            rejected.append({"candidate": candidate, "reasons": ["malformed_candidate"]})
+            continue
+        try:
+            box = tuple(float(value) for value in candidate["box"])
+            confidence = float(candidate.get("confidence", 0.0))
+        except (KeyError, TypeError, ValueError):
+            rejected.append({"candidate": dict(candidate), "reasons": ["malformed_candidate"]})
+            continue
+        if len(box) != 4 or not all(math.isfinite(value) for value in box):
+            reasons.append("nonfinite_geometry")
+        elif not (0.0 <= box[0] < box[2] <= image_width and
+                  0.0 <= box[1] < box[3] <= image_height):
+            reasons.append("box_out_of_bounds")
+        else:
+            width, height = box[2] - box[0], box[3] - box[1]
+            if min(width, height) < 2.0:
+                reasons.append("ball_too_small")
+            if max(width, height) > min(image_width, image_height) * 0.12:
+                reasons.append("ball_too_large")
+            if _box_area(box) > image_width * image_height * 0.015:
+                reasons.append("ball_area_implausible")
+            if max(width, height) / min(width, height) > 2.2:
+                reasons.append("ball_shape_implausible")
+        if not math.isfinite(confidence) or confidence < 0.35:
+            reasons.append("low_confidence")
+        reasons.extend(_pose_exclusion_reasons(box, pose) if len(box) == 4 else ())
+        if reasons:
+            rejected.append({"candidate": dict(candidate), "reasons": sorted(set(reasons))})
+        else:
+            item = dict(candidate)
+            item["box"] = list(box)
+            item["confidence"] = confidence
+            accepted.append(item)
+    return accepted, rejected
+
+
+def validate_rendered_ball_markers(observations):
+    """Return render-safety violations for accepted points inside golfer boxes."""
+    violations = []
+    for observation in observations:
+        ball = observation.get("ball") or {}
+        point = ball.get("point")
+        bbox = (observation.get("golfer") or {}).get("bbox")
+        if not isinstance(point, dict) or not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+            continue
+        x, y = _finite(point.get("x"), -1), _finite(point.get("y"), -1)
+        if bbox[0] <= x <= bbox[2] and bbox[1] <= y <= bbox[3]:
+            violations.append({"frame_index": observation.get("frame_index"),
+                               "reason": "accepted_marker_inside_golfer_bbox"})
+    return violations
+
+
+class ResearchBallEvidenceGate:
+    """Require pose-safe model/heuristic agreement on consecutive clean frames."""
+
+    def __init__(self, tracker, research_tracker, *, min_consecutive=2,
+                 match_distance=28.0):
+        if min_consecutive < 2 or match_distance <= 0:
+            raise ValueError("invalid evidence gate limits")
+        self.tracker = tracker
+        self.research_tracker = research_tracker
+        self.min_consecutive = int(min_consecutive)
+        self.match_distance = float(match_distance)
+        self.previous_frame = None
+        self.agreement_streak = 0
+
+    def update(self, model_candidates, frame, *, pose, image_width, image_height):
+        accepted, rejected = filter_ball_model_candidates(
+            model_candidates, pose=pose, image_width=image_width, image_height=image_height)
+        context = {}
+        if pose and pose.get("bbox"):
+            context["golfer_bbox"] = pose["bbox"]
+        research_candidates = self.research_tracker.extract_candidates(
+            frame, self.previous_frame, context=context)
+        self.previous_frame = frame.copy() if hasattr(frame, "copy") else frame
+        research_points = [(candidate.center, float(candidate.confidence))
+                           for candidate in research_candidates]
+        agreements = []
+        for candidate in accepted:
+            center = tuple(float(value) for value in candidate["center"])
+            if any(math.hypot(center[0] - point[0], center[1] - point[1]) <= self.match_distance
+                   for point, _ in research_points):
+                agreements.append(candidate)
+            else:
+                rejected.append({"candidate": dict(candidate), "reasons": ["research_tracker_disagreement"]})
+        if len(agreements) == 1:
+            self.agreement_streak += 1
+        else:
+            self.agreement_streak = 0
+        if self.agreement_streak < self.min_consecutive or len(agreements) != 1:
+            self.tracker.update([])
+            return {
+                "state": ObservationState.UNAVAILABLE.value, "point": None,
+                "confidence": 0.0, "uncertainty": None,
+                "candidate_count": len(model_candidates),
+                "research_candidate_count": len(research_candidates),
+                "agreement_streak": self.agreement_streak,
+                "rejected_candidates": rejected,
+                "tracker_warning": "temporal_agreement_required" if agreements else "candidate_rejected",
+                "research_only": True, "ground_truth": False, "production_eligible": False,
+            }
+        tracked = self.tracker.update(agreements)
+        state = _normalize_tracker_state(tracked.get("state"))
+        point = tracked.get("point") if state in {"observed", "predicted"} else None
+        if point is None:
+            self.agreement_streak = 0
+        return {
+            "state": state if point is not None else ObservationState.UNAVAILABLE.value,
+            "point": point, "confidence": float(tracked.get("confidence", 0.0)) if point else 0.0,
+            "uncertainty": None if point is None else max(2.0, (1.0 - float(tracked.get("confidence", 0.0))) * 30.0),
+            "candidate_count": len(model_candidates),
+            "research_candidate_count": len(research_candidates),
+            "agreement_streak": self.agreement_streak,
+            "rejected_candidates": rejected,
+            "tracker_warning": tracked.get("warning"),
+            "tracker_state": tracked.get("state"),
+            "research_only": True, "ground_truth": False, "production_eligible": False,
+        }
+def _ball_observation(model, tracker, frame, width: int, height: int,
+                      pose=None, evidence_gate=None):
     if model is None:
         return None, "ball_model_unavailable"
     try:
@@ -354,6 +547,12 @@ def _ball_observation(model, tracker, frame, width: int, height: int):
                 candidates.append({"center": ((x1 + x2) / 2.0, (y1 + y2) / 2.0), "confidence": confidence,
                                   "box": [x1, y1, x2, y2], "research_only": True,
                                   "ground_truth": False, "production_eligible": False})
+        if evidence_gate is not None:
+            gated = evidence_gate.update(
+                candidates, frame, pose=pose, image_width=width, image_height=height,
+            )
+            gated["model"] = "local_golf_ball"
+            return gated, None
         tracked = tracker.update(candidates)
         raw_state = tracked.get("state", ObservationState.UNAVAILABLE.value)
         state = _normalize_tracker_state(raw_state)
@@ -415,9 +614,24 @@ def _normalize_tracker_state(raw_state: Any) -> str:
 
 
 def _draw_ball_overlay(frame, ball, trail, source_frame=None):
-    if not ball or not ball.get("point"):
-        return {"marker": False, "tracer_points": 0, "zoom_inset": False}
     import cv2
+    rejected = (ball or {}).get("rejected_candidates") or []
+    rejected_drawn = 0
+    for record in rejected:
+        candidate = record.get("candidate") if isinstance(record, dict) else None
+        box = candidate.get("box") if isinstance(candidate, dict) else None
+        if not isinstance(box, (list, tuple)) or len(box) != 4:
+            continue
+        x1, y1, x2, y2 = [int(round(value)) for value in box]
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 80, 255), 2)
+        cv2.line(frame, (x1, y1), (x2, y2), (0, 80, 255), 2, cv2.LINE_AA)
+        cv2.line(frame, (x2, y1), (x1, y2), (0, 80, 255), 2, cv2.LINE_AA)
+        cv2.putText(frame, "BALL REJECTED", (max(4, x1), max(18, y1 - 5)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 80, 255), 2, cv2.LINE_AA)
+        rejected_drawn += 1
+    if not ball or not ball.get("point"):
+        return {"marker": False, "tracer_points": 0, "zoom_inset": False,
+                "rejected_markers": rejected_drawn}
     import numpy as np
     point = ball["point"]
     cx, cy = int(round(point["x"])), int(round(point["y"]))
@@ -583,9 +797,17 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
     swingnet_bundle, swingnet_warning = _load_swingnet()
     try:
         from .research_ball_model import ResearchBallMultiHypothesisTrack
+        from .research_ball import ResearchBallTracker
         ball_tracker = ResearchBallMultiHypothesisTrack(reacquire_confidence=0.75, max_step=80.0, max_misses=2, max_hypotheses=3)
+        research_tracker = ResearchBallTracker(min_confidence=0.35, max_gap_frames=1,
+                                               max_step_pixels=80.0, min_pixels=3,
+                                               max_component_fraction=0.008,
+                                               max_aspect_ratio=2.2)
+        ball_evidence_gate = ResearchBallEvidenceGate(ball_tracker, research_tracker,
+                                                       min_consecutive=2, match_distance=28.0)
     except Exception:
         ball_tracker = None
+        ball_evidence_gate = None
         ball_warning = ball_warning or "ball_tracker_unavailable"
     swingnet_events, swingnet_inference_warning = _swingnet_events(
         swingnet_bundle, frames, frame_numbers, fps)
@@ -604,15 +826,17 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
         clean_frame = clean_frame_for_components(frame)
         item = clean_frame.copy()
         pose, pose_frame_warning = _pose_observation(pose_model, clean_frame, width, height)
-        ball, ball_frame_warning = _ball_observation(ball_model, ball_tracker, clean_frame, width, height) if ball_tracker else (None, "ball_tracker_unavailable")
-        overlay_flags = {"marker": False, "tracer_points": 0, "zoom_inset": False}
+        ball, ball_frame_warning = (_ball_observation(
+            ball_model, ball_tracker, clean_frame, width, height, pose, ball_evidence_gate
+        ) if ball_tracker else (None, "ball_tracker_unavailable"))
         if not ball or not ball.get("point") or ball.get("state") == ObservationState.UNAVAILABLE.value:
             trail.clear()
         else:
             trail.append((int(ball["point"]["x"]), int(ball["point"]["y"])))
             if len(trail) > 40:
                 trail.pop(0)
-            overlay_flags = _draw_ball_overlay(item, ball, trail, source_frame=clean_frame)
+        overlay_flags = _draw_ball_overlay(item, ball or {}, trail, source_frame=clean_frame)
+        if ball is not None:
             ball["rendered_overlay"] = overlay_flags
         if pose:
             pose.setdefault("track_id", "golfer-0")
@@ -665,6 +889,21 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
         cv2.putText(item, "impact: unavailable" + bracket_text, (12, 128), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 80, 255), 1, cv2.LINE_AA)
         cv2.putText(item, "WARNINGS: camera/blur/occlusion not assessed | analytics unavailable", (12, 152), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 80, 255), 1, cv2.LINE_AA)
         cv2.imwrite(str(annotated / f"frame_{ordinal + 1:06d}.jpg"), item)
+    render_violations = validate_rendered_ball_markers(observations)
+    if render_violations:
+        # Last-resort render safety: an accepted point inside the golfer box is
+        # downgraded before diagnostics and MP4 publication.
+        bad_frames = {item["frame_index"] for item in render_violations}
+        for observation in observations:
+            if observation.get("frame_index") not in bad_frames:
+                continue
+            observation["ball"] = {"state": ObservationState.UNAVAILABLE.value,
+                                    "confidence": 0.0, "uncertainty": None,
+                                    "rejection": "accepted_marker_inside_golfer_bbox",
+                                    "research_only": True, "ground_truth": False,
+                                    "production_eligible": False}
+            observation["warnings"] = sorted(set(observation.get("warnings", ())) |
+                                              {"accepted_marker_inside_golfer_bbox"})
     cv2.destroyAllWindows()
     rendered = out / "annotated_video.mp4"
     ffmpeg = shutil.which("ffmpeg")
