@@ -7,7 +7,8 @@ recommendation input.
 
 The gate rejects proposals that are:
 
-- non-finite or outside the native frame;
+- non-finite, malformed, boolean, or outside-the-native-frame values;
+- stationary consecutive coordinates or unbounded inter-frame steps;
 - outside the bounded compact-object size range;
 - unsupported by measured residual motion;
 - inside a supplied person box; or
