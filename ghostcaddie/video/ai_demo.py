@@ -847,7 +847,8 @@ def _unavailable(frame_index: int, timestamp: float, warning: str) -> dict[str, 
 
 
 def build_demo_provenance(*, source: Mapping[str, Any], video_path: Path,
-                          media: Mapping[str, Any]) -> dict[str, Any]:
+                          media: Mapping[str, Any],
+                          artifact_references: Iterable[str] = ()) -> dict[str, Any]:
     """Return reproducibility metadata without leaking local paths."""
     digest = hashlib.sha256()
     with video_path.open("rb") as handle:
@@ -859,6 +860,7 @@ def build_demo_provenance(*, source: Mapping[str, Any], video_path: Path,
         "source": dict(source),
         "acquisition": {"status": "local_copy", "local_artifact": video_path.name},
         "media": dict(media),
+        "artifact_references": sorted({str(ref) for ref in artifact_references}),
         "sha256": digest.hexdigest(),
         "research_only": True,
         "ground_truth": False,
@@ -934,6 +936,38 @@ def build_bounded_roi(candidates: Sequence[Mapping[str, Any]], *, image_width: i
     return {"state": "candidate_region", "box": [x1, y1, x2, y2],
             "candidate_count": len(valid), "padding": int(padding),
             "research_only": True, "ground_truth": False, "production_eligible": False}
+
+
+def build_contact_sheet(frames_dir: str, output_path: str, *, columns: int = 4,
+                        thumbnail_width: int = 320) -> dict[str, Any]:
+    """Create a deterministic JPEG sheet from every rendered frame."""
+    try:
+        import cv2
+    except ImportError as exc:
+        raise RuntimeError("opencv is required for contact-sheet generation") from exc
+    paths = sorted(Path(frames_dir).glob("frame_*.jpg"))
+    if not paths:
+        raise RuntimeError("cannot create contact sheet without rendered frames")
+    tiles = []
+    for path in paths:
+        image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+        if image is None:
+            raise RuntimeError("cannot decode rendered frame for contact sheet")
+        height, width = image.shape[:2]
+        target_height = max(1, int(round(height * thumbnail_width / width)))
+        tiles.append(cv2.resize(image, (thumbnail_width, target_height), interpolation=cv2.INTER_AREA))
+    tile_height = max(tile.shape[0] for tile in tiles)
+    rows = int(math.ceil(len(tiles) / float(columns)))
+    sheet = __import__("numpy").zeros((rows * tile_height, columns * thumbnail_width, 3), dtype="uint8")
+    for index, tile in enumerate(tiles):
+        row, column = divmod(index, columns)
+        y = row * tile_height
+        sheet[y:y + tile.shape[0], column * thumbnail_width:column * thumbnail_width + tile.shape[1]] = tile
+    destination = Path(output_path)
+    if not cv2.imwrite(str(destination), sheet, [int(cv2.IMWRITE_JPEG_QUALITY), 92]):
+        raise RuntimeError("failed to write contact sheet")
+    return {"path": destination.name, "frames": len(paths), "width": int(sheet.shape[1]),
+            "height": int(sheet.shape[0])}
 
 
 def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
@@ -1190,8 +1224,12 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
         "audio": "unavailable_dropped_by_reencode",
         "reason": "annotated re-render covers sampled frames only; source audio not carried into re-encode",
     }
+    references = ["annotated_video.mp4", "annotated_frames/", "contact_sheet.jpg", "diagnostics.json", "provenance.json"]
+    contact_sheet = build_contact_sheet(str(annotated), str(out / "contact_sheet.jpg"))
+    render_block["contact_sheet"] = contact_sheet
     provenance = build_demo_provenance(source=source or {"platform": "local", "video_id": video.stem},
-                                       video_path=video, media=media)
+                                       video_path=video, media=media,
+                                       artifact_references=references)
     (out / "provenance.json").write_text(json.dumps(provenance, indent=2, sort_keys=True) + "\n")
     report = build_demo_report(
         source=source or {"platform": "local", "video_id": video.stem},
@@ -1199,7 +1237,7 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
         swing_window=window, observations=observations,
         swingnet_events=swingnet_events,
         impact_bracket=impact_bracket,
-        artifact_references=["annotated_video.mp4", "annotated_frames/", "diagnostics.json", "provenance.json"],
+        artifact_references=references,
         warnings=["research_only", "ground_truth_false", "production_analytics_unavailable", "clubhead_not_validated"],
         render=render_block,
         visual_review=visual_review,

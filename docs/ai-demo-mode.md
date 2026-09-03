@@ -29,11 +29,11 @@ For the existing Pexels regression baseline:
 
 ```text
 ghostcaddie fairwayos-demo \
-  --video out/research_training_gauntlet/fairwayos_unified_pexels_6573485/source.mp4 \
-  --out out/research_training_gauntlet/fairwayos_unified_pexels_6573485 \
+  --video out/research_training_gauntlet/pexels_6573644/source.mp4 \
+  --out out/demo_artifact_bundle \
   --source-platform pexels \
-  --source-video-id 6573485 \
-  --source-url https://www.pexels.com/video/boy-hitting-a-golf-ball-6573485/
+  --source-video-id 6573644 \
+  --source-url https://www.pexels.com/video/6573644/
 ```
 
 YouTube input uses the existing allowlisted, no-playlist downloader boundary.
@@ -55,9 +55,10 @@ Important bounds are explicit in the CLI:
 The output directory contains local ignored artifacts:
 
 - `annotated_video.mp4`: H.264/yuv420p viewable demo video;
+- `contact_sheet.jpg`: deterministic JPEG sheet containing every rendered frame;
 - `annotated_frames/`: sampled annotated frames for visual QA;
 - `diagnostics.json`: `fairwayos-ai-demo.v1` report;
-- `provenance.json`: source/acquisition provenance when acquired through YouTube.
+- `provenance.json`: source/acquisition provenance and the same relative artifact references.
 
 Diagnostics record source identity, media metadata, selected motion window,
 methods compared, candidate counts, states, confidence, uncertainty, warnings,
@@ -65,9 +66,9 @@ and safe relative artifact references. Absolute local paths and credentials are
 not serialized. For a local copy of externally hosted media, pass
 `--source-platform`, `--source-video-id`, and `--source-url` so the provenance
 identifies the external asset rather than the local filename. The accepted
-research-only visual-demo example uses Pexels video `6573485`; it is not paired
+research-only visual-demo example uses Pexels video `6573644`; it is not paired
 ground-truth evidence. Its local output directory and `source.video_id` must
-both remain `6573485`.
+both remain `6573644`.
 
 ## Bounded coarse-to-fine processing
 

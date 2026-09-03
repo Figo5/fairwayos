@@ -318,6 +318,17 @@ class TestAIDemoContracts(unittest.TestCase):
         self.assertEqual(render_block["duration_seconds"], 8.066667)
         self.assertEqual(render_block["audio"], "unavailable_dropped_by_reencode")
 
+    def test_report_references_required_visual_artifacts(self):
+        report = build_demo_report(
+            source={"platform": "local", "video_id": "clip"},
+            media={"fps": 30.0, "width": 640, "height": 360, "frame_count": 2},
+            swing_window={"start_frame": 0, "end_frame": 1}, observations=[],
+            artifact_references=["annotated_video.mp4", "contact_sheet.jpg", "diagnostics.json", "provenance.json"],
+            warnings=["research_only_demo"],
+        )
+        self.assertEqual(set(report["artifact_references"]), {
+            "annotated_video.mp4", "contact_sheet.jpg", "diagnostics.json", "provenance.json"})
+
     def test_report_omits_render_block_without_render_media_fields(self):
         report = build_demo_report(
             source={"platform": "youtube", "video_id": "ABCDEFGHIJK"},
@@ -531,8 +542,22 @@ class TestAIDemoContracts(unittest.TestCase):
             self.assertTrue(all(seen_frames[index][1:] == seen_frames[index + 1][1:]
                                 for index in range(0, len(seen_frames), 2)))
             self.assertTrue(all(item["golfer"].get("track_id") == "golfer-0" for item in report["observations"]))
-            self.assertTrue(all(item["pose"].get("skeleton_rendered") for item in report["observations"]))
+            self.assertTrue((root / "out" / "annotated_video.mp4").is_file())
+            self.assertTrue((root / "out" / "contact_sheet.jpg").is_file())
+            self.assertTrue((root / "out" / "diagnostics.json").is_file())
+            self.assertTrue((root / "out" / "provenance.json").is_file())
+            self.assertEqual(set(report["artifact_references"]), {
+                "annotated_video.mp4", "annotated_frames/", "contact_sheet.jpg",
+                "diagnostics.json", "provenance.json"})
+            diagnostics = json.loads((root / "out" / "diagnostics.json").read_text())
+            provenance = json.loads((root / "out" / "provenance.json").read_text())
+            self.assertEqual(diagnostics["artifact_references"], report["artifact_references"])
+            self.assertEqual(provenance["artifact_references"], report["artifact_references"])
+            contact_sheet = cv2.imread(str(root / "out" / "contact_sheet.jpg"))
+            self.assertIsNotNone(contact_sheet)
+            self.assertGreaterEqual(contact_sheet.shape[1], 320)
             capture = cv2.VideoCapture(str(root / "out" / "annotated_video.mp4"))
+            self.assertEqual(int(capture.get(cv2.CAP_PROP_FRAME_COUNT)), 3)
             green_pixels = red_pixels = orange_pixels = 0
             while True:
                 ok, frame = capture.read()
