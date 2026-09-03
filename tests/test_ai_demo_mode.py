@@ -960,6 +960,12 @@ class TestAIDemoContracts(unittest.TestCase):
         self.assertEqual(pose["second_person_count"], 1)
         self.assertTrue(pose["multi_person_frame"])
 
+    def test_ball_refinement_allows_nonfatal_candidate_limit(self):
+        from ghostcaddie.video.ai_demo import _ball_refinement_allowed
+        self.assertTrue(_ball_refinement_allowed(None))
+        self.assertTrue(_ball_refinement_allowed("coarse_candidate_limit"))
+        self.assertFalse(_ball_refinement_allowed("coarse_ball_inference_failed"))
+
     def test_pose_observation_single_person_has_no_multi_person_flag(self):
         import numpy as np
         from ghostcaddie.video.ai_demo import _pose_observation

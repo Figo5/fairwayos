@@ -1117,6 +1117,10 @@ def build_contact_sheet(frames_dir: str, output_path: str, *, columns: int = 4,
             "height": int(sheet.shape[0])}
 
 
+def _ball_refinement_allowed(coarse_warning):
+    return coarse_warning in (None, "coarse_candidate_limit")
+
+
 def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
                    max_duration_seconds: float = 8.0, max_frames: Optional[int] = None,
                    source: Optional[Mapping[str, Any]] = None,
@@ -1281,7 +1285,7 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
         # Bound expensive ball refinement on CPU-only Torch. Skipped frames are
         # explicitly unavailable; no prediction or stale marker is rendered.
         ball_probe_frame = (ordinal % 3 == 0)
-        if ball_tracker and coarse_warning is None and ball_probe_frame:
+        if ball_tracker and _ball_refinement_allowed(coarse_warning) and ball_probe_frame:
             if roi_box is None:
                 ball, ball_frame_warning = _ball_observation(
                     ball_model, ball_tracker, clean_frame, width, height, pose, ball_evidence_gate)
