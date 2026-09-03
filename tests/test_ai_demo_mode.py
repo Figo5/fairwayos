@@ -972,6 +972,17 @@ class TestAIDemoContracts(unittest.TestCase):
         self.assertEqual(pose["second_person_count"], 0)
         self.assertFalse(pose["multi_person_frame"])
 
+    def test_pose_observation_can_resize_inference_and_remap_coordinates(self):
+        import numpy as np
+        from ghostcaddie.video.ai_demo import _pose_observation
+        model = _FakeResizingYolo()
+        frame = np.full((240, 320, 3), 45, dtype=np.uint8)
+        pose, warning = _pose_observation(model, frame, 320, 240, inference_size=160)
+        self.assertIsNone(warning)
+        self.assertEqual(model.seen_shape, (120, 160))
+        self.assertEqual(pose["bbox"], [20.0, 40.0, 220.0, 240.0])
+        self.assertEqual(pose["keypoints"][0][:2], [120.0, 60.0])
+
 
 class _FakePersonTensor:
     def __init__(self, value):
@@ -1035,6 +1046,18 @@ class _FakeSinglePersonYolo:
         result.keypoints = _FakePersonKeypoints(
             xy=[[[60.0, 30.0]] * 17], conf=[[0.9] * 17],
         )
+        return [result]
+
+
+class _FakeResizingYolo(_FakeSinglePersonYolo):
+    def __init__(self):
+        self.seen_shape = None
+
+    def __call__(self, frame, verbose=False):
+        self.seen_shape = frame.shape[:2]
+        result = _FakePersonResult()
+        result.boxes = _FakePersonBoxes(cls=[0], conf=[0.91], xyxy=[[10.0, 20.0, 110.0, 120.0]])
+        result.keypoints = _FakePersonKeypoints(xy=[[[60.0, 30.0]] * 17], conf=[[0.9] * 17])
         return [result]
 
 

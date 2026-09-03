@@ -380,11 +380,22 @@ def _load_yolo(path: Optional[str], task: str):
 MIN_POSE_CONFIDENCE = 0.40
 
 
-def _pose_observation(model, frame, width: int, height: int):
+def _pose_observation(model, frame, width: int, height: int, *, inference_size: Optional[int] = None):
     if model is None:
         return None, None
     try:
-        result = _run_with_timeout(lambda: model(frame, verbose=False)[0], seconds=2.0)
+        inference_frame = frame
+        scale_x = scale_y = 1.0
+        if inference_size is not None and inference_size > 0 and max(width, height) > inference_size:
+            scale = float(inference_size) / max(width, height)
+            target_width = max(1, int(round(width * scale)))
+            target_height = max(1, int(round(height * scale)))
+            import numpy as np
+            y_indices = np.linspace(0, height - 1, target_height).astype(int)
+            x_indices = np.linspace(0, width - 1, target_width).astype(int)
+            inference_frame = np.ascontiguousarray(frame[np.ix_(y_indices, x_indices)])
+            scale_x, scale_y = width / target_width, height / target_height
+        result = _run_with_timeout(lambda: model(inference_frame, verbose=False)[0], seconds=2.0)
         if result.boxes is None or len(result.boxes) == 0:
             return None, "golfer_not_detected"
         best = None
@@ -403,7 +414,7 @@ def _pose_observation(model, frame, width: int, height: int):
         confidence, index, raw_box = best
         if not (confidence >= MIN_POSE_CONFIDENCE):
             return None, "pose_confidence_below_floor"
-        x1, y1, x2, y2 = [max(0.0, min(float(value), limit)) for value, limit in zip(raw_box, (width, height, width, height))]
+        x1, y1, x2, y2 = [max(0.0, min(float(value) * scale, limit)) for value, scale, limit in zip(raw_box, (scale_x, scale_y, scale_x, scale_y), (width, height, width, height))]
         keypoints = []
         if result.keypoints is not None:
             raw_points = result.keypoints.xy[index]
@@ -412,7 +423,7 @@ def _pose_observation(model, frame, width: int, height: int):
             point_conf = raw_conf.cpu().numpy() if hasattr(raw_conf, "cpu") else (raw_conf.tolist() if hasattr(raw_conf, "tolist") else raw_conf)
             for point_index, point in enumerate(points):
                 score = float(point_conf[point_index]) if len(point_conf) > point_index else 0.0
-                keypoints.append([round(float(point[0]), 2), round(float(point[1]), 2), round(score, 4)])
+                keypoints.append([round(float(point[0]) * scale_x, 2), round(float(point[1]) * scale_y, 2), round(score, 4)])
         feet = [point for point in keypoints[15:17] if len(point) >= 3 and point[2] >= 0.25]
         anchor = {"x": round(sum(point[0] for point in feet) / len(feet), 2),
                   "y": round(sum(point[1] for point in feet) / len(feet), 2)} if feet else None
@@ -748,6 +759,19 @@ def _ball_observation(model, tracker, frame, width: int, height: int,
             offset_x, offset_y, roi_x2, roi_y2 = [int(value) for value in roi]
             inference_frame = frame[offset_y:roi_y2, offset_x:roi_x2]
             inference_height, inference_width = inference_frame.shape[:2]
+        # Keep detector tensors bounded on native 1440p inputs.  Coordinates
+        # are mapped back before any temporal gate or rendering.
+        resize_x = resize_y = 1.0
+        if max(inference_width, inference_height) > 960 and hasattr(inference_frame, "__getitem__"):
+            import numpy as np
+            resize = 960.0 / max(inference_width, inference_height)
+            target_width = max(1, int(round(inference_width * resize)))
+            target_height = max(1, int(round(inference_height * resize)))
+            ys = np.linspace(0, inference_height - 1, target_height).astype(int)
+            xs = np.linspace(0, inference_width - 1, target_width).astype(int)
+            inference_frame = np.ascontiguousarray(inference_frame[np.ix_(ys, xs)])
+            resize_x, resize_y = inference_width / target_width, inference_height / target_height
+            inference_width, inference_height = target_width, target_height
         result = _run_with_timeout(lambda: model(inference_frame, verbose=False)[0], seconds=2.0)
         candidates = []
         if result.boxes is not None:
@@ -761,8 +785,8 @@ def _ball_observation(model, tracker, frame, width: int, height: int,
                     # skipped per box so one hallucination cannot discard a
                     # genuine ball detection emitted in the same frame.
                     continue
-                x1, x2 = x1 + offset_x, x2 + offset_x
-                y1, y2 = y1 + offset_y, y2 + offset_y
+                x1, x2 = x1 * resize_x + offset_x, x2 * resize_x + offset_x
+                y1, y2 = y1 * resize_y + offset_y, y2 * resize_y + offset_y
                 candidates.append({"center": ((x1 + x2) / 2.0, (y1 + y2) / 2.0), "confidence": confidence,
                                   "box": [x1, y1, x2, y2], "research_only": True,
                                   "ground_truth": False, "production_eligible": False})
@@ -1205,7 +1229,7 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
             frames, frame_numbers, scores, step = native_frames, native_numbers, motion_scores(native_frames), 1
             for coarse_frame, coarse_number in zip(coarse_frames[:8], coarse_numbers[:8]):
                 pose_cache[coarse_number] = _pose_observation(
-                    pose_model, coarse_frame, width, height)
+                    pose_model, coarse_frame, width, height, inference_size=960)
             window["native_roi"] = True
             window["roi"] = dict(roi_plan)
         else:
@@ -1251,9 +1275,13 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
         if roi_plan["state"] == "candidate_region":
             pose, pose_frame_warning = pose_cache.get(number, (None, "coarse_pose_not_available"))
         else:
-            pose, pose_frame_warning = _pose_observation(pose_model, clean_frame, width, height)
+            pose, pose_frame_warning = _pose_observation(
+                pose_model, clean_frame, width, height, inference_size=960)
         roi_box = roi_plan.get("box") if roi_plan["state"] == "candidate_region" else None
-        if ball_tracker:
+        # Bound expensive ball refinement on CPU-only Torch. Skipped frames are
+        # explicitly unavailable; no prediction or stale marker is rendered.
+        ball_probe_frame = (ordinal % 3 == 0)
+        if ball_tracker and coarse_warning is None and ball_probe_frame:
             if roi_box is None:
                 ball, ball_frame_warning = _ball_observation(
                     ball_model, ball_tracker, clean_frame, width, height, pose, ball_evidence_gate)
@@ -1261,6 +1289,8 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
                 ball, ball_frame_warning = _ball_observation(
                     ball_model, ball_tracker, clean_frame, width, height, pose,
                     ball_evidence_gate, roi=roi_box)
+        elif ball_tracker:
+            ball, ball_frame_warning = None, "ball_refinement_skipped_for_budget"
         else:
             ball, ball_frame_warning = None, "ball_tracker_unavailable"
         ball = sanitize_ball_for_render(ball, pose)
@@ -1307,7 +1337,7 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
             ball=ball or {"state": ObservationState.UNAVAILABLE.value, "confidence": 0.0},
             clubhead=_candidate_evidence(item, pose, scores, ordinal), impact=impact, warnings=warnings,
         ))
-        cv2.putText(item, "FAIRWAYOS AI DEMO | RESEARCH ONLY | NO PRODUCTION CLAIM", (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (0, 220, 255), 2, cv2.LINE_AA)
+        cv2.putText(item, "FairwayOS Research Demo - Not Ground Truth", (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (0, 220, 255), 2, cv2.LINE_AA)
         cv2.putText(item, "FRAME %d | t=%.3fs | golfer=%s id=%s conf=%s" % (
             number + 1, number / fps, "observed" if pose else "unavailable",
             pose.get("track_id", "unavailable") if pose else "unavailable",
