@@ -377,6 +377,9 @@ def _load_yolo(path: Optional[str], task: str):
         return None, "model_load_failed"
 
 
+MIN_POSE_CONFIDENCE = 0.40
+
+
 def _pose_observation(model, frame, width: int, height: int):
     if model is None:
         return None, None
@@ -398,6 +401,8 @@ def _pose_observation(model, frame, width: int, height: int):
         if best is None:
             return None, "golfer_not_detected"
         confidence, index, raw_box = best
+        if not (confidence >= MIN_POSE_CONFIDENCE):
+            return None, "pose_confidence_below_floor"
         x1, y1, x2, y2 = [max(0.0, min(float(value), limit)) for value, limit in zip(raw_box, (width, height, width, height))]
         keypoints = []
         if result.keypoints is not None:

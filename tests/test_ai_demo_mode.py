@@ -68,6 +68,89 @@ class TestAIDemoContracts(unittest.TestCase):
                          "golfer": {"bbox": [0.0, 0.0, 4.0, 4.0]}}]
         self.assertTrue(validate_rendered_ball_markers(observations))
 
+    def test_pose_observation_rejects_below_floor_confidence(self):
+        from ghostcaddie.video.ai_demo import _pose_observation
+
+        class FakeTensor(list):
+            def tolist(self):
+                return list(self)
+
+        class FakeBoxes:
+            def __init__(self):
+                self.cls = FakeTensor([0])
+                self.conf = FakeTensor([0.30])
+                self.xyxy = [FakeTensor([10.0, 20.0, 60.0, 90.0])]
+            def __len__(self):
+                return len(self.cls)
+
+        class FakeResult:
+            def __init__(self):
+                self.boxes = FakeBoxes()
+                self.keypoints = None
+
+        observed, warning = _pose_observation(
+            lambda frame, verbose=False: [FakeResult()], None, 200, 150)
+        self.assertIsNone(observed)
+        self.assertEqual(warning, "pose_confidence_below_floor")
+
+    def test_pose_floor_boundary_is_inclusive_at_min(self):
+        from ghostcaddie.video.ai_demo import MIN_POSE_CONFIDENCE, _pose_observation
+
+        class FakeTensor(list):
+            def tolist(self):
+                return list(self)
+
+        def observation_for(confidence):
+            class FakeBoxes:
+                def __init__(self):
+                    self.cls = FakeTensor([0])
+                    self.conf = FakeTensor([confidence])
+                    self.xyxy = [FakeTensor([10.0, 20.0, 60.0, 90.0])]
+                def __len__(self):
+                    return len(self.cls)
+
+            class FakeResult:
+                def __init__(self):
+                    self.boxes = FakeBoxes()
+                    self.keypoints = None
+
+            return _pose_observation(
+                lambda frame, verbose=False: [FakeResult()], None, 200, 150)
+
+        observed, warning = observation_for(MIN_POSE_CONFIDENCE)
+        self.assertIsNotNone(observed)
+        self.assertIsNone(warning)
+        observed, warning = observation_for(MIN_POSE_CONFIDENCE - 0.0001)
+        self.assertIsNone(observed)
+        self.assertEqual(warning, "pose_confidence_below_floor")
+        observed, warning = observation_for(0.413)
+        self.assertIsNotNone(observed)
+
+    def test_pose_floor_rejects_nan_confidence(self):
+        from ghostcaddie.video.ai_demo import _pose_observation
+
+        class FakeTensor(list):
+            def tolist(self):
+                return list(self)
+
+        class FakeBoxes:
+            def __init__(self):
+                self.cls = FakeTensor([0])
+                self.conf = FakeTensor([float("nan")])
+                self.xyxy = [FakeTensor([10.0, 20.0, 60.0, 90.0])]
+            def __len__(self):
+                return len(self.cls)
+
+        class FakeResult:
+            def __init__(self):
+                self.boxes = FakeBoxes()
+                self.keypoints = None
+
+        observed, warning = _pose_observation(
+            lambda frame, verbose=False: [FakeResult()], None, 200, 150)
+        self.assertIsNone(observed)
+        self.assertEqual(warning, "pose_confidence_below_floor")
+
     def test_cli_prints_exact_demo_block_reason(self):
         output = StringIO()
         with tempfile.TemporaryDirectory() as directory:
