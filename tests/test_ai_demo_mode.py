@@ -20,6 +20,7 @@ from ghostcaddie.video.ai_demo import (
     select_swing_window,
     sanitize_ball_for_render,
     validate_demo_acceptance,
+    validate_rendered_ball_markers,
 )
 
 
@@ -42,6 +43,30 @@ class TestAIDemoContracts(unittest.TestCase):
         self.assertEqual(sanitized["state"], "unavailable")
         self.assertEqual(sanitized["rejection"], "invalid_or_unsafe_ball_geometry")
         self.assertNotIn("point", sanitized)
+
+    def test_render_geometry_rejects_malformed_points_and_bboxes(self):
+        pose_bboxes = ([1, 2, 3], [1, 2, 3, 4, 5], "not-a-box",
+                       [0.0, 0.0, float("nan"), 4.0],
+                       [0.0, 0.0, True, 4.0], [4.0, 4.0, 0.0, 0.0])
+        points = (None, [1.0, 2.0], {"x": "bad", "y": 2.0},
+                  {"x": float("nan"), "y": 2.0},
+                  {"x": float("inf"), "y": 2.0},
+                  {"x": True, "y": 2.0})
+        for bbox in pose_bboxes:
+            sanitized = sanitize_ball_for_render(
+                {"state": "observed", "point": {"x": 1.0, "y": 2.0}}, {"bbox": bbox})
+            self.assertEqual(sanitized["state"], "unavailable")
+        for point in points:
+            sanitized = sanitize_ball_for_render(
+                {"state": "observed", "point": point}, {"bbox": [0.0, 0.0, 4.0, 4.0]})
+            self.assertEqual(sanitized["state"], "unavailable")
+            self.assertTrue(sanitized["research_only"])
+            self.assertFalse(sanitized["ground_truth"])
+            self.assertFalse(sanitized["production_eligible"])
+            self.assertNotIn("point", sanitized)
+        observations = [{"frame_index": 0, "ball": {"state": "observed", "point": [1.0, 2.0]},
+                         "golfer": {"bbox": [0.0, 0.0, 4.0, 4.0]}}]
+        self.assertTrue(validate_rendered_ball_markers(observations))
 
     def test_cli_prints_exact_demo_block_reason(self):
         output = StringIO()

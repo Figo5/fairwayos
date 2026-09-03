@@ -546,6 +546,11 @@ def sanitize_ball_for_render(ball: Optional[Mapping[str, Any]], pose: Optional[M
     item = dict(ball or {})
     point = item.get("point")
     bbox = (pose or {}).get("bbox")
+    if item.get("state") == ObservationState.OBSERVED.value and point is None:
+        return {"state": ObservationState.UNAVAILABLE.value, "confidence": 0.0,
+                "uncertainty": None, "rejection": "invalid_or_unsafe_ball_geometry",
+                "research_only": True, "ground_truth": False,
+                "production_eligible": False}
     if point is not None:
         if not isinstance(point, Mapping):
             return {"state": ObservationState.UNAVAILABLE.value, "confidence": 0.0,
