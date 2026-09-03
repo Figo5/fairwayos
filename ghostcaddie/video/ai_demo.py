@@ -20,6 +20,8 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
 DEMO_SCHEMA_VERSION = "fairwayos-ai-demo.v1"
+MIN_DEMO_FRAMES = 12
+MIN_DEMO_DURATION_SECONDS = 3.0
 
 
 class ObservationState(str, Enum):
@@ -27,6 +29,38 @@ class ObservationState(str, Enum):
     INTERPOLATED = "interpolated"
     PREDICTED = "predicted"
     UNAVAILABLE = "unavailable"
+
+
+class DemoAcceptanceError(RuntimeError):
+    """The source rendered no useful, evidence-backed demo."""
+
+    def __init__(self, reasons: Sequence[str]):
+        self.reasons = tuple(reasons)
+        super().__init__("demo rejected: " + ", ".join(self.reasons))
+
+
+def validate_demo_acceptance(observations: Sequence[Mapping[str, Any]], *,
+                             frame_rate: float, rendered_frames: int) -> tuple[bool, list[str]]:
+    """Require a useful duration and at least one visible perception modality."""
+    fps = _finite(frame_rate)
+    count = int(rendered_frames)
+    reasons = []
+    if count < MIN_DEMO_FRAMES:
+        reasons.append("insufficient_frames")
+    if fps <= 0 or count / fps < MIN_DEMO_DURATION_SECONDS:
+        reasons.append("insufficient_duration")
+    visible = any(
+        isinstance(item.get(key), Mapping)
+        and item[key].get("state") == ObservationState.OBSERVED.value
+        and ((key == "pose" and item[key].get("bbox")) or
+             (key == "ball" and item[key].get("point")))
+        for item in observations for key in ("pose", "ball")
+    )
+    if not visible:
+        reasons.append("all_perception_unavailable")
+    order = {"all_perception_unavailable": 0, "insufficient_duration": 1, "insufficient_frames": 2}
+    reasons.sort(key=lambda value: order[value])
+    return not reasons, reasons
 
 
 def _finite(value: Any, default: float = 0.0) -> float:
@@ -977,8 +1011,9 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
                    visual_review: Optional[Mapping[str, Any]] = None) -> dict[str, Any]:
     """Run bounded local demo perception and render H.264 output.
 
-    Model adapters are intentionally optional. The guaranteed fallback emits
-    explicit unavailable observations and a valid annotated H.264 copy.
+    Model adapters are intentionally optional. Outputs are published only when
+    the bounded result contains enough frames and observed pose or ball evidence;
+    otherwise DemoAcceptanceError preserves a blocked, fail-closed result.
     """
     try:
         import cv2
@@ -987,6 +1022,10 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
     video = Path(video_path).expanduser().resolve(strict=True)
     out = Path(output_dir).expanduser().resolve()
     out.mkdir(parents=True, exist_ok=True)
+    for stale_name in ("annotated_video.mp4", "contact_sheet.jpg", "provenance.json", "diagnostics.json"):
+        stale = out / stale_name
+        if stale.is_file() or stale.is_symlink():
+            stale.unlink()
     cap = cv2.VideoCapture(str(video))
     fps = float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
@@ -1038,9 +1077,15 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
     if roi_plan["state"] == "candidate_region":
         # Re-read only the selected motion window at native FPS. The model sees
         # the ROI, while the heuristic tracker still sees the clean full frame.
+        native_required_frames = max(
+            MIN_DEMO_FRAMES,
+            int(math.ceil(MIN_DEMO_DURATION_SECONDS * max(0.1, fps))),
+        )
         native_budget = BoundedProcessingBudget(
-            max_frames=min(sample_limit if sample_limit is not None else 8, 8),
-            max_seconds=120.0, max_memory_bytes=64 * 1024 * 1024, max_candidates=64,
+            max_frames=min(sample_limit if sample_limit is not None else native_required_frames,
+                           native_required_frames),
+            max_seconds=120.0, max_memory_bytes=64 * 1024 * 1024,
+            max_candidates=native_required_frames * 8,
             started_at=time.monotonic())
         source_start, source_end = frame_numbers[0], frame_numbers[-1]
         native_cap = cv2.VideoCapture(str(video))
@@ -1104,6 +1149,7 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
         if stale_frame.is_file() and not stale_frame.is_symlink():
             stale_frame.unlink()
     observations = []
+    render_items = []
     trail = []
     for ordinal, (frame, number) in enumerate(zip(frames, frame_numbers)):
         clean_frame = clean_frame_for_components(frame)
@@ -1182,7 +1228,7 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
         bracket_text = (" | bracket %d-%d" % tuple(bracket_frames)) if impact_applicable else ""
         cv2.putText(item, "impact: unavailable" + bracket_text, (12, 128), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 80, 255), 1, cv2.LINE_AA)
         cv2.putText(item, "WARNINGS: camera/blur/occlusion not assessed | analytics unavailable", (12, 152), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 80, 255), 1, cv2.LINE_AA)
-        cv2.imwrite(str(annotated / f"frame_{ordinal + 1:06d}.jpg"), item)
+        render_items.append((ordinal, item))
     render_violations = validate_rendered_ball_markers(observations)
     if render_violations:
         # Last-resort render safety: an accepted point inside the golfer box is
@@ -1198,6 +1244,13 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
                                     "production_eligible": False}
             observation["warnings"] = sorted(set(observation.get("warnings", ())) |
                                               {"accepted_marker_inside_golfer_bbox"})
+    accepted, acceptance_reasons = validate_demo_acceptance(
+        observations, frame_rate=fps / step, rendered_frames=len(observations))
+    if not accepted:
+        raise DemoAcceptanceError(acceptance_reasons)
+    for ordinal, item in render_items:
+        if not cv2.imwrite(str(annotated / f"frame_{ordinal + 1:06d}.jpg"), item):
+            raise RuntimeError("failed to write annotated demo frame")
     cv2.destroyAllWindows()
     rendered = out / "annotated_video.mp4"
     ffmpeg = shutil.which("ffmpeg")

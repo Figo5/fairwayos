@@ -39,7 +39,7 @@ from .video.human_import import observations_from_human_annotations
 from .video.youtube import DownloadError, DownloadLimits, YtDlpDownloader, parse_youtube_url
 from .video.youtube_auto_try import AUTO_FORMAT, AutoTryConfig, DEFAULT_YTDLP, auto_try
 from .video.fairwayos_research import sidecar_from_mapping, write_fairwayos_sidecar
-from .video.ai_demo import build_visual_review, run_local_demo
+from .video.ai_demo import DemoAcceptanceError, build_visual_review, run_local_demo
 from .video.research_split import serialize_split_manifest
 
 
@@ -685,6 +685,20 @@ def _run_ai_demo_command(args) -> None:
             visual_review=visual_review,
         )
         print(json.dumps({"status": report["status"], "output": str(args.out)}))
+    except DemoAcceptanceError as exc:
+        for stale_name in ("annotated_video.mp4", "contact_sheet.jpg", "provenance.json"):
+            stale = out / stale_name
+            if stale.is_file() or stale.is_symlink():
+                stale.unlink()
+        reason = str(exc)
+        (out / "diagnostics.json").write_text(json.dumps({
+            "schema_version": "fairwayos-ai-demo.v1", "status": "blocked",
+            "blocked_reason": reason, "research_only": True, "ground_truth": False,
+            "production_eligible": False, "coordinate_space": "pixels",
+            "analytics": None, "shot_event": None, "warnings": [reason],
+        }, indent=2, sort_keys=True) + "\n")
+        print(json.dumps({"status": "blocked", "reason": reason, "output": str(args.out)}))
+        raise SystemExit(2) from exc
     except (DownloadError, OSError, RuntimeError, ValueError) as exc:
         (out / "diagnostics.json").write_text(json.dumps({
             "schema_version": "fairwayos-ai-demo.v1", "status": "blocked",

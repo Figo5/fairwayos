@@ -1,3 +1,4 @@
+import itertools
 import json
 import tempfile
 import unittest
@@ -9,6 +10,7 @@ from unittest.mock import patch
 from ghostcaddie.cli import main
 from ghostcaddie.video.ai_demo import (
     DEMO_SCHEMA_VERSION,
+    DemoAcceptanceError,
     ObservationState,
     build_demo_observation,
     build_demo_provenance,
@@ -16,11 +18,38 @@ from ghostcaddie.video.ai_demo import (
     _normalize_tracker_state,
     reject_obvious_false_positive,
     select_swing_window,
+    validate_demo_acceptance,
 )
 
 
 class TestAIDemoContracts(unittest.TestCase):
-    def test_fairwayos_demo_alias_uses_same_research_only_runner(self):
+    def test_demo_acceptance_rejects_short_unavailable_output(self):
+        observations = [
+            {"pose": {"state": "unavailable"}, "ball": {"state": "unavailable"}}
+            for _ in range(8)
+        ]
+        accepted, reasons = validate_demo_acceptance(
+            observations, frame_rate=4.0, rendered_frames=8)
+        self.assertFalse(accepted)
+        self.assertEqual(reasons, ["all_perception_unavailable", "insufficient_duration", "insufficient_frames"])
+
+    def test_cli_prints_exact_demo_block_reason(self):
+        output = StringIO()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            source.write_bytes(b"source")
+            with patch("ghostcaddie.cli.run_local_demo", side_effect=DemoAcceptanceError(
+                    ["all_perception_unavailable", "insufficient_duration"])):
+                with redirect_stdout(output):
+                    with self.assertRaises(SystemExit) as raised:
+                        main(["fairwayos-demo", "--video", str(source), "--out", str(root / "out")])
+            self.assertEqual(raised.exception.code, 2)
+            self.assertIn("demo rejected: all_perception_unavailable, insufficient_duration", output.getvalue())
+            diagnostics = json.loads((root / "out" / "diagnostics.json").read_text())
+            self.assertEqual(diagnostics["blocked_reason"],
+                             "demo rejected: all_perception_unavailable, insufficient_duration")
+
         output = StringIO()
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "source.mp4"
@@ -469,6 +498,13 @@ class TestAIDemoContracts(unittest.TestCase):
                                          started_at=100.0)
         self.assertFalse(budget.allow(frame_bytes=1, candidate_count=3, now=100.1))
         self.assertEqual(budget.reason, "candidate_limit")
+        native_budget = BoundedProcessingBudget(max_frames=12, max_seconds=120.0,
+                                                max_memory_bytes=64 * 1024 * 1024,
+                                                max_candidates=12 * 8, started_at=100.0)
+        for index in range(12):
+            self.assertTrue(native_budget.allow(frame_bytes=1, candidate_count=8, now=100.1 + index))
+        self.assertFalse(native_budget.allow(frame_bytes=1, candidate_count=8, now=112.1))
+        self.assertEqual(native_budget.reason, "frame_limit")
 
     def test_report_cannot_open_validated_analytics(self):
         report = build_demo_report(
@@ -513,11 +549,11 @@ class TestAIDemoContracts(unittest.TestCase):
             source = root / "source.mp4"
             writer = cv2.VideoWriter(str(source), cv2.VideoWriter_fourcc(*"mp4v"), 10.0, (320, 240))
             self.assertTrue(writer.isOpened())
-            for _ in range(3):
+            for _ in range(40):
                 frame = np.full((240, 320, 3), 45, dtype=np.uint8)
                 writer.write(frame)
             writer.release()
-            points = iter(({"x": 100.0, "y": 110.0}, {"x": 130.0, "y": 110.0}, {"x": 160.0, "y": 110.0}))
+            points = itertools.cycle(({"x": 100.0, "y": 110.0}, {"x": 130.0, "y": 110.0}, {"x": 160.0, "y": 110.0}))
             seen_frames = []
             def fake_ball(*args):
                 frame = args[2]
@@ -536,9 +572,9 @@ class TestAIDemoContracts(unittest.TestCase):
                 return pose, None
             with patch("ghostcaddie.video.ai_demo._ball_observation", side_effect=fake_ball), \
                  patch("ghostcaddie.video.ai_demo._pose_observation", side_effect=fake_pose):
-                report = run_local_demo(str(source), str(root / "out"), sample_fps=10.0, max_frames=3,
+                report = run_local_demo(str(source), str(root / "out"), sample_fps=10.0, max_frames=40,
                                         pose_model="", ball_model="")
-            self.assertEqual(len(seen_frames), 6)
+            self.assertEqual(len(seen_frames), 80)
             self.assertTrue(all(seen_frames[index][1:] == seen_frames[index + 1][1:]
                                 for index in range(0, len(seen_frames), 2)))
             self.assertTrue(all(item["golfer"].get("track_id") == "golfer-0" for item in report["observations"]))
@@ -557,7 +593,7 @@ class TestAIDemoContracts(unittest.TestCase):
             self.assertIsNotNone(contact_sheet)
             self.assertGreaterEqual(contact_sheet.shape[1], 320)
             capture = cv2.VideoCapture(str(root / "out" / "annotated_video.mp4"))
-            self.assertEqual(int(capture.get(cv2.CAP_PROP_FRAME_COUNT)), 3)
+            self.assertEqual(int(capture.get(cv2.CAP_PROP_FRAME_COUNT)), 40)
             green_pixels = red_pixels = orange_pixels = 0
             while True:
                 ok, frame = capture.read()
@@ -583,15 +619,15 @@ class TestAIDemoContracts(unittest.TestCase):
             source = root / "source.mp4"
             writer = cv2.VideoWriter(str(source), cv2.VideoWriter_fourcc(*"mp4v"), 10.0, (320, 240))
             self.assertTrue(writer.isOpened())
-            for _ in range(3):
+            for _ in range(40):
                 writer.write(np.full((240, 320, 3), 45, dtype=np.uint8))
             writer.release()
-            points = iter(({"x": 100.0, "y": 110.0}, {"x": 130.0, "y": 110.0}, {"x": 160.0, "y": 110.0}))
+            points = itertools.cycle(({"x": 100.0, "y": 110.0}, {"x": 130.0, "y": 110.0}, {"x": 160.0, "y": 110.0}))
             def fake_ball(*_args):
                 return {"state": "observed", "confidence": 0.9, "uncertainty": 4.0,
                         "point": next(points), "candidate_count": 1, "model": "test_ball"}, None
             with patch("ghostcaddie.video.ai_demo._ball_observation", side_effect=fake_ball):
-                report = run_local_demo(str(source), str(root / "out"), sample_fps=10.0, max_frames=3,
+                report = run_local_demo(str(source), str(root / "out"), sample_fps=10.0, max_frames=40,
                                         pose_model="", ball_model="")
             observed = [item for item in report["observations"] if item["ball"].get("point")]
             self.assertGreaterEqual(len(observed), 2)
@@ -638,10 +674,11 @@ class TestAIDemoContracts(unittest.TestCase):
                     return getattr(self._capture, name)
 
             with patch("cv2.VideoCapture", CountingCapture):
-                report = run_local_demo(str(source), str(root / "out"), sample_fps=10.0,
-                                        max_duration_seconds=0.2, pose_model="", ball_model="")
+                with self.assertRaises(DemoAcceptanceError):
+                    run_local_demo(str(source), str(root / "out"), sample_fps=10.0,
+                                   max_duration_seconds=0.2, pose_model="", ball_model="")
             self.assertLessEqual(len(reads), 4)
-            self.assertLessEqual(len(report["observations"]), 3)
+            self.assertLessEqual(len(list((root / "out" / "annotated_frames").glob("frame_*.jpg"))), 0)
 
     def test_high_requested_sample_fps_still_respects_source_duration_bound(self):
         try:
@@ -673,10 +710,11 @@ class TestAIDemoContracts(unittest.TestCase):
                     return getattr(self._capture, name)
 
             with patch("cv2.VideoCapture", CountingCapture):
-                report = run_local_demo(str(source), str(root / "out"), sample_fps=100.0,
-                                        max_duration_seconds=0.2, pose_model="", ball_model="")
+                with self.assertRaises(DemoAcceptanceError):
+                    run_local_demo(str(source), str(root / "out"), sample_fps=100.0,
+                                   max_duration_seconds=0.2, pose_model="", ball_model="")
             self.assertLessEqual(len(reads), 4)
-            self.assertLessEqual(len(report["observations"]), 3)
+            self.assertLessEqual(len(list((root / "out" / "annotated_frames").glob("frame_*.jpg"))), 0)
 
     def test_rerun_removes_stale_annotated_frames_before_encoding(self):
         try:
@@ -690,7 +728,7 @@ class TestAIDemoContracts(unittest.TestCase):
             source = root / "source.mp4"
             writer = cv2.VideoWriter(str(source), cv2.VideoWriter_fourcc(*"mp4v"), 10.0, (320, 240))
             self.assertTrue(writer.isOpened())
-            for _ in range(3):
+            for _ in range(40):
                 writer.write(np.full((240, 320, 3), 45, dtype=np.uint8))
             writer.release()
             def fake_ball(*_args):
@@ -698,18 +736,19 @@ class TestAIDemoContracts(unittest.TestCase):
                         "point": {"x": 100.0, "y": 110.0}, "candidate_count": 1,
                         "model": "test_ball"}, None
             with patch("ghostcaddie.video.ai_demo._ball_observation", side_effect=fake_ball):
-                run_local_demo(str(source), str(root / "out"), sample_fps=10.0, max_frames=3,
+                run_local_demo(str(source), str(root / "out"), sample_fps=10.0, max_frames=40,
                                pose_model="", ball_model="")
-                run_local_demo(str(source), str(root / "out"), sample_fps=10.0, max_frames=1,
-                               pose_model="", ball_model="")
+                with self.assertRaises(DemoAcceptanceError):
+                    run_local_demo(str(source), str(root / "out"), sample_fps=10.0, max_frames=1,
+                                   pose_model="", ball_model="")
             frames = sorted((root / "out" / "annotated_frames").glob("frame_*.jpg"))
-            self.assertEqual(len(frames), 1)
+            self.assertEqual(len(frames), 0)
             capture = cv2.VideoCapture(str(root / "out" / "annotated_video.mp4"))
             count = 0
             while capture.read()[0]:
                 count += 1
             capture.release()
-            self.assertEqual(count, 1)
+            self.assertEqual(count, 0)
 
     def test_blocked_rerun_removes_stale_production_artifacts(self):
         with tempfile.TemporaryDirectory() as directory:

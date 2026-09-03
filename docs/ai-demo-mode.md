@@ -47,6 +47,10 @@ Important bounds are explicit in the CLI:
 - one video, never a playlist;
 - bounded segment duration (maximum 20 seconds at the ingestion boundary);
 - bounded sample rate, source-time read, and optional frame count;
+- successful demos require at least 12 rendered frames over 3 seconds and at least one
+  observed golfer pose or supported ball point;
+- unsuitable clips are rejected before annotated-frame/MP4 publication with an exact
+  `demo rejected: ...` reason in the CLI and diagnostics;
 - local OpenCV/Ultralytics/SwingNet inference only when installed and loaded;
 - no cookies, credentials, cloud upload, DRM bypass, scraping, or proxies.
 
@@ -76,13 +80,16 @@ When a local ball model is available, the demo first probes at most four sampled
 full frames to locate a research candidate region. Those probes are submitted as one
 bounded detector batch. It then rereads only that
 motion window at native FPS and runs ball inference on one padded, clipped ROI.
-The native ROI pass is hard-bounded to eight frames, 120 seconds, 64 MiB of
-frame memory, and 64 candidate records. Pose runs only on the coarse frames and
-SwingNet is skipped on the native ROI path to keep optional model work bounded.
+The native ROI pass is hard-bounded to the caller's frame limit or the frames
+needed for the 3-second minimum (whichever is lower), 120 seconds, 64 MiB of
+frame memory, and eight candidate records per required native frame. Pose runs only
+on the coarse frames and SwingNet is skipped on the native ROI path to keep
+optional model work bounded.
 Per-inference timeouts and budget termination are recorded in
-`render.processing`; partial frames are encoded cleanly when a limit is reached.
+`render.processing`; only results meeting the acceptance minimum are encoded.
 Per-inference and model-load timeouts are recorded as distinct warnings; a timeout
-leaves the affected model unavailable rather than promoting partial output.
+or an under-minimum partial result leaves the affected model unavailable rather
+than publishing a misleading artifact.
 
 ROI candidates are still research candidates, not labels. Rejected candidates
 are rendered only as rejected diagnostics; they never become `observed`, and all
