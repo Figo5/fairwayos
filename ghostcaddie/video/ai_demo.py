@@ -22,6 +22,10 @@ from typing import Any, Iterable, Mapping, Optional, Sequence
 DEMO_SCHEMA_VERSION = "fairwayos-ai-demo.v1"
 MIN_DEMO_FRAMES = 12
 MIN_DEMO_DURATION_SECONDS = 3.0
+_ACCEPTANCE_REASON_CODES = frozenset({
+    "all_perception_unavailable", "insufficient_duration", "insufficient_frames",
+    "render_safety_violation",
+})
 
 
 class ObservationState(str, Enum):
@@ -35,7 +39,9 @@ class DemoAcceptanceError(RuntimeError):
     """The source rendered no useful, evidence-backed demo."""
 
     def __init__(self, reasons: Sequence[str]):
-        self.reasons = tuple(reasons)
+        clean = tuple(reason for reason in reasons
+                      if isinstance(reason, str) and reason in _ACCEPTANCE_REASON_CODES)
+        self.reasons = clean or ("all_perception_unavailable",)
         super().__init__("demo rejected: " + ", ".join(self.reasons))
 
 
@@ -535,17 +541,90 @@ def filter_ball_model_candidates(candidates, *, pose=None, image_width, image_he
     return accepted, rejected
 
 
+def sanitize_ball_for_render(ball: Optional[Mapping[str, Any]], pose: Optional[Mapping[str, Any]]) -> dict[str, Any]:
+    """Prevent a ball marker from being drawn inside the detected golfer box."""
+    item = dict(ball or {})
+    point = item.get("point")
+    bbox = (pose or {}).get("bbox")
+    if point is not None:
+        if not isinstance(point, Mapping):
+            return {"state": ObservationState.UNAVAILABLE.value, "confidence": 0.0,
+                    "uncertainty": None, "rejection": "invalid_or_unsafe_ball_geometry",
+                    "research_only": True, "ground_truth": False,
+                    "production_eligible": False}
+        x_raw, y_raw = point.get("x"), point.get("y")
+        x, y = _finite(x_raw, math.nan), _finite(y_raw, math.nan)
+        if (isinstance(point.get("x"), bool) or isinstance(point.get("y"), bool) or
+                not math.isfinite(x) or not math.isfinite(y)):
+            return {"state": ObservationState.UNAVAILABLE.value, "confidence": 0.0,
+                    "uncertainty": None, "rejection": "invalid_or_unsafe_ball_geometry",
+                    "research_only": True, "ground_truth": False,
+                    "production_eligible": False}
+    if isinstance(point, Mapping) and bbox is not None:
+        if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+            return {"state": ObservationState.UNAVAILABLE.value, "confidence": 0.0,
+                    "uncertainty": None, "rejection": "invalid_or_unsafe_ball_geometry",
+                    "research_only": True, "ground_truth": False,
+                    "production_eligible": False}
+        if any(isinstance(value, bool) for value in bbox):
+            return {"state": ObservationState.UNAVAILABLE.value, "confidence": 0.0,
+                    "uncertainty": None, "rejection": "invalid_or_unsafe_ball_geometry",
+                    "research_only": True, "ground_truth": False,
+                    "production_eligible": False}
+        x, y = _finite(point.get("x"), -1), _finite(point.get("y"), -1)
+        try:
+            bounds = tuple(float(value) for value in bbox)
+        except (TypeError, ValueError):
+            bounds = None
+        if (bounds is None or not all(math.isfinite(value) for value in bounds) or
+                bounds[0] > bounds[2] or bounds[1] > bounds[3] or
+                bounds[0] <= x <= bounds[2] and bounds[1] <= y <= bounds[3]):
+            return {"state": ObservationState.UNAVAILABLE.value, "confidence": 0.0,
+                    "uncertainty": None, "rejection": "invalid_or_unsafe_ball_geometry",
+                    "research_only": True, "ground_truth": False,
+                    "production_eligible": False}
+    return item
+
+
 def validate_rendered_ball_markers(observations):
     """Return render-safety violations for accepted points inside golfer boxes."""
     violations = []
     for observation in observations:
         ball = observation.get("ball") or {}
         point = ball.get("point")
-        bbox = (observation.get("golfer") or {}).get("bbox")
-        if not isinstance(point, dict) or not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+        if ball.get("state") != ObservationState.OBSERVED.value:
             continue
-        x, y = _finite(point.get("x"), -1), _finite(point.get("y"), -1)
-        if bbox[0] <= x <= bbox[2] and bbox[1] <= y <= bbox[3]:
+        if not isinstance(point, dict):
+            violations.append({"frame_index": observation.get("frame_index"),
+                               "reason": "invalid_or_unsafe_ball_geometry"})
+            continue
+        bbox = (observation.get("golfer") or {}).get("bbox")
+        if bbox is None:
+            continue
+        if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+            violations.append({"frame_index": observation.get("frame_index"),
+                               "reason": "invalid_or_unsafe_ball_geometry"})
+            continue
+        if any(isinstance(value, bool) for value in bbox):
+            violations.append({"frame_index": observation.get("frame_index"),
+                               "reason": "invalid_or_unsafe_ball_geometry"})
+            continue
+        x, y = _finite(point.get("x"), math.nan), _finite(point.get("y"), math.nan)
+        if (isinstance(point.get("x"), bool) or isinstance(point.get("y"), bool) or
+                not math.isfinite(x) or not math.isfinite(y)):
+            violations.append({"frame_index": observation.get("frame_index"),
+                               "reason": "invalid_or_unsafe_ball_geometry"})
+            continue
+        try:
+            bounds = tuple(float(value) for value in bbox)
+        except (TypeError, ValueError):
+            bounds = None
+        unsafe = (bounds is None or not all(math.isfinite(value) for value in bounds) or
+                  bounds[0] > bounds[2] or bounds[1] > bounds[3])
+        inside = False
+        if bounds is not None and not unsafe:
+            inside = bounds[0] <= x <= bounds[2] and bounds[1] <= y <= bounds[3]
+        if unsafe or inside:
             violations.append({"frame_index": observation.get("frame_index"),
                                "reason": "accepted_marker_inside_golfer_bbox"})
     return violations
@@ -1026,6 +1105,11 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
         stale = out / stale_name
         if stale.is_file() or stale.is_symlink():
             stale.unlink()
+    stale_frames = out / "annotated_frames"
+    if stale_frames.is_symlink():
+        stale_frames.unlink()
+    elif stale_frames.is_dir():
+        shutil.rmtree(stale_frames)
     cap = cv2.VideoCapture(str(video))
     fps = float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
@@ -1169,6 +1253,7 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
                     ball_evidence_gate, roi=roi_box)
         else:
             ball, ball_frame_warning = None, "ball_tracker_unavailable"
+        ball = sanitize_ball_for_render(ball, pose)
         if not ball or not ball.get("point") or ball.get("state") == ObservationState.UNAVAILABLE.value:
             trail.clear()
         else:
@@ -1231,19 +1316,8 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
         render_items.append((ordinal, item))
     render_violations = validate_rendered_ball_markers(observations)
     if render_violations:
-        # Last-resort render safety: an accepted point inside the golfer box is
-        # downgraded before diagnostics and MP4 publication.
-        bad_frames = {item["frame_index"] for item in render_violations}
-        for observation in observations:
-            if observation.get("frame_index") not in bad_frames:
-                continue
-            observation["ball"] = {"state": ObservationState.UNAVAILABLE.value,
-                                    "confidence": 0.0, "uncertainty": None,
-                                    "rejection": "accepted_marker_inside_golfer_bbox",
-                                    "research_only": True, "ground_truth": False,
-                                    "production_eligible": False}
-            observation["warnings"] = sorted(set(observation.get("warnings", ())) |
-                                              {"accepted_marker_inside_golfer_bbox"})
+        # Never rewrite diagnostics after pixels are rendered; block instead.
+        raise DemoAcceptanceError(("render_safety_violation",))
     accepted, acceptance_reasons = validate_demo_acceptance(
         observations, frame_rate=fps / step, rendered_frames=len(observations))
     if not accepted:

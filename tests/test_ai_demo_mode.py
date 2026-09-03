@@ -18,6 +18,7 @@ from ghostcaddie.video.ai_demo import (
     _normalize_tracker_state,
     reject_obvious_false_positive,
     select_swing_window,
+    sanitize_ball_for_render,
     validate_demo_acceptance,
 )
 
@@ -32,6 +33,15 @@ class TestAIDemoContracts(unittest.TestCase):
             observations, frame_rate=4.0, rendered_frames=8)
         self.assertFalse(accepted)
         self.assertEqual(reasons, ["all_perception_unavailable", "insufficient_duration", "insufficient_frames"])
+
+    def test_render_sanitizer_removes_ball_inside_golfer_bbox(self):
+        sanitized = sanitize_ball_for_render(
+            {"state": "observed", "point": {"x": 100.0, "y": 110.0}},
+            {"bbox": [60.0, 40.0, 220.0, 220.0]},
+        )
+        self.assertEqual(sanitized["state"], "unavailable")
+        self.assertEqual(sanitized["rejection"], "invalid_or_unsafe_ball_geometry")
+        self.assertNotIn("point", sanitized)
 
     def test_cli_prints_exact_demo_block_reason(self):
         output = StringIO()
