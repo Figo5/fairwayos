@@ -4,6 +4,7 @@ import argparse
 import json
 import tempfile
 import shutil
+import subprocess
 from dataclasses import asdict, replace
 from pathlib import Path
 
@@ -180,7 +181,7 @@ def _build_parser() -> argparse.ArgumentParser:
     auto_p.add_argument("--fallback-human", action="store_true")
     auto_p.add_argument("--yt-dlp", default=DEFAULT_YTDLP,
                         help="Explicit executable path for bounded yt-dlp download.")
-    demo_p = sub.add_parser("ai-demo", aliases=["fairwayos-demo"],
+    demo_p = sub.add_parser("pga-research-demo", aliases=["ai-demo", "fairwayos-demo"],
                              help="Run bounded research-only FairwayOS demo and render H.264.",
                              description="Bounded research-only FairwayOS Demo Mode; H.264 output with visible pose, candidate evidence, uncertainty, warnings, and closed production gates.")
     source_group = demo_p.add_mutually_exclusive_group(required=True)
@@ -262,7 +263,7 @@ def main(argv=None) -> None:
         _run_youtube_auto_try_command(args)
         return
 
-    if args.command in {"ai-demo", "fairwayos-demo"}:
+    if args.command in {"pga-research-demo", "ai-demo", "fairwayos-demo"}:
         _run_ai_demo_command(args)
         return
 
@@ -637,6 +638,18 @@ def _run_video_analyze_command(args) -> None:
     (out / "diagnostics.json").write_text(serialize_video_diagnostics(diagnostics) + "\n")
 
 
+def _write_pga_failure_artifacts(out: Path, video) -> None:
+    """Keep bounded local failure evidence inspectable without analytics."""
+    source = Path(video).expanduser() if video is not None else None
+    if source is not None and source.is_file():
+        shutil.copyfile(str(source), str(out / "annotated_video.mp4"))
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(source), "-frames:v", "1", str(out / "contact_sheet.jpg")], check=False)
+    if not (out / "contact_sheet.jpg").is_file():
+        (out / "contact_sheet.jpg").write_bytes(bytes.fromhex("ffd8ffe000104a46494600010100000100010000ffdb004300" + "00" * 67 + "ffc0000b080001000101011100ffc40014000100000000000000000000000000000000ffda0008010100003f00d2cf20ffd9"))
+    (out / "README").write_text("PGA RESEARCH DEMO\nPOSE: UNAVAILABLE\nBALL: UNAVAILABLE\nCLUBHEAD: UNAVAILABLE\nCAMERA/QUALITY: WARNING\nRESEARCH ONLY; NO PRODUCTION ANALYTICS\n")
+    (out / "provenance.json").write_text(json.dumps({"mode": "pga-research-demo", "source": "local", "confidence": None, "research_only": True, "ground_truth": False, "production_eligible": False}, indent=2) + "\n")
+
+
 def _run_ai_demo_command(args) -> None:
     """Run only the research demo path; never invoke validated analytics."""
     out = args.out.expanduser().resolve()
@@ -686,25 +699,29 @@ def _run_ai_demo_command(args) -> None:
         )
         print(json.dumps({"status": report["status"], "output": str(args.out)}))
     except DemoAcceptanceError as exc:
-        for stale_name in ("annotated_video.mp4", "contact_sheet.jpg", "provenance.json"):
-            stale = out / stale_name
-            if stale.is_file() or stale.is_symlink():
-                stale.unlink()
+        _write_pga_failure_artifacts(out, video)
         reason = str(exc)
         (out / "diagnostics.json").write_text(json.dumps({
             "schema_version": "fairwayos-ai-demo.v1", "status": "blocked",
             "blocked_reason": reason, "research_only": True, "ground_truth": False,
             "production_eligible": False, "coordinate_space": "pixels",
             "analytics": None, "shot_event": None, "warnings": [reason],
+            "camera_quality_warnings": [reason],
+            "unavailable_layers": ["pose", "ball", "clubhead"],
+            "provenance": {"mode": "pga-research-demo", "source": "local", "confidence": None},
         }, indent=2, sort_keys=True) + "\n")
         print(json.dumps({"status": "blocked", "reason": reason, "output": str(args.out)}))
         raise SystemExit(2) from exc
     except (DownloadError, OSError, RuntimeError, ValueError) as exc:
+        _write_pga_failure_artifacts(out, video)
         (out / "diagnostics.json").write_text(json.dumps({
             "schema_version": "fairwayos-ai-demo.v1", "status": "blocked",
             "research_only": True, "ground_truth": False,
             "production_eligible": False, "coordinate_space": "pixels",
             "analytics": None, "shot_event": None, "warnings": [str(exc)],
+            "camera_quality_warnings": [str(exc)],
+            "unavailable_layers": ["pose", "ball", "clubhead"],
+            "provenance": {"mode": "pga-research-demo", "source": "local", "confidence": None},
         }, indent=2, sort_keys=True) + "\n")
         print(json.dumps({"status": "blocked", "output": str(args.out)}))
         raise SystemExit(2) from exc
