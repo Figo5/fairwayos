@@ -35,13 +35,11 @@ class TestPgaResearchDemo(unittest.TestCase):
                             "-i", "color=c=green:s=320x240:r=4", "-t", "1", "-pix_fmt", "yuv420p", str(video)], check=True)
             out = root / "rendered.mp4"
             render_pga_fallback(video, out, max_frames=4)
-            import cv2
-            cap = cv2.VideoCapture(str(out))
-            ok, frame = cap.read()
-            cap.release()
-            self.assertTrue(ok)
-            self.assertGreater(int((frame != (0, 128, 0)).any(axis=2).sum()), 100)
-            self.assertGreater(int(((frame[:, :, 0] > 180) & (frame[:, :, 1] > 180) & (frame[:, :, 2] > 180)).sum()), 10)
+            raw = subprocess.run(["/opt/homebrew/bin/ffmpeg", "-v", "error", "-i", str(out), "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True, check=True).stdout
+            self.assertEqual(len(raw), 320 * 240 * 3)
+            pixels = [raw[i:i + 3] for i in range(0, len(raw), 3)]
+            self.assertGreater(sum(pixel != bytes((0, 128, 0)) for pixel in pixels), 100)
+            self.assertGreater(sum(all(channel > 180 for channel in pixel) for pixel in pixels), 10)
 
     def test_blocked_output_has_explicit_research_flags_and_states(self):
         with tempfile.TemporaryDirectory() as td:

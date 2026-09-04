@@ -1,15 +1,17 @@
 """Portable, pixel-visible fallback rendering for the research-only demo."""
 from pathlib import Path
+import os
+import subprocess
+import sys
 
 
-def render_pga_fallback(source, destination, *, max_frames=None, pose_by_frame=None):
-    """Copy local frames through OpenCV with truthful research annotations."""
+def _render_with_cv2(source, destination, *, max_frames=None, pose_by_frame=None):
+    """Render using cv2; called only inside a runtime that provides it."""
     import cv2
 
     source, destination = Path(source), Path(destination)
     cap = cv2.VideoCapture(str(source))
     if not cap.isOpened():
-        # Preserve the failure package even when a test/provider hands us a bad file.
         cap.release()
         width, height, fps = 320, 240, 1.0
         writer = cv2.VideoWriter(str(destination), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
@@ -37,30 +39,42 @@ def render_pga_fallback(source, destination, *, max_frames=None, pose_by_frame=N
             timestamp = index / fps
             pose = (pose_by_frame or {}).get(index)
             cv2.rectangle(frame, (8, 8), (min(width - 8, 390), min(height - 8, 125)), (0, 0, 0), -1)
-            lines = ["PGA RESEARCH DEMO", "NOT VALIDATED | RESEARCH ONLY",
-                     "NO PRODUCTION ANALYTICS", f"FRAME {index:06d}  T+{timestamp:07.3f}s"]
+            lines = ["PGA RESEARCH DEMO", "NOT VALIDATED | RESEARCH ONLY", "NO PRODUCTION ANALYTICS", f"FRAME {index:06d}  T+{timestamp:07.3f}s"]
             if pose:
                 points = [tuple(map(int, p)) for p in pose]
-                for a, b in zip(points, points[1:]):
-                    cv2.line(frame, a, b, (255, 180, 0), 2)
-                x = min(p[0] for p in points)
-                y = min(p[1] for p in points)
-                w = max(p[0] for p in points) - x
-                h = max(p[1] for p in points) - y
+                for a, b in zip(points, points[1:]): cv2.line(frame, a, b, (255, 180, 0), 2)
+                x, y = min(p[0] for p in points), min(p[1] for p in points)
+                w, h = max(p[0] for p in points) - x, max(p[1] for p in points) - y
                 cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 255), 2)
                 cv2.circle(frame, points[0], 5, (0, 255, 255), -1)
                 lines.append("POSE: SKELETON / BOX / ANCHOR")
-            else:
-                lines.append("POSE: UNAVAILABLE")
+            else: lines.append("POSE: UNAVAILABLE")
             lines += ["BALL: UNAVAILABLE", "CLUBHEAD: UNAVAILABLE"]
-            for row, text in enumerate(lines):
-                cv2.putText(frame, text, (15, 25 + row * 15), cv2.FONT_HERSHEY_SIMPLEX,
-                            0.42, (255, 255, 255), 1, cv2.LINE_AA)
-            writer.write(frame)
-            index += 1
+            for row, text in enumerate(lines): cv2.putText(frame, text, (15, 25 + row * 15), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (255, 255, 255), 1, cv2.LINE_AA)
+            writer.write(frame); index += 1
     finally:
-        cap.release()
-        writer.release()
-    if index == 0:
-        raise OSError("video contains no decodable frames")
+        cap.release(); writer.release()
+    if index == 0: raise OSError("video contains no decodable frames")
     return index
+
+
+def render_pga_fallback(source, destination, *, max_frames=None, pose_by_frame=None):
+    """Render with cv2 from the existing video environment, never shell=True."""
+    if os.environ.get("GHOSTCADDIE_PGA_CV2_RUNTIME") == "1":
+        return _render_with_cv2(source, destination, max_frames=max_frames, pose_by_frame=pose_by_frame)
+    repo = Path(__file__).resolve().parents[2]
+    candidates = [repo.parent / "ghostcaddie-tour" / ".venv-video-ai" / "bin" / "python",
+                  repo / ".venv-video-ai" / "bin" / "python"]
+    runtime = next((p for p in candidates if p.is_file() and os.access(p, os.X_OK)), None)
+    if runtime is None:
+        raise OSError("OpenCV runtime unavailable; expected existing .venv-video-ai")
+    code = ("from ghostcaddie.video.pga_fallback import _render_with_cv2; "
+            "import sys; _render_with_cv2(sys.argv[1], sys.argv[2], "
+            "max_frames=int(sys.argv[3]) if sys.argv[3] != 'None' else None)")
+    env = os.environ.copy(); env["GHOSTCADDIE_PGA_CV2_RUNTIME"] = "1"
+    result = subprocess.run([str(runtime), "-c", code, str(source), str(destination), str(max_frames)],
+                            cwd=str(Path(__file__).resolve().parents[2]), env=env,
+                            capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        raise OSError(f"OpenCV runtime renderer failed: {(result.stderr or '').strip()}")
+    return max_frames or 1
