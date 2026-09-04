@@ -111,6 +111,29 @@ class PixelTrackStore:
         return math.hypot(first[0] - second[0], first[1] - second[1])
 
 
+@dataclass
+class CameraMotionCompensator:
+    """Accumulates externally estimated image translation without semantic promotion."""
+
+    total_translation: Tuple[float, float] = (0.0, 0.0)
+
+    def update(self, displacement: Tuple[float, float]) -> None:
+        if (not isinstance(displacement, tuple) or len(displacement) != 2 or
+                any(isinstance(v, bool) or not isinstance(v, (int, float)) or
+                    not math.isfinite(v) for v in displacement)):
+            raise ValueError("camera displacement must be a finite numeric pair")
+        self.total_translation = (self.total_translation[0] + displacement[0],
+                                  self.total_translation[1] + displacement[1])
+
+    def compensate(self, point: Tuple[float, float]) -> Tuple[float, float]:
+        if (not isinstance(point, tuple) or len(point) != 2 or
+                any(isinstance(v, bool) or not isinstance(v, (int, float)) or
+                    not math.isfinite(v) for v in point)):
+            raise ValueError("point must be a finite numeric pair")
+        return (point[0] - self.total_translation[0],
+                point[1] - self.total_translation[1])
+
+
 @dataclass(frozen=True)
 class BodyAnchor:
     point: Optional[Tuple[float, float]]

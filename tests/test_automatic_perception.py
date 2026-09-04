@@ -23,10 +23,17 @@ from ghostcaddie.video.automatic_perception import (
     precision_recall,
     reconstruct_automatic_shot,
     PixelTrackStore,
+    CameraMotionCompensator,
 )
 
 
 class TestAutomaticPerceptionContracts(unittest.TestCase):
+    def test_camera_motion_compensation_is_separate_from_object_tracking(self):
+        compensation = CameraMotionCompensator()
+        compensation.update((3.0, -2.0))
+        self.assertEqual(compensation.compensate((13.0, 8.0)), (10.0, 10.0))
+        self.assertEqual(compensation.total_translation, (3.0, -2.0))
+
     def test_pixel_track_store_assigns_stable_ids_and_keeps_labels_separate(self):
         store = PixelTrackStore(max_distance=10.0)
         first = store.update([Detection(0, "golfer", (100.0, 100.0), .9, Provenance.DETECTED)])
