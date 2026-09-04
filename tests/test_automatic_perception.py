@@ -24,10 +24,27 @@ from ghostcaddie.video.automatic_perception import (
     reconstruct_automatic_shot,
     PixelTrackStore,
     CameraMotionCompensator,
+    build_research_observations,
 )
 
 
 class TestAutomaticPerceptionContracts(unittest.TestCase):
+    def test_research_adapter_composes_pose_and_explicit_unavailable_targets(self):
+        observations = build_research_observations([
+            {"frame_index": 0, "timestamp_seconds": 0.0,
+             "bbox": {"x": 10, "y": 20, "width": 30, "height": 40},
+             "anchor": {"x": 25, "y": 60}, "confidence": 0.9},
+        ], image_width=100, image_height=100)
+        item = observations.items[0]
+        self.assertEqual(item.golfer.bbox.width, 30)
+        self.assertIsNone(item.ball)
+        self.assertIsNone(item.clubhead)
+        self.assertIn("ball_missing", item.warnings)
+
+    def test_research_adapter_rejects_unknown_record_fields(self):
+        with self.assertRaises(ValueError):
+            build_research_observations([{"frame_index": 0, "extra": True}], image_width=100, image_height=100)
+
     def test_camera_motion_compensation_is_separate_from_object_tracking(self):
         compensation = CameraMotionCompensator()
         compensation.update((3.0, -2.0))

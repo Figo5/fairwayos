@@ -13,6 +13,38 @@ from typing import Any, Mapping, Optional, Protocol, Sequence, Tuple, runtime_ch
 
 from .errors import VideoReconstructionUnavailable
 
+
+def build_research_observations(records, *, image_width: int, image_height: int):
+    """Compose validated pose/pixel records without promoting fine targets.
+
+    ``records`` is intentionally a small adapter seam: callers provide only
+    source-frame golfer geometry. Ball, clubhead, impact, and landing remain
+    unavailable unless a separately validated detector supplies them.
+    """
+    from .observations import VideoObservations
+    payload = {
+        "schema_version": "video-observations.v1",
+        "image": {"width": image_width, "height": image_height},
+        "observations": [],
+    }
+    for record in records:
+        if not isinstance(record, Mapping):
+            raise ValueError("research observation record must be a mapping")
+        required = {"frame_index", "timestamp_seconds", "bbox", "anchor", "confidence"}
+        if set(record) != required:
+            raise ValueError("research observation record has invalid fields")
+        warnings = [] if record["anchor"] is not None else ["anchor_missing"]
+        warnings.append("ball_missing")
+        payload["observations"].append({
+            "frame_index": record["frame_index"],
+            "timestamp_seconds": record["timestamp_seconds"],
+            "golfer": {"bbox": record["bbox"], "anchor": record["anchor"], "confidence": record["confidence"]},
+            "club": None, "clubhead": None, "ball": None,
+            "phase": "unknown", "contact": None, "intended_direction": None,
+            "landing": None, "warnings": warnings,
+        })
+    return VideoObservations.from_dict(payload)
+
 AUTOMATIC_PERCEPTION_SCHEMA_VERSION = "automatic-perception.v1"
 
 
