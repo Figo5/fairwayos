@@ -26,9 +26,22 @@ from ghostcaddie.video.automatic_perception import (
     CameraMotionCompensator,
     build_research_observations,
 )
+from ghostcaddie.video.seeded_tracking import SeedPoint, SeededPointTracker
 
 
 class TestAutomaticPerceptionContracts(unittest.TestCase):
+    def test_seeded_tracker_rejects_out_of_bounds_seed(self):
+        import numpy as np
+        frames = [np.zeros((20, 20, 3), dtype=np.uint8)]
+        with self.assertRaises(ValueError):
+            SeededPointTracker().track(frames, SeedPoint(0, (20, 5), "ball"))
+
+    def test_seeded_tracker_preserves_before_seed_as_unavailable(self):
+        import numpy as np
+        frames = [np.zeros((20, 20, 3), dtype=np.uint8) for _ in range(3)]
+        with self.assertRaises(RuntimeError):
+            SeededPointTracker().track(frames, SeedPoint(1, (10, 10), "clubhead"))
+
     def test_research_adapter_composes_pose_and_explicit_unavailable_targets(self):
         observations = build_research_observations([
             {"frame_index": 0, "timestamp_seconds": 0.0,
