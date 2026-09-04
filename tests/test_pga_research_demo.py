@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from ghostcaddie.cli import main
+from ghostcaddie.video.pga_fallback import render_pga_fallback
 
 
 class TestPgaResearchDemo(unittest.TestCase):
@@ -25,6 +26,22 @@ class TestPgaResearchDemo(unittest.TestCase):
             self.assertEqual(runner.call_args.kwargs["max_duration_seconds"], 2.0)
             self.assertEqual(runner.call_args.kwargs["sample_fps"], 2.0)
             self.assertEqual(runner.call_args.kwargs["max_frames"], 4)
+
+    def test_fallback_decoded_pixels_contain_required_annotations(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            video = root / "fixture.mp4"
+            subprocess.run(["/opt/homebrew/bin/ffmpeg", "-y", "-v", "error", "-f", "lavfi",
+                            "-i", "color=c=green:s=320x240:r=4", "-t", "1", "-pix_fmt", "yuv420p", str(video)], check=True)
+            out = root / "rendered.mp4"
+            render_pga_fallback(video, out, max_frames=4)
+            import cv2
+            cap = cv2.VideoCapture(str(out))
+            ok, frame = cap.read()
+            cap.release()
+            self.assertTrue(ok)
+            self.assertGreater(int((frame != (0, 128, 0)).any(axis=2).sum()), 100)
+            self.assertGreater(int(((frame[:, :, 0] > 180) & (frame[:, :, 1] > 180) & (frame[:, :, 2] > 180)).sum()), 10)
 
     def test_blocked_output_has_explicit_research_flags_and_states(self):
         with tempfile.TemporaryDirectory() as td:
