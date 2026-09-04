@@ -644,7 +644,7 @@ def _write_pga_failure_artifacts(out: Path, video) -> None:
     source = Path(video).expanduser() if video is not None else None
     if source is not None and source.is_file():
         render_pga_fallback(source, out / "annotated_video.mp4")
-        subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(source), "-frames:v", "1", str(out / "contact_sheet.jpg")], check=False)
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(out / "annotated_video.mp4"), "-frames:v", "1", str(out / "contact_sheet.jpg")], check=False)
     if not (out / "contact_sheet.jpg").is_file():
         (out / "contact_sheet.jpg").write_bytes(bytes.fromhex("ffd8ffe000104a46494600010100000100010000ffdb004300" + "00" * 67 + "ffc0000b080001000101011100ffc40014000100000000000000000000000000000000ffda0008010100003f00d2cf20ffd9"))
     readme = "PGA RESEARCH DEMO\nNOT VALIDATED\nRESEARCH ONLY\nNO PRODUCTION ANALYTICS\nFRAME / TIMESTAMP: rendered in annotated_video.mp4\nPOSE: UNAVAILABLE\nBALL: UNAVAILABLE\nCLUBHEAD: UNAVAILABLE\nCAMERA/QUALITY: WARNING\n"
