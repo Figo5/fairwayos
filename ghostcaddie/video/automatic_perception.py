@@ -63,6 +63,54 @@ class Tracker(Protocol):
     def update(self, detections: Sequence[Detection]) -> list[Track]: ...
 
 
+@dataclass
+class PixelTrackStore:
+    """Dependency-free nearest-neighbour ID/history store for pixel observations.
+
+    This is deliberately a research boundary: it preserves independent labels,
+    does not promote detections, and expires unmatched tracks immediately.
+    """
+
+    max_distance: float = 40.0
+    _next_id: int = field(default=1, init=False)
+    _active: dict = field(default_factory=dict, init=False)
+    _history: dict = field(default_factory=dict, init=False)
+
+    def update(self, detections: Sequence[Detection]) -> list[Track]:
+        current = {}
+        used = set()
+        result = []
+        for detection in detections:
+            point = detection.value
+            if (not isinstance(point, tuple) or len(point) != 2 or
+                    not all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                            and math.isfinite(v) for v in point)):
+                continue
+            choices = [(self._distance(point, old), track_id)
+                       for track_id, (label, old) in self._active.items()
+                       if label == detection.label and track_id not in used]
+            match = min(choices, default=(float("inf"), None))
+            track_id = match[1] if match[0] <= self.max_distance else self._allocate()
+            used.add(track_id)
+            prior = self._history.get(track_id, ((), ()))
+            frames = prior[0] + (detection.frame_index,)
+            confidences = prior[1] + (detection.confidence,)
+            self._history[track_id] = (frames, confidences)
+            current[track_id] = (detection.label, point)
+            result.append(Track(track_id, detection.label, frames, confidences))
+        self._active = current
+        return result
+
+    def _allocate(self):
+        track_id = self._next_id
+        self._next_id += 1
+        return track_id
+
+    @staticmethod
+    def _distance(first, second):
+        return math.hypot(first[0] - second[0], first[1] - second[1])
+
+
 @dataclass(frozen=True)
 class BodyAnchor:
     point: Optional[Tuple[float, float]]

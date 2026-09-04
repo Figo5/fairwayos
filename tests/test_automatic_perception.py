@@ -22,10 +22,20 @@ from ghostcaddie.video.automatic_perception import (
     evaluate_sequence_gates,
     precision_recall,
     reconstruct_automatic_shot,
+    PixelTrackStore,
 )
 
 
 class TestAutomaticPerceptionContracts(unittest.TestCase):
+    def test_pixel_track_store_assigns_stable_ids_and_keeps_labels_separate(self):
+        store = PixelTrackStore(max_distance=10.0)
+        first = store.update([Detection(0, "golfer", (100.0, 100.0), .9, Provenance.DETECTED)])
+        second = store.update([Detection(1, "golfer", (104.0, 103.0), .8, Provenance.TRACKED)])
+        ball = store.update([Detection(2, "ball", (104.0, 103.0), .8, Provenance.DETECTED)])
+        self.assertEqual(first[0].track_id, second[0].track_id)
+        self.assertNotEqual(second[0].track_id, ball[0].track_id)
+        self.assertEqual(second[0].frame_indices, (0, 1))
+
     def test_contract_is_versioned_and_unavailable_is_explicit(self):
         self.assertEqual(AUTOMATIC_PERCEPTION_SCHEMA_VERSION, "automatic-perception.v1")
         unavailable = Detection.unavailable(frame_index=4, label="ball")
