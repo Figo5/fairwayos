@@ -5,8 +5,14 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from ghostcaddie.video.youtube_auto_try import (
-    AutoTryConfig, DetectorUnavailable, auto_try, validate_segment,
+    AutoTryConfig, DEFAULT_NODE, DEFAULT_YTDLP, DetectorUnavailable, auto_try, validate_segment,
 )
+
+
+def test_tool_defaults_do_not_leak_developer_paths():
+    assert DEFAULT_YTDLP == "yt-dlp"
+    assert DEFAULT_NODE == "node"
+
 from ghostcaddie.video.youtube import DownloadError
 from ghostcaddie.video.youtube_auto_try import _download_failure
 from ghostcaddie.video.observations import VideoObservations
@@ -58,7 +64,7 @@ class YoutubeAutoTryTests(unittest.TestCase):
                 extract.return_value = Mock(frames=[], output_directory=str(root / "frames"))
                 auto_try(AutoTryConfig(URL, root / "out", yt_dlp="/custom/yt-dlp"), detector=DetectorUnavailable("missing"))
             factory.assert_called_once_with(
-                "/custom/yt-dlp", js_runtime="/usr/local/bin/node",
+                "/custom/yt-dlp", js_runtime=DEFAULT_NODE,
                 limits=unittest.mock.ANY, format_selector=unittest.mock.ANY)
 
     def test_non_rendering_rerun_removes_stale_annotated_video(self):

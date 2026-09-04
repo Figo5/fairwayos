@@ -21,8 +21,10 @@ from .prepare import prepare_video
 from .youtube import (DownloadError, DownloadLimits, DownloaderUnavailable,
                       YtDlpDownloader, parse_youtube_url)
 
-DEFAULT_YTDLP = "/Users/giofiore/ghostcaddie-tour/.venv-video-modern/bin/yt-dlp"
-DEFAULT_NODE = "/usr/local/bin/node"
+# Executable names keep the package portable and avoid embedding local paths.
+# Callers may still provide an explicit absolute path through the CLI/config.
+DEFAULT_YTDLP = "yt-dlp"
+DEFAULT_NODE = "node"
 AUTO_FORMAT = "worstvideo[height<=480][ext=mp4]/worstvideo[height<=480]/worst[ext=mp4]/worst"
 
 
