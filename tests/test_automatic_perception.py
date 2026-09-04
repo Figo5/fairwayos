@@ -27,9 +27,14 @@ from ghostcaddie.video.automatic_perception import (
     build_research_observations,
 )
 from ghostcaddie.video.seeded_tracking import SeedPoint, SeededPointTracker
+from ghostcaddie.video.hybrid_tracking import HybridSeededTracker
 
 
 class TestAutomaticPerceptionContracts(unittest.TestCase):
+    def test_hybrid_tracker_rejects_invalid_limits(self):
+        with self.assertRaises(ValueError):
+            HybridSeededTracker(fb_error=0)
+
     def test_seeded_tracker_rejects_out_of_bounds_seed(self):
         import numpy as np
         frames = [np.zeros((20, 20, 3), dtype=np.uint8)]
