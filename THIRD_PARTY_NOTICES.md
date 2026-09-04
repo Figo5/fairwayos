@@ -36,3 +36,18 @@ for a future FairwayOS-owned evaluation set are private project records and are
 not committed to this public repository. Public files may contain only safe
 schemas, synthetic fixtures, redacted manifests, hashes, and reproducible
 instructions that do not expose personal data or private paths.
+
+## Architecture inspiration (no code copied)
+
+- Ahmed-El-Zainy, `soccer`: https://github.com/Ahmed-El-Zainy/soccer
+  - Reviewed README, `main.py`, requirements, and repository tree.
+  - The repository-level `LICENSE` path was not found at the reviewed revision;
+    therefore no source code, assets, weights, or media were copied or translated.
+  - High-level inspiration is limited to frame-wise detection, bounded ball
+    slicing, tracker IDs/history, and optional radar rendering.
+- footballanalystrohan-glitch, `GhostBall-Engine`:
+  https://github.com/footballanalystrohan-glitch/GhostBall-Engine
+  - MIT License, copyright notice `Copyright (c) 2026 Remontada-Analyst`.
+  - No code or assets were copied. High-level inspiration is limited to the
+    pixel-space/analytical-space boundary, homography concept, guarded
+    kinematics, and re-projection structure.
