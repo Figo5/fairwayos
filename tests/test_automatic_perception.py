@@ -28,9 +28,29 @@ from ghostcaddie.video.automatic_perception import (
 )
 from ghostcaddie.video.seeded_tracking import SeedPoint, SeededPointTracker
 from ghostcaddie.video.hybrid_tracking import HybridSeededTracker
+from ghostcaddie.video.clubhead_methods import (
+    ClubheadMethodComparison, ClubheadCandidate, CandidateState,
+)
 
 
 class TestAutomaticPerceptionContracts(unittest.TestCase):
+    def test_clubhead_comparison_keeps_methods_separate_and_research_only(self):
+        comparison = ClubheadMethodComparison.from_candidates([
+            ClubheadCandidate("roi", 105, (1432.0, 224.0), CandidateState.OBSERVED, .8),
+            ClubheadCandidate("contour", 105, None, CandidateState.UNAVAILABLE, 0.0,
+                              "ambiguous"),
+        ])
+        self.assertEqual(comparison.method_names, ("contour", "roi"))
+        self.assertEqual(comparison.selected_method, "roi")
+        self.assertTrue(comparison.research_only)
+        self.assertFalse(comparison.ground_truth)
+        self.assertFalse(comparison.production_eligible)
+
+    def test_clubhead_candidate_rejects_nonfinite_or_unknown_state(self):
+        with self.assertRaises(ValueError):
+            ClubheadCandidate("roi", 105, (float("nan"), 2.0), CandidateState.OBSERVED, .8)
+        with self.assertRaises(ValueError):
+            ClubheadCandidate("roi", 105, None, "guessed", .8)
     def test_hybrid_tracker_rejects_invalid_limits(self):
         with self.assertRaises(ValueError):
             HybridSeededTracker(fb_error=0)
