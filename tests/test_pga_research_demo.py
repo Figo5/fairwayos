@@ -1,4 +1,5 @@
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,7 +13,11 @@ class TestPgaResearchDemo(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             video = root / "fixture.mp4"
-            video.write_bytes(b"fixture")
+            subprocess.run([
+                "/opt/homebrew/bin/ffmpeg", "-y", "-v", "error", "-f", "lavfi",
+                "-i", "color=c=green:s=320x240:r=4", "-t", "1",
+                "-pix_fmt", "yuv420p", str(video),
+            ], check=True)
             with patch("ghostcaddie.cli.run_local_demo", return_value={"status": "research_only"}) as runner, \
                  patch("ghostcaddie.cli.run_pipeline", side_effect=AssertionError("analytics forbidden")):
                 main(["pga-research-demo", "--video", str(video), "--out", str(root / "out"),
@@ -25,7 +30,11 @@ class TestPgaResearchDemo(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             video = root / "fixture.mp4"
-            video.write_bytes(b"fixture")
+            subprocess.run([
+                "/opt/homebrew/bin/ffmpeg", "-y", "-v", "error", "-f", "lavfi",
+                "-i", "color=c=green:s=320x240:r=4", "-t", "1",
+                "-pix_fmt", "yuv420p", str(video),
+            ], check=True)
             with patch("ghostcaddie.cli.run_local_demo", side_effect=RuntimeError("no frames")):
                 with self.assertRaises(SystemExit):
                     main(["pga-research-demo", "--video", str(video), "--out", str(root / "out")])
