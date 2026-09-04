@@ -41,6 +41,7 @@ from .video.youtube import DownloadError, DownloadLimits, YtDlpDownloader, parse
 from .video.youtube_auto_try import AUTO_FORMAT, AutoTryConfig, DEFAULT_YTDLP, auto_try
 from .video.fairwayos_research import sidecar_from_mapping, write_fairwayos_sidecar
 from .video.ai_demo import DemoAcceptanceError, build_visual_review, run_local_demo
+from .video.pga_fallback import render_pga_fallback
 from .video.research_split import serialize_split_manifest
 
 
@@ -642,19 +643,13 @@ def _write_pga_failure_artifacts(out: Path, video) -> None:
     """Keep bounded local failure evidence inspectable without analytics."""
     source = Path(video).expanduser() if video is not None else None
     if source is not None and source.is_file():
-        # Preserve the real pixels while making the research boundary visible.
-        # This is a failure-analysis render, not a perception result.
-        vf = ("drawtext=text='PGA RESEARCH DEMO':x=24:y=24:fontsize=28:fontcolor=yellow:box=1:boxcolor=black@0.65,"
-              "drawtext=text='NOT VALIDATED - RESEARCH ONLY - NO PRODUCTION ANALYTICS':x=24:y=62:fontsize=20:fontcolor=white:box=1:boxcolor=black@0.65,"
-              "drawtext=text='POSE UNAVAILABLE - BALL UNAVAILABLE - CLUBHEAD UNAVAILABLE':x=24:y=h-48:fontsize=20:fontcolor=orange:box=1:boxcolor=black@0.65")
-        subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(source),
-                        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an",
-                        str(out / "annotated_video.mp4")], check=False)
-        subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(out / "annotated_video.mp4"),
-                        "-frames:v", "1", str(out / "contact_sheet.jpg")], check=False)
+        render_pga_fallback(source, out / "annotated_video.mp4")
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(source), "-frames:v", "1", str(out / "contact_sheet.jpg")], check=False)
     if not (out / "contact_sheet.jpg").is_file():
         (out / "contact_sheet.jpg").write_bytes(bytes.fromhex("ffd8ffe000104a46494600010100000100010000ffdb004300" + "00" * 67 + "ffc0000b080001000101011100ffc40014000100000000000000000000000000000000ffda0008010100003f00d2cf20ffd9"))
-    (out / "README").write_text("PGA RESEARCH DEMO\nPOSE: UNAVAILABLE\nBALL: UNAVAILABLE\nCLUBHEAD: UNAVAILABLE\nCAMERA/QUALITY: WARNING\nRESEARCH ONLY; NO PRODUCTION ANALYTICS\n")
+    readme = "PGA RESEARCH DEMO\nNOT VALIDATED\nRESEARCH ONLY\nNO PRODUCTION ANALYTICS\nFRAME / TIMESTAMP: rendered in annotated_video.mp4\nPOSE: UNAVAILABLE\nBALL: UNAVAILABLE\nCLUBHEAD: UNAVAILABLE\nCAMERA/QUALITY: WARNING\n"
+    (out / "README.md").write_text(readme)
+    (out / "README").write_text(readme)
     (out / "provenance.json").write_text(json.dumps({"mode": "pga-research-demo", "source": "local", "confidence": None, "research_only": True, "ground_truth": False, "production_eligible": False}, indent=2) + "\n")
 
 
