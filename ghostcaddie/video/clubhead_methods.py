@@ -47,8 +47,28 @@ class ClubheadMethodComparison:
 def _unavailable(method, frame, warning):
     return ClubheadCandidate(method, frame, None, CandidateState.UNAVAILABLE, 0.0, warning)
 
-def track_candidate(method, frames, seed_frame, seed_point, *, max_step=55.0, min_similarity=.55):
-    """Bounded local candidate; no semantic promotion or reacquisition across ambiguity."""
+# The single supported algorithm: Lucas-Kanade point tracking with forward/backward
+# flow consistency. No other method name is implemented; alias names must not be
+# presented as distinct algorithms.
+SUPPORTED_METHODS = ("lk_point",)
+
+def track_candidate(method, frames, seed_frame, seed_point, *, max_step=55.0, max_backward_error_pixels=3.0):
+    """Bounded Lucas-Kanade candidate; no semantic reacquisition across ambiguity.
+
+    ``method`` must be one of :data:`SUPPORTED_METHODS` (currently only
+    ``"lk_point"``). ``max_backward_error_pixels`` is the explicit
+    forward/backward optical-flow consistency limit; confidence is the bounded
+    linear score ``1 - backward_error / max_backward_error_pixels``.
+    """
+    if method not in SUPPORTED_METHODS:
+        raise ValueError(
+            f"unsupported clubhead method {method!r}; supported methods: {SUPPORTED_METHODS}"
+        )
+    if (isinstance(max_backward_error_pixels, bool)
+            or not isinstance(max_backward_error_pixels, (int, float))
+            or not math.isfinite(max_backward_error_pixels)
+            or max_backward_error_pixels <= 0):
+        raise ValueError("max_backward_error_pixels must be a finite positive number")
     try:
         import cv2, numpy as np
     except ImportError as exc: raise RuntimeError("OpenCV and NumPy are required") from exc
@@ -58,6 +78,7 @@ def track_candidate(method, frames, seed_frame, seed_point, *, max_step=55.0, mi
     out=[_unavailable(method,i,"before_seed") for i in range(seed_frame)]
     out.append(ClubheadCandidate(method,seed_frame,(float(x),float(y)),CandidateState.OBSERVED,1.0))
     prev=cv2.cvtColor(frames[seed_frame],cv2.COLOR_BGR2GRAY); p=np.array([[[x,y]]],np.float32)
+    fb_tol=float(max_backward_error_pixels)
     for i in range(seed_frame+1,len(frames)):
         cur=cv2.cvtColor(frames[i],cv2.COLOR_BGR2GRAY); nxt,st,_=cv2.calcOpticalFlowPyrLK(prev,cur,p,None,winSize=(21,21),maxLevel=2)
         if nxt is None or st is None or not int(st[0][0]):
@@ -66,9 +87,9 @@ def track_candidate(method, frames, seed_frame, seed_point, *, max_step=55.0, mi
         q=tuple(float(v) for v in nxt[0][0]); step=math.hypot(q[0]-float(p[0][0][0]),q[1]-float(p[0][0][1]))
         back,bst,_=cv2.calcOpticalFlowPyrLK(cur,prev,nxt,None,winSize=(21,21),maxLevel=2)
         fb=math.hypot(float(back[0][0][0])-float(p[0][0][0]),float(back[0][0][1])-float(p[0][0][1])) if back is not None and bst is not None and int(bst[0][0]) else float('inf')
-        valid=all(math.isfinite(v) for v in (*q,step,fb)) and step<=max_step and fb<=3.0 and 0<=q[0]<w and 0<=q[1]<h
+        valid=all(math.isfinite(v) for v in (*q,step,fb)) and step<=max_step and fb<=fb_tol and 0<=q[0]<w and 0<=q[1]<h
         if not valid:
             out.extend(_unavailable(method,j,"motion_or_backward_ambiguity") for j in range(i, len(frames)))
             break
-        conf=max(0.0,min(1.0,1-fb/3)); out.append(ClubheadCandidate(method,i,q,CandidateState.OBSERVED,conf)); p=nxt; prev=cur
+        conf=max(0.0,min(1.0,1-fb/fb_tol)); out.append(ClubheadCandidate(method,i,q,CandidateState.OBSERVED,conf)); p=nxt; prev=cur
     return out
