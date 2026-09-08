@@ -60,11 +60,15 @@ def track_candidate(method, frames, seed_frame, seed_point, *, max_step=55.0, mi
     prev=cv2.cvtColor(frames[seed_frame],cv2.COLOR_BGR2GRAY); p=np.array([[[x,y]]],np.float32)
     for i in range(seed_frame+1,len(frames)):
         cur=cv2.cvtColor(frames[i],cv2.COLOR_BGR2GRAY); nxt,st,_=cv2.calcOpticalFlowPyrLK(prev,cur,p,None,winSize=(21,21),maxLevel=2)
-        if nxt is None or st is None or not int(st[0][0]): out.append(_unavailable(method,i,"flow_ambiguous")); break
+        if nxt is None or st is None or not int(st[0][0]):
+            out.extend(_unavailable(method,j,"flow_ambiguous") for j in range(i, len(frames)))
+            break
         q=tuple(float(v) for v in nxt[0][0]); step=math.hypot(q[0]-float(p[0][0][0]),q[1]-float(p[0][0][1]))
         back,bst,_=cv2.calcOpticalFlowPyrLK(cur,prev,nxt,None,winSize=(21,21),maxLevel=2)
         fb=math.hypot(float(back[0][0][0])-float(p[0][0][0]),float(back[0][0][1])-float(p[0][0][1])) if back is not None and bst is not None and int(bst[0][0]) else float('inf')
         valid=all(math.isfinite(v) for v in (*q,step,fb)) and step<=max_step and fb<=3.0 and 0<=q[0]<w and 0<=q[1]<h
-        if not valid: out.append(_unavailable(method,i,"motion_or_backward_ambiguity")); break
+        if not valid:
+            out.extend(_unavailable(method,j,"motion_or_backward_ambiguity") for j in range(i, len(frames)))
+            break
         conf=max(0.0,min(1.0,1-fb/3)); out.append(ClubheadCandidate(method,i,q,CandidateState.OBSERVED,conf)); p=nxt; prev=cur
     return out

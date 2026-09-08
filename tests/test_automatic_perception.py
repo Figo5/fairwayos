@@ -64,8 +64,9 @@ class TestAutomaticPerceptionContracts(unittest.TestCase):
     def test_seeded_tracker_preserves_before_seed_as_unavailable(self):
         import numpy as np
         frames = [np.zeros((20, 20, 3), dtype=np.uint8) for _ in range(3)]
-        with self.assertRaises(RuntimeError):
-            SeededPointTracker().track(frames, SeedPoint(1, (10, 10), "clubhead"))
+        result = SeededPointTracker().track(frames, SeedPoint(1, (10, 10), "clubhead"))
+        self.assertIsNone(result[0].point)
+        self.assertEqual(result[0].state, "unavailable")
 
     def test_research_adapter_composes_pose_and_explicit_unavailable_targets(self):
         observations = build_research_observations([

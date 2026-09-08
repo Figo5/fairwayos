@@ -77,6 +77,12 @@ def _finite(value: Any, default: float = 0.0) -> float:
     return result if math.isfinite(result) else default
 
 
+def should_infer_pose_for_frame(frame_number: int, pose_cache: Mapping[int, Any], *,
+                                native_roi: bool) -> bool:
+    """Return whether a native frame needs a fresh pose inference."""
+    return native_roi and frame_number not in pose_cache
+
+
 class _InferenceTimeout(TimeoutError):
     pass
 
@@ -1276,11 +1282,8 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
     for ordinal, (frame, number) in enumerate(zip(frames, frame_numbers)):
         clean_frame = clean_frame_for_components(frame)
         item = clean_frame.copy()
-        if roi_plan["state"] == "candidate_region":
-            pose, pose_frame_warning = pose_cache.get(number, (None, "coarse_pose_not_available"))
-        else:
-            pose, pose_frame_warning = _pose_observation(
-                pose_model, clean_frame, width, height, inference_size=960)
+        pose, pose_frame_warning = _pose_observation(
+            pose_model, clean_frame, width, height)
         roi_box = roi_plan.get("box") if roi_plan["state"] == "candidate_region" else None
         # Bound expensive ball refinement on CPU-only Torch. Skipped frames are
         # explicitly unavailable; no prediction or stale marker is rendered.
