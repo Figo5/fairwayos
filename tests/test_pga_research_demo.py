@@ -1,4 +1,5 @@
 import json
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -9,16 +10,25 @@ from ghostcaddie.cli import main
 from ghostcaddie.video.pga_fallback import render_pga_fallback
 
 
+FFMPEG = shutil.which("ffmpeg")
+
+
+def _make_fixture(root: Path) -> Path:
+    video = root / "fixture.mp4"
+    subprocess.run([
+        FFMPEG, "-y", "-v", "error", "-f", "lavfi",
+        "-i", "color=c=green:s=320x240:r=4", "-t", "1",
+        "-pix_fmt", "yuv420p", str(video),
+    ], check=True)
+    return video
+
+
+@unittest.skipUnless(FFMPEG, "ffmpeg is not installed")
 class TestPgaResearchDemo(unittest.TestCase):
     def test_mode_accepts_bounded_local_flags_and_never_runs_pipeline(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            video = root / "fixture.mp4"
-            subprocess.run([
-                "/opt/homebrew/bin/ffmpeg", "-y", "-v", "error", "-f", "lavfi",
-                "-i", "color=c=green:s=320x240:r=4", "-t", "1",
-                "-pix_fmt", "yuv420p", str(video),
-            ], check=True)
+            video = _make_fixture(root)
             with patch("ghostcaddie.cli.run_local_demo", return_value={"status": "research_only"}) as runner, \
                  patch("ghostcaddie.cli.run_pipeline", side_effect=AssertionError("analytics forbidden")):
                 main(["pga-research-demo", "--video", str(video), "--out", str(root / "out"),
@@ -30,12 +40,10 @@ class TestPgaResearchDemo(unittest.TestCase):
     def test_fallback_decoded_pixels_contain_required_annotations(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            video = root / "fixture.mp4"
-            subprocess.run(["/opt/homebrew/bin/ffmpeg", "-y", "-v", "error", "-f", "lavfi",
-                            "-i", "color=c=green:s=320x240:r=4", "-t", "1", "-pix_fmt", "yuv420p", str(video)], check=True)
+            video = _make_fixture(root)
             out = root / "rendered.mp4"
             render_pga_fallback(video, out, max_frames=4)
-            raw = subprocess.run(["/opt/homebrew/bin/ffmpeg", "-v", "error", "-i", str(out), "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True, check=True).stdout
+            raw = subprocess.run([FFMPEG, "-v", "error", "-i", str(out), "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True, check=True).stdout
             self.assertEqual(len(raw), 320 * 240 * 3)
             pixels = [raw[i:i + 3] for i in range(0, len(raw), 3)]
             self.assertGreater(sum(pixel != bytes((0, 128, 0)) for pixel in pixels), 100)
@@ -44,12 +52,7 @@ class TestPgaResearchDemo(unittest.TestCase):
     def test_blocked_output_has_explicit_research_flags_and_states(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            video = root / "fixture.mp4"
-            subprocess.run([
-                "/opt/homebrew/bin/ffmpeg", "-y", "-v", "error", "-f", "lavfi",
-                "-i", "color=c=green:s=320x240:r=4", "-t", "1",
-                "-pix_fmt", "yuv420p", str(video),
-            ], check=True)
+            video = _make_fixture(root)
             with patch("ghostcaddie.cli.run_local_demo", side_effect=RuntimeError("no frames")):
                 with self.assertRaises(SystemExit):
                     main(["pga-research-demo", "--video", str(video), "--out", str(root / "out")])

@@ -1,5 +1,11 @@
 import unittest
 
+try:
+    import cv2  # noqa: F401
+    _HAS_CV2 = True
+except ImportError:
+    _HAS_CV2 = False
+
 from ghostcaddie.video.ai_demo import should_infer_pose_for_frame
 from ghostcaddie.video.clubhead_methods import CandidateState, track_candidate
 
@@ -10,6 +16,7 @@ class TestResearchSharedPath(unittest.TestCase):
         self.assertTrue(should_infer_pose_for_frame(11, cache, native_roi=True))
         self.assertFalse(should_infer_pose_for_frame(10, cache, native_roi=True))
 
+    @unittest.skipUnless(_HAS_CV2, "requires optional OpenCV research dependency")
     def test_clubhead_track_loss_is_explicit_for_every_remaining_frame(self):
         import numpy as np
         frames = [np.zeros((20, 20, 3), dtype=np.uint8) for _ in range(4)]

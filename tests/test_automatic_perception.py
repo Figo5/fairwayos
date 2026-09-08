@@ -1,6 +1,12 @@
 import unittest
 from typing import get_type_hints
 
+try:
+    import cv2  # noqa: F401
+    _HAS_CV2 = True
+except ImportError:
+    _HAS_CV2 = False
+
 from ghostcaddie.video.automatic_perception import (
     AUTOMATIC_PERCEPTION_SCHEMA_VERSION,
     BodyAnchor,
@@ -61,6 +67,7 @@ class TestAutomaticPerceptionContracts(unittest.TestCase):
         with self.assertRaises(ValueError):
             SeededPointTracker().track(frames, SeedPoint(0, (20, 5), "ball"))
 
+    @unittest.skipUnless(_HAS_CV2, "requires optional OpenCV research dependency")
     def test_seeded_tracker_preserves_before_seed_as_unavailable(self):
         import numpy as np
         frames = [np.zeros((20, 20, 3), dtype=np.uint8) for _ in range(3)]
