@@ -702,7 +702,8 @@ class TestAIDemoContracts(unittest.TestCase):
                 return pose, None
 
             with patch("ghostcaddie.video.ai_demo._ball_observation", side_effect=fake_ball), \
-                 patch("ghostcaddie.video.ai_demo._pose_observation", side_effect=fake_pose):
+                 patch("ghostcaddie.video.ai_demo._pose_observation", side_effect=fake_pose), \
+                 patch("ghostcaddie.video.ai_demo._ball_refinement_allowed", return_value=True):
                 run_local_demo(str(source), str(root / "out"), sample_fps=10.0, max_frames=40,
                                pose_model="", ball_model="")
             # Documented contract: 40 pose calls (every rendered frame) and
@@ -745,7 +746,8 @@ class TestAIDemoContracts(unittest.TestCase):
                 seen_frames.append(("pose", int(frame[0, 0, 0]), int(frame[120, 160, 0])))
                 return pose, None
             with patch("ghostcaddie.video.ai_demo._ball_observation", side_effect=fake_ball), \
-                 patch("ghostcaddie.video.ai_demo._pose_observation", side_effect=fake_pose):
+                 patch("ghostcaddie.video.ai_demo._pose_observation", side_effect=fake_pose), \
+                 patch("ghostcaddie.video.ai_demo._ball_refinement_allowed", return_value=True):
                 report = run_local_demo(str(source), str(root / "out"), sample_fps=10.0, max_frames=40,
                                         pose_model="", ball_model="")
             # Documented detector schedule: pose on every rendered frame, ball
@@ -805,7 +807,8 @@ class TestAIDemoContracts(unittest.TestCase):
             def fake_ball(*_args):
                 return {"state": "observed", "confidence": 0.9, "uncertainty": 4.0,
                         "point": next(points), "candidate_count": 1, "model": "test_ball"}, None
-            with patch("ghostcaddie.video.ai_demo._ball_observation", side_effect=fake_ball):
+            with patch("ghostcaddie.video.ai_demo._ball_observation", side_effect=fake_ball), \
+                 patch("ghostcaddie.video.ai_demo._ball_refinement_allowed", return_value=True):
                 report = run_local_demo(str(source), str(root / "out"), sample_fps=10.0, max_frames=40,
                                         pose_model="", ball_model="")
             observed = [item for item in report["observations"] if item["ball"].get("point")]
@@ -914,7 +917,8 @@ class TestAIDemoContracts(unittest.TestCase):
                 return {"state": "observed", "confidence": 0.9, "uncertainty": 4.0,
                         "point": {"x": 100.0, "y": 110.0}, "candidate_count": 1,
                         "model": "test_ball"}, None
-            with patch("ghostcaddie.video.ai_demo._ball_observation", side_effect=fake_ball):
+            with patch("ghostcaddie.video.ai_demo._ball_observation", side_effect=fake_ball), \
+                 patch("ghostcaddie.video.ai_demo._ball_refinement_allowed", return_value=True):
                 run_local_demo(str(source), str(root / "out"), sample_fps=10.0, max_frames=40,
                                pose_model="", ball_model="")
                 with self.assertRaises(DemoAcceptanceError):
