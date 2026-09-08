@@ -22,6 +22,29 @@ from typing import Any, Iterable, Mapping, Optional, Sequence
 DEMO_SCHEMA_VERSION = "fairwayos-ai-demo.v1"
 MIN_DEMO_FRAMES = 12
 MIN_DEMO_DURATION_SECONDS = 3.0
+
+
+def close_highgui_windows() -> None:
+    """Close any OpenCV highgui windows, only when highgui is usable.
+
+    Headless builds (opencv-python-headless, CI runners) have no GUI backend:
+    calling ``cv2.destroyAllWindows()`` there raises ``cv2.error``. Only that
+    highgui-specific failure is tolerated; unrelated errors propagate because
+    they would signal real bugs, not a missing display.
+    """
+    try:
+        import cv2
+    except ImportError:
+        return
+    if cv2.imshow is None:
+        return
+    try:
+        cv2.destroyAllWindows()
+    except cv2.error:
+        # Headless/no-GUI highgui cleanup failure; there is nothing to close.
+        pass
+
+
 _ACCEPTANCE_REASON_CODES = frozenset({
     "all_perception_unavailable", "insufficient_duration", "insufficient_frames",
     "render_safety_violation",
@@ -1127,6 +1150,19 @@ def _ball_refinement_allowed(coarse_warning):
     return coarse_warning in (None, "coarse_candidate_limit")
 
 
+def ball_refinement_probe_frame(ordinal: int) -> bool:
+    """Documented ball-refinement schedule: probe every third rendered frame.
+
+    Ball refinement is the most expensive per-frame step on CPU-only Torch,
+    so only ordinals that are multiples of 3 run the detector; skipped frames
+    stay explicitly unavailable. For N rendered frames this yields exactly
+    ``floor((N + 2) / 3)`` ball detector calls (N=40 -> 14), while pose runs
+    on every frame (N calls). This function is the single source of truth for
+    that contract in both the renderer loop and its tests.
+    """
+    return int(ordinal) % 3 == 0
+
+
 def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
                    max_duration_seconds: float = 8.0, max_frames: Optional[int] = None,
                    source: Optional[Mapping[str, Any]] = None,
@@ -1287,7 +1323,7 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
         roi_box = roi_plan.get("box") if roi_plan["state"] == "candidate_region" else None
         # Bound expensive ball refinement on CPU-only Torch. Skipped frames are
         # explicitly unavailable; no prediction or stale marker is rendered.
-        ball_probe_frame = (ordinal % 3 == 0)
+        ball_probe_frame = ball_refinement_probe_frame(ordinal)
         if ball_tracker and _ball_refinement_allowed(coarse_warning) and ball_probe_frame:
             if roi_box is None:
                 ball, ball_frame_warning = _ball_observation(
@@ -1372,7 +1408,7 @@ def run_local_demo(video_path: str, output_dir: str, *, sample_fps: float = 4.0,
     for ordinal, item in render_items:
         if not cv2.imwrite(str(annotated / f"frame_{ordinal + 1:06d}.jpg"), item):
             raise RuntimeError("failed to write annotated demo frame")
-    cv2.destroyAllWindows()
+    close_highgui_windows()
     rendered = out / "annotated_video.mp4"
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:

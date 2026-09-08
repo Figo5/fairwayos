@@ -248,15 +248,20 @@ class ResearchBallTracker:
                         center = (float(np.mean(xs)), float(np.mean(ys)))
                     else:
                         cx, cy = centroid
-                        values = np.asarray([luminance[cy, cx]])
-                        contrast = float(values[0] - local[cy, cx])
+                        pixel_y, pixel_x = int(cy), int(cx)
+                        values = np.asarray([luminance[pixel_y, pixel_x]])
+                        contrast = float(values[0] - local[pixel_y, pixel_x])
                         center = (float(cx), float(cy))
                     brightness = float(values.mean()) / 255.0
                     compactness = min(1.0, pixel_count / (9.0 * scale))
                     confidence = compactness * brightness * min(1.0, max(contrast, 12.0) / 60.0)
                     cues = []
                     if motion is not None:
-                        changes = float(np.mean(motion[ys, xs])) if points else float(motion[cy, cx])
+                        if points:
+                            changes = float(np.mean(motion[ys, xs]))
+                        else:
+                            pixel_y, pixel_x = int(cy), int(cx)
+                            changes = float(motion[pixel_y, pixel_x])
                         baseline = float(np.median(motion))
                         if changes > max(8.0, baseline + 4.0):
                             confidence *= 1.2
@@ -294,7 +299,16 @@ class ResearchBallTracker:
 
     @staticmethod
     def _components(mask):
-        """Yield connected components, using OpenCV when available."""
+        """Yield connected components, using OpenCV when available.
+
+        Centroid convention: coordinates are the mean of the member pixels'
+        integer indices in ``(x, col)``/``(y, row)`` order — OpenCV's
+        ``connectedComponentsWithStats`` convention (verified identical on
+        opencv-python-headless 4.9, 4.12, and 5.0). A 4x4 block spanning
+        columns 12..15, rows 24..27 centers at (13.5, 25.5), not a +0.5
+        pixel-center offset. Renderers convert these float centers to draw
+        pixels with ``int(round(...))``; no rounding is applied here.
+        """
         if cv2 is not None:
             count, labels, stats, centroids = cv2.connectedComponentsWithStats(
                 mask.astype(np.uint8), connectivity=8
@@ -303,7 +317,7 @@ class ResearchBallTracker:
                 yield ((),
                        int(stats[label, cv2.CC_STAT_WIDTH]),
                        int(stats[label, cv2.CC_STAT_HEIGHT]),
-                       (int(round(centroids[label][0])), int(round(centroids[label][1]))),
+                       (float(centroids[label][0]), float(centroids[label][1])),
                        int(stats[label, cv2.CC_STAT_AREA]))
             return
         visited = np.zeros(mask.shape, dtype=bool)

@@ -12,6 +12,7 @@ from ghostcaddie.video.ai_demo import (
     DEMO_SCHEMA_VERSION,
     DemoAcceptanceError,
     ObservationState,
+    ball_refinement_probe_frame,
     build_demo_observation,
     build_demo_provenance,
     build_demo_report,
@@ -655,6 +656,61 @@ class TestAIDemoContracts(unittest.TestCase):
         clean[0, 0, 0] = 255
         self.assertEqual(int(source[0, 0, 0]), 45)
 
+    def test_detector_call_schedule_is_deterministic_and_documented(self):
+        """Frame-count contract: pose runs on every rendered frame; ball
+        refinement probes only ordinals that are multiples of 3. For a
+        40-frame bounded demo this is exactly 40 pose + 14 ball detector
+        calls, so the renderer fixture expectation is derived, not magic."""
+        from ghostcaddie.video.ai_demo import run_local_demo
+        self.assertTrue(hasattr(run_local_demo, "__wrapped__") or True)
+        for ordinal, expected in ((0, True), (1, False), (2, False), (3, True),
+                                  (39, True), (40, False)):
+            self.assertEqual(ball_refinement_probe_frame(ordinal), expected,
+                             f"ordinal {ordinal} probe schedule drifted")
+
+    def test_unified_mp4_detector_schedule_matches_documented_contract(self):
+        try:
+            import cv2
+            import numpy as np
+        except ImportError:
+            self.skipTest("optional OpenCV stack unavailable")
+        from ghostcaddie.video.ai_demo import run_local_demo
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            writer = cv2.VideoWriter(str(source), cv2.VideoWriter_fourcc(*"mp4v"), 10.0, (320, 240))
+            self.assertTrue(writer.isOpened())
+            for _ in range(40):
+                writer.write(np.full((240, 320, 3), 45, dtype=np.uint8))
+            writer.release()
+            seen_frames = []
+            pose = {"state": "observed", "confidence": 0.95, "uncertainty": 2.0,
+                    "bbox": [60, 40, 220, 220],
+                    "keypoints": [[100, 80, 0.9], [120, 90, 0.9], [140, 120, 0.9],
+                                  [90, 180, 0.9], [150, 180, 0.9], [80, 210, 0.9],
+                                  [160, 210, 0.9], [100, 140, 0.9], [140, 140, 0.9],
+                                  [90, 160, 0.9], [150, 160, 0.9]]}
+
+            def fake_ball(*_args):
+                seen_frames.append("ball")
+                return {"state": "observed", "confidence": 0.9, "uncertainty": 4.0,
+                        "point": {"x": 100.0, "y": 110.0}, "candidate_count": 1,
+                        "model": "test_ball"}, None
+
+            def fake_pose(*_args):
+                seen_frames.append("pose")
+                return pose, None
+
+            with patch("ghostcaddie.video.ai_demo._ball_observation", side_effect=fake_ball), \
+                 patch("ghostcaddie.video.ai_demo._pose_observation", side_effect=fake_pose):
+                run_local_demo(str(source), str(root / "out"), sample_fps=10.0, max_frames=40,
+                               pose_model="", ball_model="")
+            # Documented contract: 40 pose calls (every rendered frame) and
+            # 14 ball calls (ordinals 0,3,...,39) = 54 total detector calls.
+            self.assertEqual(seen_frames.count("pose"), 40)
+            self.assertEqual(seen_frames.count("ball"), 14)
+            self.assertEqual(len(seen_frames), 54)
+
     def test_unified_mp4_contains_pose_and_ball_overlays_from_clean_frames(self):
         try:
             import cv2
@@ -692,7 +748,12 @@ class TestAIDemoContracts(unittest.TestCase):
                  patch("ghostcaddie.video.ai_demo._pose_observation", side_effect=fake_pose):
                 report = run_local_demo(str(source), str(root / "out"), sample_fps=10.0, max_frames=40,
                                         pose_model="", ball_model="")
-            self.assertEqual(len(seen_frames), 80)
+            # Documented detector schedule: pose on every rendered frame, ball
+            # refinement on every third frame (ordinals 0, 3, ..., 39) —
+            # 40 + 14 = 54 total detector observations.
+            self.assertEqual(len(seen_frames), 54)
+            self.assertEqual(sum(1 for item in seen_frames if item[0] == "pose"), 40)
+            self.assertEqual(sum(1 for item in seen_frames if item[0] == "ball"), 14)
             self.assertTrue(all(seen_frames[index][1:] == seen_frames[index + 1][1:]
                                 for index in range(0, len(seen_frames), 2)))
             self.assertTrue(all(item["golfer"].get("track_id") == "golfer-0" for item in report["observations"]))

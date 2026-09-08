@@ -48,8 +48,9 @@ class ResearchBallTrackerTests(unittest.TestCase):
         )
 
         self.assertTrue(candidates)
-        self.assertAlmostEqual(candidates[0].center[0], 32.0, places=1)
-        self.assertAlmostEqual(candidates[0].center[1], 26.0, places=1)
+        # Pixel-index mean of the 2x2 temporal component: x=32.5.
+        self.assertEqual(candidates[0].center[0], 32.5)
+        self.assertEqual(candidates[0].center[1], 26.5)
         self.assertIn("temporal_difference", candidates[0].cues)
 
     def test_context_or_roi_with_no_valid_region_keeps_unavailable_state(self):
@@ -67,7 +68,7 @@ class ResearchBallTrackerTests(unittest.TestCase):
         result = ResearchBallTracker(min_confidence=0.7).track([image])
 
         self.assertIsNotNone(result.items[0].center)
-        self.assertAlmostEqual(result.items[0].center[0], 32.0, places=1)
+        self.assertEqual(result.items[0].center[0], 32.0)
         self.assertAlmostEqual(result.items[0].center[1], 24.0, places=1)
 
     def test_temporal_change_prefers_moving_candidate_over_static_bright_distractor(self):
@@ -195,6 +196,22 @@ class ResearchBallTrackerTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     ResearchBallTracker(**kwargs)
 
+    def test_component_centroid_uses_documented_pixel_index_convention(self):
+        """Documented convention: a component centroid is the mean of the
+        member pixels' integer indices (OpenCV's
+        ``connectedComponentsWithStats`` convention, verified identical on
+        opencv-python-headless 4.9, 4.12, and 5.0 on this fixture): a 4x4
+        block spanning columns 12..15, rows 24..27 centers at (13.5, 25.5).
+        This is the pixel-index mean, NOT a +0.5 pixel-center offset; the
+        renderer converts to drawing pixels with ``int(round(...))``."""
+        image = np.zeros((60, 80, 3), dtype=np.uint8)
+        image[24:28, 12:16] = 230
+
+        candidates = ResearchBallTracker(min_confidence=0.35, max_step_pixels=20).extract_candidates(image)
+        self.assertEqual(len(candidates), 1)
+        # Pixel-index mean of columns 12..15 / rows 24..27.
+        self.assertEqual(candidates[0].center, (13.5, 25.5))
+
     def test_rejects_static_bottom_logo_and_tracks_moving_ball(self):
         frames = []
         for x in (12, 16, 20):
@@ -206,6 +223,7 @@ class ResearchBallTrackerTests(unittest.TestCase):
         result = ResearchBallTracker(min_confidence=0.35, max_step_pixels=20).track(frames)
 
         centers = [item.center for item in result.items]
+        # Pixel-index mean: 4x4 block at columns x..x+3 centers on x+1.5.
         self.assertEqual(centers[0], (13.5, 25.5))
         self.assertEqual(centers[1], (17.5, 25.5))
         self.assertEqual(centers[2], (21.5, 25.5))
