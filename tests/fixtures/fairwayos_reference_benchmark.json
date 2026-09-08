@@ -1,0 +1,40 @@
+{
+  "schema_version": "golf-research-clubhead-annotations.v1",
+  "status": "draft",
+  "explicit_submit": false,
+  "video": {
+    "clip_id": "heldout_Shk6obgJMsE",
+    "width": 1920,
+    "height": 1080,
+    "frame_count": 1,
+    "frame_rate": 59.94
+  },
+  "split": "test",
+  "rights": "research_only_local",
+  "provenance": {
+    "label_type": "model",
+    "pseudo_label": true,
+    "ground_truth": false,
+    "research_only": true,
+    "production_eligible": false
+  },
+  "frames": [
+    {
+      "frame_index": 0,
+      "source_frame_index": 0,
+      "timestamp_seconds": 0.0,
+      "clubhead": {
+        "value": null,
+        "visibility": "unavailable",
+        "source": "unavailable"
+      },
+      "shaft": {
+        "value": null,
+        "visibility": "unavailable",
+        "source": "unavailable"
+      },
+      "notes": ["AI-assisted reference only; no accepted coordinate"]
+    }
+  ],
+  "warnings": ["AI-assisted reference only; no ground-truth annotation"]
+}
