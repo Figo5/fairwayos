@@ -236,6 +236,24 @@ def _build_parser() -> argparse.ArgumentParser:
     ball_p.add_argument("--seed-y", required=True, type=float, help="Seed point y in source pixels.")
     ball_p.add_argument("--roi", required=True, nargs=4, type=float, metavar=("X1", "Y1", "X2", "Y2"),
                         help="Native ROI box in source pixels.")
+
+    find_p = sub.add_parser(
+        "research-ball-find-seed",
+        help="Deterministically propose a static-ball seed within a source interval "
+             "(research candidate; an AI/human must confirm it before tracking).",
+    )
+    find_p.add_argument("--video", required=True, type=Path,
+                        help="Local video source; absolute paths allowed, never serialized.")
+    find_p.add_argument("--out", required=True, type=Path,
+                        help="Output directory for the proposed-seed JSON.")
+    find_p.add_argument("--start-frame", required=True, type=int,
+                        help="Source start frame index (inclusive, zero-based) of the static interval.")
+    find_p.add_argument("--end-frame", required=True, type=int,
+                        help="Source end frame index (inclusive, zero-based) of the static interval.")
+    find_p.add_argument("--roi", required=True, nargs=4, type=float, metavar=("X1", "Y1", "X2", "Y2"),
+                        help="Native ROI box in source pixels.")
+    find_p.add_argument("--min-persistent-frames", type=int, default=3,
+                        help="Minimum consecutive frames the round ball must persist (default 3).")
     return parser
 
 
@@ -298,6 +316,10 @@ def main(argv=None) -> None:
         _run_research_ball_track_command(args)
         return
 
+    if args.command == "research-ball-find-seed":
+        _run_research_ball_find_seed_command(args)
+        return
+
     config = Config.default()
     if args.seed is not None:
         config = replace(config, simulation=replace(config.simulation, random_seed=args.seed))
@@ -351,6 +373,49 @@ def _run_research_ball_track_command(args) -> None:
     except (ValueError, RuntimeError) as exc:
         raise SystemExit(f"research-ball-track: error: {exc}") from exc
     print(f"Wrote research-only seeded ball track artifacts to {args.out}")
+
+
+def _run_research_ball_find_seed_command(args) -> None:
+    import cv2
+    import json
+    from pathlib import Path
+    from .video.research_ball import find_static_ball
+
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    roi = tuple(int(round(float(v))) for v in args.roi)
+    cap = cv2.VideoCapture(str(args.video))
+    if not cap.isOpened():
+        raise SystemExit(f"research-ball-find-seed: error: cannot open video {args.video}")
+    frames = []
+    for src in range(args.start_frame, args.end_frame + 1):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, src)
+        ok, b = cap.read()
+        if not ok:
+            break
+        frames.append(b)
+    cap.release()
+    if not frames:
+        raise SystemExit("research-ball-find-seed: error: no frames decoded")
+    cand = find_static_ball(frames, roi=roi, min_persistent_frames=args.min_persistent_frames)
+    payload = {
+        "schema_version": "research-ball-seed-proposal.v1",
+        "research_only": True, "ground_truth": False, "production_eligible": False,
+        "source_frame_start": args.start_frame,
+        "source_frame_end": args.start_frame + len(frames) - 1,
+        "interval_frames_decoded": len(frames),
+        "roi": list(roi),
+        "min_persistent_frames": args.min_persistent_frames,
+        "proposed_seed": None if cand is None else list(cand),
+        "confirmed": False,
+        "note": ("Deterministic research candidate; a human or AI reviewer MUST confirm it "
+                 "is on the ball before using it as a tracking seed."),
+    }
+    path = out / "proposed_seed.json"
+    path.write_text(json.dumps(payload, indent=2) + "\n")
+    ctxt = f"({cand[0]:.0f},{cand[1]:.0f})" if cand else "none"
+    print(f"research-ball-find-seed: proposed static-ball seed {ctxt} -> {path} (UNCONFIRMED)")
+
 
 
 def _run_provider_session_command(args) -> None:

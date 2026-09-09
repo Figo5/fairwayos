@@ -747,3 +747,85 @@ class SeededBallTracker:
         if array.shape[0] == 0 or array.shape[1] == 0:
             raise ValueError("frames must have positive dimensions")
         return array.astype(np.float32, copy=False)
+
+
+def _round_blob_centers(frame, roi, *, min_area=60, min_circularity=0.5):
+    """Return [(cx, cy, area, circularity)] of yellow round-ish blobs in a
+    uint8 BGR frame within the ROI (as decoded by cv2.VideoCapture)."""
+    if cv2 is None:
+        raise RuntimeError("OpenCV required")
+    x0, y0, x1, y1 = roi
+    img = frame[y0:y1, x0:x1]
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    mask = cv2.inRange(hsv, (15, 90, 90), (42, 255, 255))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    out = []
+    for c in cnts:
+        area = cv2.contourArea(c)
+        if area < min_area:
+            continue
+        per = cv2.arcLength(c, True)
+        circ = (4 * np.pi * area) / (per * per) if per > 0 else 0
+        if circ < min_circularity:
+            continue
+        M = cv2.moments(c)
+        if M["m00"] > 0:
+            out.append((M["m10"] / M["m00"] + x0, M["m01"] / M["m00"] + y0, area, circ))
+    return out
+
+
+def find_static_ball(frames, *, roi, min_persistent_frames=3, tolerance_px=6.0):
+    """Deterministically locate a static ball by round-blob persistence.
+
+    A real at-rest ball appears as a small, round, sharply-edged yellow blob in
+    the SAME position across several consecutive frames; background/grass masses
+    are non-circular or transient. Returns the mean center of the largest
+    persistent round blob, or None when no defensible candidate exists.
+
+    This is a RESEARCH-CANDIDATE seed locator, not a detection claim: it returns
+    a candidate center that an AI/human reviewer must confirm before tracking.
+    Args: frames are uint8 BGR arrays (as decoded by cv2.VideoCapture); roi is
+    (x1,y1,x2,y2). Returns (cx, cy) or None.
+    """
+    if cv2 is None:
+        raise RuntimeError("OpenCV required")
+    frames = list(frames)
+    if not frames:
+        raise ValueError("at least one frame required")
+    region = SeededBallTracker._clip_roi(roi)
+    if region is None:
+        raise ValueError("roi must be a non-degenerate (x1,y1,x2,y2) box")
+    if min_persistent_frames < 1:
+        raise ValueError("min_persistent_frames must be >= 1")
+
+    per_frame = []
+    for f in frames:
+        blobs = _round_blob_centers(f, region)
+        if not blobs:
+            per_frame.append(None)
+            continue
+        blobs.sort(key=lambda t: -t[2])
+        per_frame.append((blobs[0][0], blobs[0][1]))
+
+    best = None
+    best_count = 0
+    for start in range(len(per_frame)):
+        if per_frame[start] is None:
+            continue
+        cx0, cy0 = per_frame[start]
+        xs, ys = [cx0], [cy0]
+        for j in range(start + 1, len(per_frame)):
+            if per_frame[j] is None:
+                break
+            cx, cy = per_frame[j]
+            if abs(cx - cx0) <= tolerance_px and abs(cy - cy0) <= tolerance_px:
+                xs.append(cx); ys.append(cy)
+            else:
+                break
+        if len(xs) >= best_count:
+            best_count = len(xs)
+            best = (float(np.mean(xs)), float(np.mean(ys)))
+    if best_count < min_persistent_frames:
+        return None
+    return best
