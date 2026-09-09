@@ -436,3 +436,314 @@ class ResearchBallTracker:
         dx = first[0] - second[0]
         dy = first[1] - second[1]
         return (dx * dx + dy * dy) ** 0.5
+
+
+@dataclass(frozen=True)
+class SeededBallTrackItem:
+    frame_index: int
+    center: Optional[Point]
+    confidence: float
+    provenance: str
+    warnings: Tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class SeededBallTrackResult:
+    track_id: str
+    items: Tuple[SeededBallTrackItem, ...]
+    longest_gap: int
+    provenance: str = "research_candidate"
+    production_eligible: bool = False
+    ground_truth: bool = False
+
+
+class SeededBallTracker:
+    """ROI-seeded appearance/geometry tracker for one human-seeded ball.
+
+    Input convention: all frames and seed coordinates are RGB
+    (HxWx3, channel order R-G-B) in the same pixel space as the ROI and
+    seed point. OpenCV is REQUIRED: the appearance model converts patches
+    with ``cv2.COLOR_RGB2HSV`` (not BGR2HSV), and without OpenCV the HSV
+    half of the model would silently misinterpret RGB as HSV, so
+    construction/usage fails closed with a RuntimeError.
+
+    The seed (frame index, point) is supplied explicitly by a human reviewer
+    together with a hard native ROI. The appearance model — a color template
+    and mean HSV sampled once at the seed — is fixed for the whole track and
+    is never re-tuned from later frames. Each subsequent frame is searched
+    within the ROI around the predicted position for a compact blob whose
+    appearance matches the seed model; geometry (compactness, bounded
+    aspect, bounded step) and appearance must both agree. Any ambiguity —
+    more than one plausible match, appearance drift, motion beyond the
+    bound, or the ball leaving the ROI or vanishing — fails closed to an
+    explicit ``unavailable`` item. This is a research candidate tracker:
+    it never claims ground truth and is not production eligible.
+    """
+
+    def __init__(self, *, roi: Tuple[int, int, int, int],
+                 max_step_pixels: float = 24.0, max_gap_frames: int = 2,
+                 search_radius: float = 6.0, max_aspect_ratio: float = 3.0,
+                 min_pixels: int = 4, max_component_fraction: float = 0.02,
+                 appearance_tolerance: float = 0.35):
+        if np is None:
+            raise RuntimeError("numpy is required for the research ball adapter")
+        if cv2 is None:
+            raise RuntimeError(
+                "SeededBallTracker requires OpenCV for its HSV appearance model "
+                "(cv2.COLOR_RGB2HSV on RGB frames); install opencv-python-headless "
+                "instead of silently treating RGB values as pseudo-HSV"
+            )
+        region = self._clip_roi(roi)
+        if region is None:
+            raise ValueError("roi must be a non-degenerate (x1, y1, x2, y2) box")
+        if isinstance(max_step_pixels, bool) or not isinstance(max_step_pixels, (int, float)) \
+                or not math.isfinite(max_step_pixels) or max_step_pixels <= 0:
+            raise ValueError("max_step_pixels must be a finite positive number")
+        if isinstance(max_gap_frames, bool) or not isinstance(max_gap_frames, int) or max_gap_frames < 0:
+            raise ValueError("max_gap_frames must be a non-negative integer")
+        if not 0 < search_radius <= max_step_pixels or not max_aspect_ratio >= 1 \
+                or min_pixels < 1 or not 0 < max_component_fraction <= 1 \
+                or not 0 < appearance_tolerance <= 1:
+            raise ValueError("invalid tracker bounds")
+        self.roi = region
+        self.max_step_pixels = float(max_step_pixels)
+        self.max_gap_frames = int(max_gap_frames)
+        self.search_radius = float(search_radius)
+        self.max_aspect_ratio = float(max_aspect_ratio)
+        self.min_pixels = int(min_pixels)
+        self.max_component_fraction = float(max_component_fraction)
+        self.appearance_tolerance = float(appearance_tolerance)
+
+    @staticmethod
+    def _clip_roi(roi):
+        try:
+            x1, y1, x2, y2 = (int(round(float(v))) for v in roi)
+        except (TypeError, ValueError):
+            return None
+        return (x1, y1, x2, y2) if x2 > x1 and y2 > y1 else None
+
+    def track(self, frames, *, seed_frame_index: int,
+              seed_point: Point) -> SeededBallTrackResult:
+        images = [np.asarray(frame) for frame in frames]
+        if not images:
+            raise ValueError("at least one frame is required")
+        if not isinstance(seed_frame_index, int) or isinstance(seed_frame_index, bool) \
+                or not 0 <= seed_frame_index < len(images):
+            raise ValueError("seed_frame_index must be an index into frames")
+        seed_rgb = self._validate_image(images[seed_frame_index])
+        x, y = seed_point
+        if any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) for v in (x, y)):
+            raise ValueError("seed_point must be finite")
+        rx1, ry1, rx2, ry2 = self.roi
+        if not (rx1 <= x < rx2 and ry1 <= y < ry2 and 0 <= x < seed_rgb.shape[1] and 0 <= y < seed_rgb.shape[0]):
+            raise ValueError("seed_point must lie inside the required roi")
+        template = self._sample_appearance(seed_rgb, float(x), float(y))
+        seed_area = self._seed_area(seed_rgb, float(x), float(y), template)
+        template["seed_area"] = seed_area
+        items = [SeededBallTrackItem(seed_frame_index, (float(x), float(y)), 1.0, "seeded")]
+        previous = (float(x), float(y))
+        last_observed = seed_frame_index
+        longest_gap = 0
+        for index in range(seed_frame_index + 1, len(images)):
+            gap = index - last_observed - 1
+            longest_gap = max(longest_gap, gap)
+            if gap > self.max_gap_frames:
+                # Fail closed: never relink the seeded track across an
+                # occlusion longer than the configured bound.
+                items.append(SeededBallTrackItem(index, None, 0.0, "unavailable", ("occlusion_exceeded",)))
+                continue
+            rgb = self._validate_image(images[index])
+            match, reason = self._match(rgb, previous, template, frame_delta=index - last_observed)
+            if match is None:
+                warning = reason if reason in ("ambiguous",) else (
+                    "occlusion_exceeded" if index - last_observed - 1 > self.max_gap_frames
+                    else "appearance_or_motion_unavailable"
+                )
+                items.append(SeededBallTrackItem(index, None, 0.0, "unavailable", (warning,)))
+                continue
+            center, confidence = match
+            items.append(SeededBallTrackItem(index, center, confidence, "tracked"))
+            previous = center
+            last_observed = index
+        return SeededBallTrackResult("ball-seed-0", tuple(items), longest_gap)
+
+    def _sample_appearance(self, rgb, x: float, y: float) -> dict:
+        """Sample a fixed template once from the seed neighborhood."""
+        radius = 3
+        y0, y1 = max(0, int(y) - radius), min(rgb.shape[0], int(y) + radius + 1)
+        x0, x1 = max(0, int(x) - radius), min(rgb.shape[1], int(x) + radius + 1)
+        patch = rgb[y0:y1, x0:x1]
+        hsv = self._to_hsv(patch)
+        mask = np.ones(patch.shape[:2], dtype=bool)
+        return {
+            "template": patch,
+            "mean_rgb": patch.reshape(-1, 3).mean(axis=0),
+            "mean_hsv": hsv.reshape(-1, 3).mean(axis=0),
+            "mask": mask,
+        }
+
+    def _seed_area(self, rgb, x: float, y: float, template: dict) -> int:
+        """Measure the seeded object's apparent pixel area once, at seed time.
+
+        Flood-fills from the seed point under the same fixed appearance mask
+        used for candidate extraction (seed-HSV plus seed-RGB tolerance) so
+        the component-size cap can admit a ball-sized blob even when the
+        close-up ball exceeds a fixed ROI fraction. Bounded to avoid runaway
+        regions on pathological seeds.
+        """
+        rx1, ry1, rx2, ry2 = self.roi
+        x0 = max(rx1, 0, int(x) - 96)
+        x1 = min(rx2, rgb.shape[1], int(x) + 97)
+        y0 = max(ry1, 0, int(y) - 96)
+        y1 = min(ry2, rgb.shape[0], int(y) + 97)
+        region = rgb[y0:y1, x0:x1]
+        if region.size == 0:
+            return 0
+        color_distance = np.linalg.norm(
+            region - template["mean_rgb"].reshape(1, 1, 3), axis=2
+        ) / (math.sqrt(3) * 255.0)
+        region_hsv = self._to_hsv(region)
+        hue_delta = np.abs(region_hsv[..., 0] - template["mean_hsv"][0])
+        hue_delta = np.minimum(hue_delta, 180.0 - hue_delta)
+        mask = ((hue_delta <= 10.0) &
+                (np.abs(region_hsv[..., 1] - template["mean_hsv"][1]) <= 60.0) &
+                (color_distance <= self.appearance_tolerance))
+        if cv2 is None:  # pragma: no cover - constructor already fails closed
+            raise RuntimeError("SeededBallTracker requires OpenCV")
+        seed_y, seed_x = int(y) - y0, int(x) - x0
+        if not (0 <= seed_y < mask.shape[0] and 0 <= seed_x < mask.shape[1]) or not mask[seed_y, seed_x]:
+            return 0
+        count, labels, stats, centroids = cv2.connectedComponentsWithStats(
+            mask.astype(np.uint8), connectivity=8
+        )
+        label = int(labels[seed_y, seed_x])
+        return int(np.count_nonzero(labels == label)) if label > 0 else 0
+
+    def _match(self, rgb, previous: Point, template: dict,
+               frame_delta: int) -> Tuple[Optional[Tuple[Point, float]], Optional[str]]:
+        height, width = rgb.shape[:2]
+        step_limit = self.max_step_pixels * max(1, frame_delta)
+        rx1, ry1, rx2, ry2 = self.roi
+        cx, cy = previous
+        x0 = max(rx1, 0, int(cx - self.search_radius - step_limit))
+        x1 = min(rx2, width, int(cx + self.search_radius + step_limit) + 1)
+        y0 = max(ry1, 0, int(cy - self.search_radius - step_limit))
+        y1 = min(ry2, height, int(cy + self.search_radius + step_limit) + 1)
+        if x0 >= x1 or y0 >= y1:
+            return None, None
+        region = rgb[y0:y1, x0:x1]
+        template_rgb = template["mean_rgb"]
+        color_distance = np.linalg.norm(
+            region - template_rgb.reshape(1, 1, 3), axis=2
+        ) / (math.sqrt(3) * 255.0)
+        # Candidate component extraction in the fixed seed-HSV space rather
+        # than a per-pixel RGB color-distance mask. In the real-clip failure
+        # (pexels_6573644 frames 72-75) the ball RGB (121, 117, 39) is within
+        # the tolerance of sunlit grass RGB (95, 126, 62) (~0.08 << 0.35), so
+        # the old mask merged the ball into one background-sized component
+        # and every frame failed closed. Hue and saturation are the
+        # discriminative, illumination-robust channels (ball hue ~27-28 vs
+        # grass ~50 here); they remain the FIXED seed appearance model —
+        # sampled once at the seed, never re-tuned — so all fail-closed
+        # contracts (ambiguity, drift, bounds) are unchanged.
+        seed_hsv = template["mean_hsv"]
+        region_hsv = self._to_hsv(region)
+        hue_delta = np.abs(region_hsv[..., 0] - seed_hsv[0])
+        hue_delta = np.minimum(hue_delta, 180.0 - hue_delta)
+        hsv_mask = (hue_delta <= 10.0) & (np.abs(region_hsv[..., 1] - seed_hsv[1]) <= 60.0)
+        # Both masks must agree so a component never grows through a region
+        # that violates the fixed seed RGB template.
+        mask = hsv_mask & (color_distance <= self.appearance_tolerance)
+        # Size the component cap from the fixed ROI rather than the
+        # (motion-dependent) current search window, so the bound is stable
+        # frame to frame and does not silently reject a ball-sized blob.
+        # The cap must also admit the seeded ball itself: scale it from the
+        # seed-template neighborhood's apparent object size (sampled once at
+        # seed time), because a large close-up ball (real clip: ~12.5k px at
+        # 1920x1080) is a legitimate match that a fixed fraction of the ROI
+        # (850x300 -> 5101 px) would reject.
+        roi_area = (rx2 - rx1) * (ry2 - ry1)
+        seed_area = template["seed_area"]
+        max_pixels = max(self.min_pixels, int(roi_area * self.max_component_fraction) + 1,
+                         int(seed_area * 1.5) + 1)
+        matches = []
+        for points, comp_w, comp_h, centroid, area in ResearchBallTracker._components(mask):
+            pixel_count = area if area else len(points)
+            if pixel_count < self.min_pixels or pixel_count > max_pixels:
+                continue
+            if max(comp_w, comp_h) / max(1, min(comp_w, comp_h)) > self.max_aspect_ratio:
+                continue
+            if points:
+                ys = np.asarray([p[0] for p in points], dtype=int)
+                xs = np.asarray([p[1] for p in points], dtype=int)
+            else:
+                ys = np.asarray([int(centroid[1])])
+                xs = np.asarray([int(centroid[0])])
+            center = (float(xs.mean()) + x0, float(ys.mean()) + y0)
+            if math.hypot(center[0] - cx, center[1] - cy) > self.search_radius + step_limit:
+                continue
+            half = 2
+            by0, by1 = max(0, int(center[1]) - half), min(height, int(center[1]) + half + 1)
+            bx0, bx1 = max(0, int(center[0]) - half), min(width, int(center[0]) + half + 1)
+            patch = rgb[by0:by1, bx0:bx1]
+            if patch.size == 0:
+                continue
+            appearance = self._appearance_distance(patch, template)
+            if appearance > self.appearance_tolerance:
+                continue
+            compactness = min(1.0, pixel_count / 12.0)
+            confidence = compactness * (1.0 - appearance)
+            matches.append((center, float(min(1.0, confidence)), pixel_count))
+        if not matches:
+            return None, None
+        if len(matches) > 1 and seed_area > 0:
+            # Scale consistency: the seed defines not only appearance but the
+            # object's apparent size. Small grass-highlight specks match the
+            # seed appearance exactly but are orders of magnitude smaller
+            # than the seeded disc; keep only components within a fixed
+            # (0.5x..2.0x) seed-area band. This is a deterministic seed-model
+            # constraint, not a threshold loosening: if two ball-scale blobs
+            # remain, the track still fails closed as 'ambiguous'.
+            lower = max(self.min_pixels, seed_area // 2)
+            upper = max_pixels
+            matches = [m for m in matches if lower <= m[2] <= upper]
+        if not matches:
+            return None, None
+        if len(matches) > 1:
+            # Ambiguity: multiple plausible appearance-consistent blobs in the
+            # search window. Fail closed rather than guess.
+            return None, "ambiguous"
+        center, confidence, _area = matches[0]
+        return (center, confidence), None
+
+    def _appearance_distance(self, patch, template) -> float:
+        mean_rgb = patch.reshape(-1, 3).mean(axis=0)
+        rgb_distance = float(np.linalg.norm(mean_rgb - template["mean_rgb"]) / (math.sqrt(3) * 255.0))
+        hsv = self._to_hsv(patch)
+        hsv_distance = float(np.linalg.norm(hsv.reshape(-1, 3).mean(axis=0) - template["mean_hsv"]) / (math.sqrt(3) * 255.0))
+        return min(1.0, 0.5 * rgb_distance + 0.5 * hsv_distance)
+
+    @staticmethod
+    def _to_hsv(patch):
+        if cv2 is None:
+            # Unreachable when constructed normally (the constructor fails
+            # closed); kept as defense-in-depth against silent pseudo-HSV.
+            raise RuntimeError(
+                "SeededBallTracker requires OpenCV for its HSV appearance model "
+                "(cv2.COLOR_RGB2HSV on RGB frames)"
+            )
+        return cv2.cvtColor(patch.astype(np.uint8), cv2.COLOR_RGB2HSV).astype(np.float32)
+
+    @staticmethod
+    def _validate_image(image):
+        array = np.asarray(image)
+        if array.ndim != 3 or array.shape[2] != 3 or not np.issubdtype(array.dtype, np.number):
+            raise ValueError("frames must be HxWx3 numeric RGB arrays")
+        if not np.issubdtype(array.dtype, np.uint8):
+            # Fail closed: _to_hsv casts to uint8, so float frames (e.g. [0,1]
+            # normalized arrays) would silently collapse HSV values and corrupt
+            # the appearance model. All callers pass uint8 frames.
+            raise ValueError("frames must be uint8 RGB arrays; float frames would be silently collapsed by the uint8 HSV cast")
+        if array.shape[0] == 0 or array.shape[1] == 0:
+            raise ValueError("frames must have positive dimensions")
+        return array.astype(np.float32, copy=False)

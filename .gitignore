@@ -17,7 +17,8 @@ tmp/
 *.log
 .DS_Store
 
-# Downloaded media and generated media
+# Local research media inventory (keep downloaded clips and manifests out of Git)
+research_stock/
 *.mp4
 *.mov
 *.avi

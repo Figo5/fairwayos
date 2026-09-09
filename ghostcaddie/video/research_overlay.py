@@ -144,3 +144,86 @@ def build_research_ffmpeg_filter(items, *, fps: float, width: int, height: int,
                 f"drawbox=x={px-2:g}:y={py-2:g}:w=4:h=4:color=yellow@0.75:t=fill:{trail_enable}"
             )
     return ",".join(filters)
+
+
+def build_seeded_ball_overlay_filter(result, *, width: int, height: int,
+                                     radius: float = 8.0) -> str:
+    """Render a SeededBallTrackResult as a research-only candidate overlay.
+
+    Accepts ``SeededBallTrackResult`` outputs (provenance + per-frame state)
+    and draws only supported continuous candidate segments: a green marker
+    for the ``seeded`` frame, yellow markers for ``tracked`` frames, and a
+    red tick on ``unavailable`` frames. Trail dots are drawn only between
+    consecutive supported frames — gaps are never bridged.
+    """
+    if not isinstance(width, int) or isinstance(width, bool) or width <= 0:
+        raise ValueError("width must be a positive integer")
+    if not isinstance(height, int) or isinstance(height, bool) or height <= 0:
+        raise ValueError("height must be a positive integer")
+    if isinstance(radius, bool) or not isinstance(radius, (int, float)) \
+            or not math.isfinite(float(radius)) or radius <= 0:
+        raise ValueError("radius must be a finite positive number")
+    try:
+        items = result.items
+        provenance = result.provenance
+        production_eligible = result.production_eligible
+        ground_truth = result.ground_truth
+    except AttributeError as exc:
+        raise ValueError("result must be a SeededBallTrackResult") from exc
+    if provenance != "research_candidate":
+        raise ValueError("only research_candidate provenance is supported")
+    if production_eligible or ground_truth:
+        raise ValueError("research overlay requires production_eligible=False and ground_truth=False")
+    if not items:
+        raise ValueError("at least one track item is required")
+
+    supported_states = ("seeded", "tracked")
+    previous = None
+    normalized = []
+    unavailable_frames = []
+    for item in items:
+        frame = item.frame_index
+        if isinstance(frame, bool) or not isinstance(frame, int) or frame < 0:
+            raise ValueError("track item frame_index must be a non-negative integer")
+        if previous is not None and frame <= previous:
+            raise ValueError("track item frames must be strictly increasing")
+        previous = frame
+        if item.provenance == "unavailable":
+            if item.center is not None:
+                raise ValueError("unavailable items must carry no center")
+            unavailable_frames.append(frame)
+            continue
+        if item.provenance not in supported_states:
+            raise ValueError(f"unsupported track item provenance: {item.provenance!r}")
+        if item.center is None:
+            raise ValueError(f"{item.provenance} items require a center")
+        x, y = item.center
+        if any(isinstance(v, bool) or not isinstance(v, (int, float))
+               or not math.isfinite(float(v)) for v in (x, y)) \
+                or not (0 <= x < width and 0 <= y < height):
+            raise ValueError("track item center must be finite and inside image bounds")
+        normalized.append((frame, float(x), float(y)))
+
+    filters = [
+        f"drawbox=x=0:y=0:w={width}:h=4:color=yellow:t=fill",
+        f"drawbox=x=0:y={height-4}:w={width}:h=4:color=red:t=fill",
+    ]
+    for index, (frame, x, y) in enumerate(normalized):
+        is_seeded = items and any(
+            i.frame_index == frame and i.provenance == "seeded" for i in items)
+        color = "green" if is_seeded else "yellow"
+        enable = f"enable='eq(n\\,{frame})'"
+        filters.append(
+            f"drawbox=x={x-radius:g}:y={y-radius:g}:w={2*radius:g}:h={2*radius:g}:color={color}:t=2:{enable}"
+        )
+        if index:
+            pframe, px, py = normalized[index - 1]
+            if frame == pframe + 1:
+                filters.append(
+                    f"drawbox=x={px-2:g}:y={py-2:g}:w=4:h=4:color=yellow@0.75:t=fill:enable='gte(n\\,{frame})'"
+                )
+    for frame in unavailable_frames:
+        filters.append(
+            f"drawbox=x=0:y={height-12}:w=8:h=4:color=red:t=fill:enable='eq(n\\,{frame})'"
+        )
+    return ",".join(filters)

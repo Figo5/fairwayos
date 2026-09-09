@@ -29,8 +29,8 @@ class TestResearchSharedPath(unittest.TestCase):
         self.assertEqual(result[0].state, CandidateState.OBSERVED)
         self.assertTrue(all(item.state is CandidateState.UNAVAILABLE for item in result[1:]))
 
-    def test_supported_method_is_the_single_lucas_kanade_tracker(self):
-        self.assertEqual(SUPPORTED_METHODS, ("lk_point",))
+    def test_supported_methods_are_distinct_algorithms(self):
+        self.assertEqual(SUPPORTED_METHODS, ("lk_point", "region_template"))
 
     def test_rejects_alias_method_names_that_are_not_distinct_algorithms(self):
         import numpy as np
