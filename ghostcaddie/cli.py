@@ -218,6 +218,24 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     split_p.add_argument("--input", required=True, type=Path, help="Input golf-research-split.v1 JSON.")
     split_p.add_argument("--out", required=True, type=Path, help="Output path for canonical validated JSON.")
+    ball_p = sub.add_parser(
+        "research-ball-track",
+        help="Track a human-seeded ball candidate for research-only visual review; never runs analytics.",
+    )
+    ball_p.add_argument("--video", required=True, type=Path,
+                        help="Local video source; absolute paths are allowed and never serialized.")
+    ball_p.add_argument("--out", required=True, type=Path,
+                        help="Output directory for research-only artifacts.")
+    ball_p.add_argument("--start-frame", required=True, type=int,
+                        help="Source start frame index (inclusive, zero-based).")
+    ball_p.add_argument("--end-frame", required=True, type=int,
+                        help="Source end frame index (inclusive, zero-based).")
+    ball_p.add_argument("--seed-frame", required=True, type=int,
+                        help="Source frame index of the human seed.")
+    ball_p.add_argument("--seed-x", required=True, type=float, help="Seed point x in source pixels.")
+    ball_p.add_argument("--seed-y", required=True, type=float, help="Seed point y in source pixels.")
+    ball_p.add_argument("--roi", required=True, nargs=4, type=float, metavar=("X1", "Y1", "X2", "Y2"),
+                        help="Native ROI box in source pixels.")
     return parser
 
 
@@ -276,6 +294,10 @@ def main(argv=None) -> None:
         _run_research_split_validate_command(args)
         return
 
+    if args.command == "research-ball-track":
+        _run_research_ball_track_command(args)
+        return
+
     config = Config.default()
     if args.seed is not None:
         config = replace(config, simulation=replace(config.simulation, random_seed=args.seed))
@@ -315,6 +337,20 @@ def _run_research_split_validate_command(args) -> None:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(serialize_split_manifest(payload) + "\n")
     print(f"Validated frozen research split manifest to {args.out}")
+
+
+def _run_research_ball_track_command(args) -> None:
+    from .video.research_ball_track import run_research_ball_track
+
+    try:
+        run_research_ball_track(
+            str(args.video), str(args.out),
+            start_frame=args.start_frame, end_frame=args.end_frame,
+            seed_frame=args.seed_frame, seed_x=args.seed_x, seed_y=args.seed_y,
+            roi=tuple(args.roi))
+    except (ValueError, RuntimeError) as exc:
+        raise SystemExit(f"research-ball-track: error: {exc}") from exc
+    print(f"Wrote research-only seeded ball track artifacts to {args.out}")
 
 
 def _run_provider_session_command(args) -> None:
