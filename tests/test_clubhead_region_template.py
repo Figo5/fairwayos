@@ -30,7 +30,7 @@ def _patch(frame, x, y, size=28):
 
 class TestRegionTemplateRedetection(unittest.TestCase):
     def test_region_template_is_a_registered_distinct_method(self):
-        self.assertEqual(SUPPORTED_METHODS, ("lk_point", "region_template"))
+        self.assertEqual(SUPPORTED_METHODS, ("lk_point", "region_template", "reacquire_color"))
 
     @unittest.skipUnless(_HAS_CV2, "requires optional OpenCV research dependency")
     def test_region_template_retracks_moving_patch_from_seed(self):

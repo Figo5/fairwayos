@@ -47,10 +47,11 @@ class ClubheadMethodComparison:
 def _unavailable(method, frame, warning):
     return ClubheadCandidate(method, frame, None, CandidateState.UNAVAILABLE, 0.0, warning)
 
-# Two supported, genuinely distinct algorithms: Lucas-Kanade point tracking with
-# forward/backward flow consistency, and region/template appearance re-detection.
+# Three supported, genuinely distinct algorithms: Lucas-Kanade point tracking
+# with forward/backward flow consistency, region/template appearance re-detection,
+# and color/gradient reacquisition with an explicit motion prior and re-lock.
 # Alias names must not be presented as distinct algorithms.
-SUPPORTED_METHODS = ("lk_point", "region_template")
+SUPPORTED_METHODS = ("lk_point", "region_template", "reacquire_color")
 
 _UNSET = object()
 
@@ -99,9 +100,90 @@ def _region_template_track(frames, seed_frame, seed_point, *,
         x, y = float(cx), float(cy)
     return out
 
+def _reacquire_color_track(frames, seed_frame, seed_point, *,
+                           dark_threshold=90, min_mass_px=250, max_mass_px=600000,
+                           search_radius_px=80, min_motion_px=2.0,
+                           max_step_px=160.0, reacquire_radius_px=260.0):
+    """Color/structural reacquisition with an explicit motion prior.
+
+    Segments a DARK iron clubhead on each frame, keeps the largest round-ish dark
+    mass within a fixed search radius of the previous position, and enforces a
+    MINIMUM per-frame displacement so a frozen static object (the failure mode of
+    dark_blob) cannot masquerade as the head. If no convincing candidate is found
+    (either out of the tight window, below the minimum, or ambiguous), it RE-SEARCHES
+    a wider ``reacquire_radius_px`` window; if that also fails it fails closed for
+    that frame rather than guessing, and retries the next frame (no permanent death).
+    """
+    import cv2
+    import numpy as np
+    method = "reacquire_color"
+    out = [_unavailable(method, i, "before_seed") for i in range(seed_frame)]
+    x, y = float(seed_point[0]), float(seed_point[1])
+    out.append(ClubheadCandidate(method, seed_frame, (x, y), CandidateState.OBSERVED, 1.0))
+    h, w = frames[0].shape[:2]
+
+    def _top_dark_candidate(bgr, cx, cy, radius):
+        x0 = max(0, int(cx - radius)); x1 = min(w, int(cx + radius) + 1)
+        y0 = max(0, int(cy - radius)); y1 = min(h, int(cy + radius) + 1)
+        win = bgr[y0:y1, x0:x1]
+        v = cv2.cvtColor(win, cv2.COLOR_BGR2HSV)[..., 2]
+        dark = ((v < dark_threshold) & (v > 10)).astype(np.uint8) * 255
+        dark = cv2.morphologyEx(dark, cv2.MORPH_OPEN, np.ones((5,5),np.uint8))
+        cnts, _ = cv2.findContours(dark, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not cnts:
+            return None, radius
+        # keep dark masses in a plausible head-size band and reasonably round
+        cands = []
+        for c in cnts:
+            area = cv2.contourArea(c)
+            if not (min_mass_px <= area <= max_mass_px):
+                continue
+            per = cv2.arcLength(c, True)
+            circ = (4*np.pi*area)/(per*per) if per > 0 else 0
+            if circ < 0.3:
+                continue
+            M = cv2.moments(c)
+            if M["m00"] > 0:
+                cands.append((x0+M["m10"]/M["m00"], y0+M["m01"]/M["m00"], area, circ))
+        if not cands:
+            return None, radius
+        cands.sort(key=lambda t: -t[2])
+        return cands[0], radius
+
+    for i in range(seed_frame + 1, len(frames)):
+        bgr = frames[i]
+        cand = _top_dark_candidate(bgr, x, y, search_radius_px)[0]
+        reacquired = False
+        if cand is None:
+            # try wider reacquisition window around the last known head point
+            cand = _top_dark_candidate(bgr, x, y, reacquire_radius_px)[0]
+            reacquired = True
+        if cand is None:
+            # genuinely absent this frame -> fail closed, retry next frame
+            out.append(ClubheadCandidate(method, i, None, CandidateState.UNAVAILABLE, 0.0, "no_dark_mass"))
+            continue
+        ccx, ccy, area, circ = cand
+        step = math.hypot(ccx - x, ccy - y)
+        # motion gate + reject a static locked blob (zero real displacement)
+        # only when we were NOT widening the search for reacquisition
+        if step > max_step_px:
+            out.append(ClubheadCandidate(method, i, None, CandidateState.UNAVAILABLE, 0.0, "motion_exceeded"))
+            x, y = ccx, ccy  # move the prior toward it but don't emit
+            continue
+        if (not reacquired) and step < min_motion_px and i > seed_frame + 1:
+            # a candidate that barely moves when the head should is a static lock
+            out.append(ClubheadCandidate(method, i, None, CandidateState.UNAVAILABLE, 0.0, "static_locked"))
+            continue
+        conf = max(0.0, min(1.0, 0.4 + 0.6 * circ))
+        out.append(ClubheadCandidate(method, i, (float(ccx), float(ccy)), CandidateState.OBSERVED, conf))
+        x, y = float(ccx), float(ccy)
+    return out
+
+
 def track_candidate(method, frames, seed_frame, seed_point, *, max_step=55.0, max_backward_error_pixels=3.0,
                     match_threshold=_UNSET, max_search_radius_px=_UNSET, template_size_px=_UNSET,
-                    ambiguity_margin=_UNSET):
+                    ambiguity_margin=_UNSET, dark_threshold=_UNSET, min_motion_px=_UNSET,
+                    max_step_px=_UNSET, reacquire_radius_px=_UNSET):
     """Bounded clubhead candidate tracking.
 
     ``lk_point``: Lucas-Kanade with forward/backward flow consistency; no
@@ -152,6 +234,19 @@ def track_candidate(method, frames, seed_frame, seed_point, *, max_step=55.0, ma
             if isinstance(v, bool) or not isinstance(v, int) or v <= 0:
                 raise ValueError(f"{name} must be a positive integer")
         return _region_template_track(frames, seed_frame, seed_point, **resolved)
+    if method == "reacquire_color":
+        rc = {
+            "dark_threshold": 90 if dark_threshold is _UNSET else dark_threshold,
+            "min_motion_px": 2.0 if min_motion_px is _UNSET else min_motion_px,
+            "max_step_px": 160.0 if max_step_px is _UNSET else max_step_px,
+            "reacquire_radius_px": 260.0 if reacquire_radius_px is _UNSET else reacquire_radius_px,
+        }
+        for name, v in rc.items():
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v <= 0:
+                raise ValueError(f"{name} must be a finite positive number")
+        if rc["max_step_px"] <= rc["min_motion_px"]:
+            raise ValueError("max_step_px must exceed min_motion_px")
+        return _reacquire_color_track(frames, seed_frame, seed_point, **rc)
     out=[_unavailable(method,i,"before_seed") for i in range(seed_frame)]
     out.append(ClubheadCandidate(method,seed_frame,(float(x),float(y)),CandidateState.OBSERVED,1.0))
     prev=cv2.cvtColor(frames[seed_frame],cv2.COLOR_BGR2GRAY); p=np.array([[[x,y]]],np.float32)
