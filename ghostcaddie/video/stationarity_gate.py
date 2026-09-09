@@ -10,9 +10,10 @@ sustained interval, whereas a real clubhead in these clips keeps moving. When
 inter-frame box-center displacement stays < ``stationary_max_disp_px`` for a
 sustained ``>= stationary_min_duration_s`` of CLIP TIME (fps-aware), the row is
 treated as a wrong-object false lock: emit state=unavailable with warning
-stationary_false_lock, reset the static counter immediately (so it does not
-suppress later real frames), and keep the rows that follow (the tracker is
-still allowed to reacquire).
+stationary_false_lock, keep rejecting subsequent rows while the lock stays
+static, and stop rejecting only once the box moves >= ``stationary_max_disp_px``
+or a gap/non-consecutive frame appears (which resets the lock). The tracker is
+still allowed to reacquire after the lock clears.
 
 This is explicitly NOT a scene/coordinate/floor ban and NOT an NCC raise. The
 frozen thresholds are 8 px and 0.2 s, predeclared, not tuned after results.
