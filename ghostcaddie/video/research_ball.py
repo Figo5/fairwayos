@@ -481,7 +481,7 @@ class SeededBallTracker:
     """
 
     def __init__(self, *, roi: Tuple[int, int, int, int],
-                 max_step_pixels: float = 24.0, max_gap_frames: int = 2,
+                 max_step_pixels: float = 60.0, max_gap_frames: int = 2,
                  search_radius: float = 6.0, max_aspect_ratio: float = 3.0,
                  min_pixels: int = 4, max_component_fraction: float = 0.02,
                  appearance_tolerance: float = 0.35):
