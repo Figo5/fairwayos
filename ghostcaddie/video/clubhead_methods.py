@@ -103,7 +103,13 @@ def _region_template_track(frames, seed_frame, seed_point, *,
 def _reacquire_color_track(frames, seed_frame, seed_point, *,
                            dark_threshold=90, min_mass_px=250, max_mass_px=600000,
                            search_radius_px=80, min_motion_px=2.0,
-                           max_step_px=160.0, reacquire_radius_px=260.0):
+                           max_step_px=160.0, reacquire_radius_px=260.0,
+                           relock_stagnation_frames=3, relock_radius_px=560.0,
+                           relock_specular_px=150.0, relock_sid_dark_frac=0.45,
+                           relock_sid_kernel_px=31, relock_min_spec_area_px=100,
+                           relock_max_spec_area_px=2500, relock_max_aspect=6.0,
+                           relock_upward_margin_px=40.0, relock_bottom_band_frac=0.68,
+                           relock_min_dark_frac=0.55, ambient_dark_fill_frac=0.9):
     """Color/structural reacquisition with an explicit motion prior.
 
     Segments a DARK iron clubhead on each frame, keeps the largest round-ish dark
@@ -113,6 +119,23 @@ def _reacquire_color_track(frames, seed_frame, seed_point, *,
     (either out of the tight window, below the minimum, or ambiguous), it RE-SEARCHES
     a wider ``reacquire_radius_px`` window; if that also fails it fails closed for
     that frame rather than guessing, and retries the next frame (no permanent death).
+
+    Metal-appearance / upward-path relock: after ``relock_stagnation_frames``
+    consecutive non-emitted frames (static lock on flat-dark ground/shoe junk,
+    lost mass, or motion rejection), the tracker stops trusting dark-blob
+    geometry and looks for SPECULAR-IN-DARK clusters — small bright highlights
+    fully enclosed by dark pixels — inside ``relock_radius_px`` of the stuck
+    prior. Glossy metal heads carry these highlights; matte flat-dark ground,
+    shadow and shoe masses do not, so they are rejected outright. Clusters must
+    be a plausible highlight size (``relock_min_spec_area_px`` ..
+    ``relock_max_spec_area_px``), not an elongated sliver
+    (``relock_max_aspect``), never inside the bottom ground band
+    (``relock_bottom_band_frac`` of the frame height — unconditional ban, the
+    head never relocks there), and — when the stagnation anchor itself sits in
+    the bottom band — must sit ABOVE the anchor by ``relock_upward_margin_px``
+    (the head travels up and away from ground junk in this failure mode). The
+    most upward qualifying cluster is emitted with warning ``metal_relock``. If
+    no cluster qualifies the frame fails closed UNAVAILABLE as before.
     """
     import cv2
     import numpy as np
@@ -150,6 +173,91 @@ def _reacquire_color_track(frames, seed_frame, seed_point, *,
         cands.sort(key=lambda t: -t[2])
         return cands[0], radius
 
+    relock_stagnation = 0
+    anchor_x, anchor_y = float(seed_point[0]), float(seed_point[1])
+
+    def _metal_relock_candidate(bgr, cx, cy, ax, ay):
+        """Specular-in-dark relock: find glossy-metal highlight clusters near a
+        stuck prior and return the most upward one, else None.
+
+        A SID pixel is bright (v >= relock_specular_px) whose local neighbourhood
+        is mostly dark (mean dark fraction over ``relock_sid_kernel_px`` >=
+        ``relock_sid_dark_frac``) — i.e. a highlight ENCLOSED by dark metal, not
+        a bright blob on turf/sky. Matte flat-dark ground/shoe masses have no
+        such highlights, so this rejects exactly the false-lock material. The
+        upward-path gate is evaluated against the stagnation anchor (ax, ay).
+        """
+        x0 = max(0, int(cx - relock_radius_px)); x1 = min(w, int(cx + relock_radius_px) + 1)
+        y0 = max(0, int(cy - relock_radius_px)); y1 = min(h, int(cy + relock_radius_px) + 1)
+        win = bgr[y0:y1, x0:x1]
+        if win.size == 0:
+            return None
+        v = cv2.cvtColor(win, cv2.COLOR_BGR2HSV)[..., 2].astype(np.float32)
+        darkm = (v < dark_threshold).astype(np.float32)
+        ksum = cv2.boxFilter(darkm, -1, (int(relock_sid_kernel_px), int(relock_sid_kernel_px)), normalize=True)
+        sid = ((v >= relock_specular_px) & (ksum >= relock_sid_dark_frac)).astype(np.uint8) * 255
+        sid = cv2.morphologyEx(sid, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+        n, _labels, stats, cents = cv2.connectedComponentsWithStats(sid, 8)
+        band_y = h * relock_bottom_band_frac
+        best = None
+        for k in range(1, n):
+            area = int(stats[k, cv2.CC_STAT_AREA])
+            if not (relock_min_spec_area_px <= area <= relock_max_spec_area_px):
+                continue
+            bw_ = int(stats[k, cv2.CC_STAT_WIDTH]); bh_ = int(stats[k, cv2.CC_STAT_HEIGHT])
+            aspect = max(bw_, bh_) / max(1, min(bw_, bh_))
+            if aspect > relock_max_aspect:
+                continue
+            # enclosure gate: a true metal highlight sits ON dark metal — the
+            # expanded box around it must be majority-dark. Bright objects
+            # (ball against trees, sky gaps) leave a mostly-bright box.
+            bx0 = max(0, int(stats[k, cv2.CC_STAT_LEFT]) - int(relock_sid_kernel_px) // 2)
+            bx1 = min(win.shape[1], int(stats[k, cv2.CC_STAT_LEFT]) + bw_ + int(relock_sid_kernel_px) // 2)
+            by0 = max(0, int(stats[k, cv2.CC_STAT_TOP]) - int(relock_sid_kernel_px) // 2)
+            by1 = min(win.shape[0], int(stats[k, cv2.CC_STAT_TOP]) + bh_ + int(relock_sid_kernel_px) // 2)
+            boxv = v[by0:by1, bx0:bx1]
+            if float((boxv < dark_threshold).mean()) < relock_min_dark_frac:
+                continue
+            sx, sy = x0 + float(cents[k][0]), y0 + float(cents[k][1])
+            # unconditional bottom-band ban: the head never relocks inside the
+            # flat-dark ground/shoe band, glossy or not
+            if sy >= band_y:
+                continue
+            # upward-path gate: when the anchor sits LOW (ground-stuck regime)
+            # the relock must sit clearly ABOVE it; ball/tee/same-height decoys
+            # do not. When the anchor is already in the upper region there is no
+            # upward head left to find, so accept any in-band metal cluster and
+            # let the descending head re-lock (corner-stuck regime).
+            if ay >= band_y and ay - sy < relock_upward_margin_px:
+                continue
+            if best is None or sy < best[1]:
+                best = (sx, sy, area, aspect)
+        return best
+
+    def _try_metal_relock(bgr, i, why):
+        """Attempt a specular-in-dark relock once stagnation has persisted.
+
+        The upward gate is evaluated against the stagnation ANCHOR (the last
+        point before the stuck episode), not the drifted prior, so repeated
+        relock attempts cannot walk the reference downward frame by frame.
+        Returns True when a metal relock was emitted; False otherwise (the
+        caller then appends its own UNAVAILABLE entry — this function must not
+        append on failure, or frames get duplicated).
+        """
+        nonlocal x, y, relock_stagnation
+        if relock_stagnation < relock_stagnation_frames:
+            return False
+        metal = _metal_relock_candidate(bgr, x, y, anchor_x, anchor_y)
+        if metal is None:
+            return False
+        mcx, mcy, marea, maspect = metal
+        conf = max(0.0, min(1.0, 0.35 + 0.15 * math.log10(marea)))
+        out.append(ClubheadCandidate(method, i, (float(mcx), float(mcy)),
+                                     CandidateState.OBSERVED, conf, "metal_relock"))
+        x, y = float(mcx), float(mcy)
+        relock_stagnation = 0
+        return True
+
     for i in range(seed_frame + 1, len(frames)):
         bgr = frames[i]
         cand = _top_dark_candidate(bgr, x, y, search_radius_px)[0]
@@ -159,21 +267,49 @@ def _reacquire_color_track(frames, seed_frame, seed_point, *,
             cand = _top_dark_candidate(bgr, x, y, reacquire_radius_px)[0]
             reacquired = True
         if cand is None:
+            relock_stagnation += 1
+            if _try_metal_relock(bgr, i, "no_dark_mass"):
+                continue
             # genuinely absent this frame -> fail closed, retry next frame
             out.append(ClubheadCandidate(method, i, None, CandidateState.UNAVAILABLE, 0.0, "no_dark_mass"))
             continue
         ccx, ccy, area, circ = cand
+        # ambient-darkness rejection: when the WIDE window is nearly all dark
+        # (dark trees/night background), every "candidate" is a window-clipped
+        # square of background, not a head (head+turf dark fill is ~15%)
+        wx0 = max(0, int(x - reacquire_radius_px)); wx1 = min(w, int(x + reacquire_radius_px) + 1)
+        wy0 = max(0, int(y - reacquire_radius_px)); wy1 = min(h, int(y + reacquire_radius_px) + 1)
+        wv = cv2.cvtColor(bgr[wy0:wy1, wx0:wx1], cv2.COLOR_BGR2HSV)[..., 2]
+        dark_fill = float((wv < dark_threshold).mean())
+        if dark_fill >= ambient_dark_fill_frac:
+            relock_stagnation += 1
+            if _try_metal_relock(bgr, i, "ambient_dark"):
+                continue
+            out.append(ClubheadCandidate(method, i, None, CandidateState.UNAVAILABLE, 0.0, "ambient_dark"))
+            continue
         step = math.hypot(ccx - x, ccy - y)
         # motion gate + reject a static locked blob (zero real displacement)
         # only when we were NOT widening the search for reacquisition
         if step > max_step_px:
+            # Never advance the prior onto an unverified candidate: stepping the
+            # reference toward matte junk lets it pass the tight-window test on
+            # the next frame (the frames-193-200 false-lock mechanism). Stay put,
+            # count stagnation, and let the metal relock (or fail-closed) decide.
+            relock_stagnation += 1
+            if _try_metal_relock(bgr, i, "motion_exceeded"):
+                continue
             out.append(ClubheadCandidate(method, i, None, CandidateState.UNAVAILABLE, 0.0, "motion_exceeded"))
-            x, y = ccx, ccy  # move the prior toward it but don't emit
             continue
         if (not reacquired) and step < min_motion_px and i > seed_frame + 1:
-            # a candidate that barely moves when the head should is a static lock
+            # a candidate that barely moves when the head should is a static lock;
+            # after relock_stagnation_frames such frames, try the metal relock
+            relock_stagnation += 1
+            if _try_metal_relock(bgr, i, "static_locked"):
+                continue
             out.append(ClubheadCandidate(method, i, None, CandidateState.UNAVAILABLE, 0.0, "static_locked"))
             continue
+        relock_stagnation = 0
+        anchor_x, anchor_y = float(ccx), float(ccy)
         conf = max(0.0, min(1.0, 0.4 + 0.6 * circ))
         out.append(ClubheadCandidate(method, i, (float(ccx), float(ccy)), CandidateState.OBSERVED, conf))
         x, y = float(ccx), float(ccy)
@@ -183,7 +319,12 @@ def _reacquire_color_track(frames, seed_frame, seed_point, *,
 def track_candidate(method, frames, seed_frame, seed_point, *, max_step=55.0, max_backward_error_pixels=3.0,
                     match_threshold=_UNSET, max_search_radius_px=_UNSET, template_size_px=_UNSET,
                     ambiguity_margin=_UNSET, dark_threshold=_UNSET, min_motion_px=_UNSET,
-                    max_step_px=_UNSET, reacquire_radius_px=_UNSET):
+                    max_step_px=_UNSET, reacquire_radius_px=_UNSET, relock_stagnation_frames=_UNSET,
+                    relock_radius_px=_UNSET, relock_specular_px=_UNSET, relock_sid_dark_frac=_UNSET,
+                    relock_sid_kernel_px=_UNSET, relock_min_spec_area_px=_UNSET,
+                    relock_max_spec_area_px=_UNSET, relock_max_aspect=_UNSET,
+                    relock_upward_margin_px=_UNSET, relock_bottom_band_frac=_UNSET,
+                    relock_min_dark_frac=_UNSET, ambient_dark_fill_frac=_UNSET):
     """Bounded clubhead candidate tracking.
 
     ``lk_point``: Lucas-Kanade with forward/backward flow consistency; no
@@ -240,12 +381,34 @@ def track_candidate(method, frames, seed_frame, seed_point, *, max_step=55.0, ma
             "min_motion_px": 2.0 if min_motion_px is _UNSET else min_motion_px,
             "max_step_px": 160.0 if max_step_px is _UNSET else max_step_px,
             "reacquire_radius_px": 260.0 if reacquire_radius_px is _UNSET else reacquire_radius_px,
+            "relock_stagnation_frames": 3 if relock_stagnation_frames is _UNSET else relock_stagnation_frames,
+            "relock_radius_px": 560.0 if relock_radius_px is _UNSET else relock_radius_px,
+            "relock_specular_px": 150.0 if relock_specular_px is _UNSET else relock_specular_px,
+            "relock_sid_dark_frac": 0.45 if relock_sid_dark_frac is _UNSET else relock_sid_dark_frac,
+            "relock_sid_kernel_px": 31 if relock_sid_kernel_px is _UNSET else relock_sid_kernel_px,
+            "relock_min_spec_area_px": 100 if relock_min_spec_area_px is _UNSET else relock_min_spec_area_px,
+            "relock_max_spec_area_px": 2500 if relock_max_spec_area_px is _UNSET else relock_max_spec_area_px,
+            "relock_max_aspect": 6.0 if relock_max_aspect is _UNSET else relock_max_aspect,
+            "relock_upward_margin_px": 40.0 if relock_upward_margin_px is _UNSET else relock_upward_margin_px,
+            "relock_bottom_band_frac": 0.68 if relock_bottom_band_frac is _UNSET else relock_bottom_band_frac,
+            "relock_min_dark_frac": 0.55 if relock_min_dark_frac is _UNSET else relock_min_dark_frac,
+            "ambient_dark_fill_frac": 0.9 if ambient_dark_fill_frac is _UNSET else ambient_dark_fill_frac,
         }
         for name, v in rc.items():
             if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v <= 0:
                 raise ValueError(f"{name} must be a finite positive number")
         if rc["max_step_px"] <= rc["min_motion_px"]:
             raise ValueError("max_step_px must exceed min_motion_px")
+        if rc["relock_sid_dark_frac"] >= 1.0:
+            raise ValueError("relock_sid_dark_frac must be below 1.0")
+        if rc["relock_max_aspect"] < 1.0:
+            raise ValueError("relock_max_aspect must be at least 1.0")
+        if rc["relock_min_spec_area_px"] > rc["relock_max_spec_area_px"]:
+            raise ValueError("relock_min_spec_area_px must not exceed relock_max_spec_area_px")
+        if rc["relock_bottom_band_frac"] >= 1.0:
+            raise ValueError("relock_bottom_band_frac must be below 1.0")
+        if rc["relock_min_dark_frac"] >= 1.0:
+            raise ValueError("relock_min_dark_frac must be below 1.0")
         return _reacquire_color_track(frames, seed_frame, seed_point, **rc)
     out=[_unavailable(method,i,"before_seed") for i in range(seed_frame)]
     out.append(ClubheadCandidate(method,seed_frame,(float(x),float(y)),CandidateState.OBSERVED,1.0))
