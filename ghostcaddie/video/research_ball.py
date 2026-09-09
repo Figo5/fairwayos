@@ -749,15 +749,27 @@ class SeededBallTracker:
         return array.astype(np.float32, copy=False)
 
 
-def _round_blob_centers(frame, roi, *, min_area=60, min_circularity=0.5):
-    """Return [(cx, cy, area, circularity)] of yellow round-ish blobs in a
-    uint8 BGR frame within the ROI (as decoded by cv2.VideoCapture)."""
+def _round_blob_centers(frame, roi, *, min_area=60, min_circularity=0.5,
+                        ball_color: str = "yellow"):
+    """Return [(cx, cy, area, circularity)] of round-ish ball-color blobs in a
+    uint8 BGR frame within the ROI (as decoded by cv2.VideoCapture).
+
+    ``ball_color`` is ``"yellow"`` (classic optic-yellow ball) or ``"white"``
+    (standard golf ball). White must be discriminated from the bright tee and
+    highlight glare, so it uses a high-value, low-saturation mask plus roundness
+    and compact size.
+    """
     if cv2 is None:
         raise RuntimeError("OpenCV required")
+    if ball_color not in ("yellow", "white"):
+        raise ValueError(f"unsupported ball_color {ball_color!r}")
     x0, y0, x1, y1 = roi
     img = frame[y0:y1, x0:x1]
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    mask = cv2.inRange(hsv, (15, 90, 90), (42, 255, 255))
+    if ball_color == "yellow":
+        mask = cv2.inRange(hsv, (15, 90, 90), (42, 255, 255))
+    else:  # white: high value, low saturation
+        mask = cv2.inRange(hsv, (0, 0, 200), (180, 60, 255))
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
     cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     out = []
@@ -775,18 +787,21 @@ def _round_blob_centers(frame, roi, *, min_area=60, min_circularity=0.5):
     return out
 
 
-def find_static_ball(frames, *, roi, min_persistent_frames=3, tolerance_px=6.0):
+def find_static_ball(frames, *, roi, min_persistent_frames=3, tolerance_px=6.0,
+                     ball_color: str = "yellow"):
     """Deterministically locate a static ball by round-blob persistence.
 
-    A real at-rest ball appears as a small, round, sharply-edged yellow blob in
-    the SAME position across several consecutive frames; background/grass masses
-    are non-circular or transient. Returns the mean center of the largest
-    persistent round blob, or None when no defensible candidate exists.
+    A real at-rest ball appears as a small, round, sharply-edged blob of the
+    ball's color in the SAME position across several consecutive frames;
+    background/grass masses are non-circular or transient. Returns the mean
+    center of the largest persistent round blob, or None when no defensible
+    candidate exists.
 
     This is a RESEARCH-CANDIDATE seed locator, not a detection claim: it returns
     a candidate center that an AI/human reviewer must confirm before tracking.
     Args: frames are uint8 BGR arrays (as decoded by cv2.VideoCapture); roi is
-    (x1,y1,x2,y2). Returns (cx, cy) or None.
+    (x1,y1,x2,y2). ``ball_color`` is ``"yellow"`` or ``"white"``.
+    Returns (cx, cy) or None.
     """
     if cv2 is None:
         raise RuntimeError("OpenCV required")
@@ -798,14 +813,16 @@ def find_static_ball(frames, *, roi, min_persistent_frames=3, tolerance_px=6.0):
         raise ValueError("roi must be a non-degenerate (x1,y1,x2,y2) box")
     if min_persistent_frames < 1:
         raise ValueError("min_persistent_frames must be >= 1")
+    if ball_color not in ("yellow", "white"):
+        raise ValueError(f"unsupported ball_color {ball_color!r}")
 
     per_frame = []
     for f in frames:
-        blobs = _round_blob_centers(f, region)
+        blobs = _round_blob_centers(f, region, ball_color=ball_color)
         if not blobs:
             per_frame.append(None)
             continue
-        blobs.sort(key=lambda t: -t[2])
+        blobs.sort(key=lambda t: -t[2])  # largest
         per_frame.append((blobs[0][0], blobs[0][1]))
 
     best = None
