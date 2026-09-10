@@ -19,4 +19,16 @@ ghostcaddie pga-research-demo --video ./swing.mp4 --out ./out \
   --max-duration 8 --sample-fps 4 --max-frames 32
 ```
 
+## Model route provenance
+
+`provenance.json` records `model_route` as observed runtime facts, not a fixed
+string: the interpreter, the library versions actually imported, and each local
+weights file actually resolved (relative path + SHA-256 + `loaded`/`unavailable`
+state). `remote_models` is always empty because the analyzer performs no network
+calls. `report.md` renders this same payload rather than repeating it.
+
+Authorship of the source code is recorded in git history. An artifact's
+provenance must never credit a coordinator or implementation model that did not
+execute for that artifact.
+
 Media and generated artifacts are local outputs and must not be committed.

@@ -172,7 +172,7 @@ def run(args: argparse.Namespace) -> dict:
             "crop": crop,
             **RESEARCH_FLAGS,
         }
-        _write_minimal(args, diag_min, mode="unavailable")
+        _write_minimal(args, diag_min, mode="unavailable", pose_model_path=pose_path)
         return {"status": "unavailable", "reason": "insufficient_resolution"}
 
     crops = [frames[f][crop["y"]:crop["y"] + crop["h"], crop["x"]:crop["x"] + crop["w"]].copy()
@@ -249,7 +249,7 @@ def run(args: argparse.Namespace) -> dict:
             "flags": {"split_screen": split_info},
             **RESEARCH_FLAGS,
         }
-        _write_minimal(args, diag, mode="unavailable")
+        _write_minimal(args, diag, mode="unavailable", pose_model_path=pose_path)
         return {"status": "unavailable", "reason": diag["reason"]}
 
     # ---- trackers ----
@@ -362,6 +362,7 @@ def run(args: argparse.Namespace) -> dict:
     prov = build_provenance(
         args.input, os.path.relpath(args.output_dir), modes,
         assist_json=args.assist_json,
+        pose_model_path=pose_path,
         extra={
             "source_sha256": sha.hexdigest(),
             "source_frames_total": src_w,
@@ -422,18 +423,46 @@ def _resolve_club_seed(seed_arg, assist, source_frames):
     return None  # conservative: no guessing for club seed in automatic mode
 
 
-def _write_minimal(args, diag, mode="unavailable"):
+def _write_minimal(args, diag, mode="unavailable", pose_model_path=None):
     with open(os.path.join(args.output_dir, "diagnostics.json"), "w") as fh:
         json.dump(diag, fh, indent=1)
     prov = build_provenance(args.input, os.path.relpath(args.output_dir),
                             modes={"pose": "unavailable", "ball": "unavailable",
                                    "clubhead": "unavailable", "crop": "unresolved"},
                             assist_json=args.assist_json,
+                            pose_model_path=pose_model_path,
                             extra={"status": "unavailable", "reason": diag.get("reason")})
     with open(os.path.join(args.output_dir, "provenance.json"), "w") as fh:
         json.dump(prov, fh, indent=1)
     with open(os.path.join(args.output_dir, "report.md"), "w") as fh:
         fh.write(_build_report(diag, prov, args, [], [], unavailable=True))
+
+
+def _render_model_route(prov) -> List[str]:
+    """Render the model route from the provenance payload (no second source)."""
+    route = prov.get("model_route")
+    if not isinstance(route, dict):
+        return [f"- {route}"]
+    rt = route.get("runtime", {})
+    libs = route.get("libraries", {})
+    out = [
+        f"- Runtime: python {rt.get('python')} on {rt.get('platform')}",
+        "- Libraries actually imported: "
+        + (", ".join(f"{k} {v}" for k, v in sorted(libs.items())) or "none recorded"),
+    ]
+    for m in route.get("local_models", []):
+        if m.get("exists"):
+            out.append(f"- Local model ({m.get('role')}): `{m.get('path')}` "
+                       f"sha256 `{m.get('sha256')}` [{m.get('state')}]")
+        else:
+            out.append(f"- Local model ({m.get('role')}): unavailable "
+                       f"(no path recorded, no hash)")
+    remote = route.get("remote_models") or []
+    out.append("- Remote models: "
+               + (", ".join(str(r) for r in remote) if remote else
+                  "none; this artifact was produced locally with no network calls"))
+    out.append(f"- {route.get('note')}")
+    return out
 
 
 def _build_report(diag, prov, args, ball_rows, club_rows, unavailable=False) -> str:
@@ -515,11 +544,9 @@ def _build_report(diag, prov, args, ball_rows, club_rows, unavailable=False) -> 
         "",
         "## Model route",
         "",
-        "- Coordinator: gpt-5.6-luna via openai-codex. Implementation: glm-5.3-flash via "
-        "ollama-cloud (Hermes agent). Local models: yolo11n-pose.pt (ultralytics, local).",
-        "- This artifact was produced locally; no network calls were made by the analyzer.",
-        "",
     ]
+    lines += _render_model_route(prov)
+    lines += [""]
     return "\n".join(lines)
 
 

@@ -33,9 +33,12 @@ Every diagnostics/provenance payload carries ``research_only=true``,
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
 import json
 import math
 import os
+import platform
+import sys
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import cv2
@@ -745,12 +748,72 @@ def run_club_track(
 
 # ============================= provenance / diagnostics =============================
 
+def _sha256_file(path: str) -> Optional[str]:
+    h = hashlib.sha256()
+    try:
+        with open(path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+    except OSError:
+        return None
+    return h.hexdigest()
+
+
+def runtime_model_route(pose_model_path: Optional[str]) -> dict:
+    """Observed runtime provenance for this invocation.
+
+    Reports what actually executed: the local interpreter, the versions of the
+    libraries that were really imported, and the local weights actually
+    resolved (path + SHA-256). It never credits a remote/cloud model, because
+    this analyzer performs no network calls -- authorship of the source code
+    is recorded in git history, not in an artifact's runtime provenance.
+    """
+    libraries: Dict[str, str] = {}
+    for name in ("cv2", "numpy", "ultralytics", "torch"):
+        mod = sys.modules.get(name)
+        if mod is not None:
+            libraries[name] = str(getattr(mod, "__version__", "unknown"))
+
+    models: List[dict] = []
+    if pose_model_path is None:
+        models.append({
+            "role": "pose",
+            "path": None,
+            "sha256": None,
+            "exists": False,
+            "state": "unavailable",
+        })
+    else:
+        exists = os.path.exists(pose_model_path)
+        models.append({
+            "role": "pose",
+            "path": os.path.relpath(pose_model_path) if exists else pose_model_path,
+            "sha256": _sha256_file(pose_model_path) if exists else None,
+            "exists": exists,
+            "state": "loaded" if exists else "unavailable",
+        })
+
+    return {
+        "runtime": {
+            "python": platform.python_version(),
+            "platform": platform.platform(),
+            "executable": sys.executable,
+        },
+        "libraries": libraries,
+        "local_models": models,
+        "remote_models": [],
+        "note": "observed at runtime; no remote inference. Source-code authorship "
+                "is recorded in git history, not in artifact provenance.",
+    }
+
+
 def build_provenance(
     source_path: str,
     output_dir: str,
     modes: Dict[str, str],
     assist_json: Optional[str] = None,
     extra: Optional[dict] = None,
+    pose_model_path: Optional[str] = None,
 ) -> dict:
     prov = {
         "schema": "ghostcaddie-pga-research-provenance/v1",
@@ -758,7 +821,7 @@ def build_provenance(
         "output_dir": output_dir,
         "modes": dict(modes),
         "assist_json": os.path.relpath(assist_json) if assist_json else None,
-        "model_route": "implementation: glm-5.3-flash via ollama-cloud; local models: yolo11n-pose.pt (ultralytics)",
+        "model_route": runtime_model_route(pose_model_path),
         "local_only": True,
         "no_network_calls": True,
         **RESEARCH_FLAGS,
