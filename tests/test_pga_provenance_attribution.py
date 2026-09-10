@@ -1,7 +1,7 @@
 """RED-first regression tests for runtime model-route attribution.
 
-Defect (observed 2026-09-10 on a fresh artifact produced from HEAD 005c2ba):
-``build_provenance`` emitted a hardcoded string naming a coordinator
+Original defect (observed 2026-09-10 on a fresh artifact produced from HEAD
+005c2ba): ``build_provenance`` emitted a hardcoded string naming a coordinator
 (``gpt-5.6-luna via openai-codex``) and an implementation model
 (``glm-5.3-flash via ollama-cloud``) that did not run for that artifact, and
 ``pga_analyze`` repeated the same claim as a second hardcoded literal in
@@ -9,10 +9,19 @@ report.md. The analyzer makes no network calls, so a cloud model cannot have
 produced the artifact; the payload asserted ``no_network_calls: true`` and a
 ``via ollama-cloud`` implementation at the same time.
 
-Provenance must report what actually executed: the local interpreter, the
-libraries actually imported, and the local weights actually resolved (path +
-hash). Authorship of the source code belongs to git history, not to an
-artifact's runtime provenance record.
+Coordinator review of c5bd101 raised two further defects, covered here:
+
+1. ``runtime_model_route`` called ANY existing file "loaded". A file
+   containing ``not a model`` was reported ``state: loaded``. File discovery
+   and hashing is not evidence that a model loaded. The load outcome must be
+   OBSERVED and passed in by the caller that actually attempted the load, and
+   unavailable/error states must be preserved rather than upgraded.
+2. ``test_report_renders_route_from_provenance`` grepped the source file
+   instead of exercising the renderer. Replaced with behavioral tests over
+   ``_render_model_route`` output, including the missing-model case.
+
+Provenance must report what actually executed. Authorship of the source code
+belongs to git history, not to an artifact's runtime provenance record.
 """
 import hashlib
 import os
@@ -73,43 +82,132 @@ class ProvenanceAttributionTests(unittest.TestCase):
         route = runtime_model_route(None)
         self.assertIn("python", route["runtime"])
         self.assertIn("platform", route["runtime"])
-        # libraries must be observed versions, not asserted names
         for lib, ver in route["libraries"].items():
             self.assertIsInstance(ver, str, f"{lib} version must be observed")
 
-    def test_local_model_recorded_with_resolved_path_and_hash(self):
-        with tempfile.TemporaryDirectory() as td:
-            p = os.path.join(td, "custom-pose.pt")
-            with open(p, "wb") as fh:
-                fh.write(b"not-real-weights")
-            digest = hashlib.sha256(b"not-real-weights").hexdigest()
 
-            route = runtime_model_route(p)
-            models = route["local_models"]
-            self.assertEqual(len(models), 1)
-            m = models[0]
-            # the model actually passed, not a hardcoded filename
-            self.assertTrue(m["path"].endswith("custom-pose.pt"))
-            self.assertEqual(m["sha256"], digest)
-            self.assertTrue(m["exists"])
+class ModelLoadOutcomeTests(unittest.TestCase):
+    """Discovery/hashing must not be reported as a successful load."""
 
-    def test_absent_model_is_unavailable_not_asserted(self):
+    def _write(self, td, name, payload):
+        p = os.path.join(td, name)
+        with open(p, "wb") as fh:
+            fh.write(payload)
+        return p, hashlib.sha256(payload).hexdigest()
+
+    def test_nonexistent_model_is_unavailable(self):
+        route = runtime_model_route("/no/such/model.pt")
+        m = route["local_models"][0]
+        self.assertFalse(m["discovered"])
+        self.assertIsNone(m["sha256"])
+        self.assertEqual(m["state"], "unavailable")
+
+    def test_no_path_is_unavailable(self):
         route = runtime_model_route(None)
-        for m in route["local_models"]:
-            if not m["exists"]:
-                self.assertIsNone(m["sha256"])
+        m = route["local_models"][0]
+        self.assertFalse(m["discovered"])
+        self.assertIsNone(m["sha256"])
+        self.assertEqual(m["state"], "unavailable")
 
-    def test_report_renders_route_from_provenance(self):
-        """report.md must not carry its own second hardcoded attribution."""
-        from ghostcaddie.video import pga_analyze
-        src = os.path.join(os.path.dirname(pga_analyze.__file__), "pga_analyze.py")
-        with open(src) as fh:
-            text = fh.read()
-        for name in FABRICATED:
-            self.assertNotIn(
-                name, text,
-                f"pga_analyze.py hardcodes {name!r} instead of rendering real provenance",
+    def test_existing_file_alone_is_not_loaded(self):
+        """The coordinator's reproduction: a .pt containing 'not a model'."""
+        with tempfile.TemporaryDirectory() as td:
+            p, digest = self._write(td, "fake.pt", b"not a model")
+            route = runtime_model_route(p)
+            m = route["local_models"][0]
+            # discovered and hashed, but NOT loaded -- nobody observed a load
+            self.assertTrue(m["discovered"])
+            self.assertEqual(m["sha256"], digest)
+            self.assertNotEqual(
+                m["state"], "loaded",
+                "existing file reported as loaded without an observed load",
             )
+            self.assertEqual(m["state"], "not_attempted")
+
+    def test_observed_load_failure_is_preserved(self):
+        with tempfile.TemporaryDirectory() as td:
+            p, digest = self._write(td, "fake.pt", b"not a model")
+            route = runtime_model_route(
+                p, pose_load_state="load_failed",
+                pose_load_error="invalid load key",
+            )
+            m = route["local_models"][0]
+            self.assertTrue(m["discovered"])
+            self.assertEqual(m["sha256"], digest)
+            self.assertEqual(m["state"], "load_failed")
+            self.assertIn("invalid load key", m["load_error"])
+
+    def test_observed_success_is_recorded(self):
+        with tempfile.TemporaryDirectory() as td:
+            p, digest = self._write(td, "real.pt", b"pretend-weights")
+            route = runtime_model_route(p, pose_load_state="loaded")
+            m = route["local_models"][0]
+            self.assertTrue(m["discovered"])
+            self.assertEqual(m["sha256"], digest)
+            self.assertEqual(m["state"], "loaded")
+            self.assertIsNone(m["load_error"])
+
+    def test_load_success_cannot_be_claimed_for_missing_file(self):
+        """A caller must not be able to upgrade a missing file to loaded."""
+        route = runtime_model_route("/no/such/model.pt", pose_load_state="loaded")
+        m = route["local_models"][0]
+        self.assertEqual(m["state"], "unavailable")
+        self.assertFalse(m["discovered"])
+
+    def test_unknown_load_state_is_rejected(self):
+        with self.assertRaises(ValueError):
+            runtime_model_route(None, pose_load_state="probably_fine")
+
+
+class RenderModelRouteTests(unittest.TestCase):
+    """Behavioral tests over the rendered report section (not a source grep)."""
+
+    def _render(self, route):
+        from ghostcaddie.video.pga_analyze import _render_model_route
+        return "\n".join(_render_model_route({"model_route": route}))
+
+    def test_rendered_route_names_no_model_that_did_not_run(self):
+        text = self._render(runtime_model_route(None))
+        for name in FABRICATED:
+            self.assertNotIn(name, text)
+
+    def test_rendered_route_shows_runtime_and_no_remote_models(self):
+        text = self._render(runtime_model_route(None))
+        self.assertIn("Runtime: python", text)
+        self.assertIn("no network calls", text)
+
+    def test_rendered_missing_model_says_unavailable_without_hash(self):
+        text = self._render(runtime_model_route(None))
+        self.assertIn("unavailable", text)
+        self.assertNotIn("sha256 `None`", text)
+        self.assertNotIn("[loaded]", text)
+
+    def test_rendered_loaded_model_shows_path_hash_and_state(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, "real.pt")
+            with open(p, "wb") as fh:
+                fh.write(b"pretend-weights")
+            digest = hashlib.sha256(b"pretend-weights").hexdigest()
+            text = self._render(runtime_model_route(p, pose_load_state="loaded"))
+            self.assertIn("real.pt", text)
+            self.assertIn(digest, text)
+            self.assertIn("[loaded]", text)
+
+    def test_rendered_failed_load_discloses_failure_not_success(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, "fake.pt")
+            with open(p, "wb") as fh:
+                fh.write(b"not a model")
+            text = self._render(runtime_model_route(
+                p, pose_load_state="load_failed", pose_load_error="invalid load key"))
+            self.assertIn("load_failed", text)
+            self.assertIn("invalid load key", text)
+            self.assertNotIn("[loaded]", text)
+
+    def test_renderer_tolerates_legacy_string_route(self):
+        """Old artifacts stored model_route as a plain string."""
+        text = self._render("some legacy string")
+        self.assertIn("some legacy string", text)
 
 
 if __name__ == "__main__":

@@ -118,7 +118,24 @@ def run(args: argparse.Namespace) -> dict:
     if pose_path is None:
         raise SystemExit("yolo11n-pose.pt not found locally; pass --pose-model")
     from ultralytics import YOLO  # local only
-    pose_model = YOLO(pose_path)
+    # Observed load outcome: discovery/hashing alone is never reported as loaded.
+    pose_load_state, pose_load_error = "not_attempted", None
+    try:
+        pose_model = YOLO(pose_path)
+        pose_load_state = "loaded"
+    except Exception as exc:  # preserve the error state instead of crashing silently
+        pose_load_state, pose_load_error = "load_failed", f"{type(exc).__name__}: {exc}"
+        _write_minimal(
+            args,
+            {"schema": "ghostcaddie-pga-research-diagnostics/v1",
+             "status": "unavailable", "reason": "pose_model_load_failed",
+             "pose_model_path": pose_path, "error": pose_load_error,
+             **RESEARCH_FLAGS},
+            pose_model_path=pose_path,
+            pose_load_state=pose_load_state,
+            pose_load_error=pose_load_error,
+        )
+        return {"status": "unavailable", "reason": "pose_model_load_failed"}
 
     params = dict(DEFAULTS)
     if args.sample_step:
@@ -172,7 +189,8 @@ def run(args: argparse.Namespace) -> dict:
             "crop": crop,
             **RESEARCH_FLAGS,
         }
-        _write_minimal(args, diag_min, mode="unavailable", pose_model_path=pose_path)
+        _write_minimal(args, diag_min, mode="unavailable", pose_model_path=pose_path,
+                       pose_load_state=pose_load_state, pose_load_error=pose_load_error)
         return {"status": "unavailable", "reason": "insufficient_resolution"}
 
     crops = [frames[f][crop["y"]:crop["y"] + crop["h"], crop["x"]:crop["x"] + crop["w"]].copy()
@@ -249,7 +267,8 @@ def run(args: argparse.Namespace) -> dict:
             "flags": {"split_screen": split_info},
             **RESEARCH_FLAGS,
         }
-        _write_minimal(args, diag, mode="unavailable", pose_model_path=pose_path)
+        _write_minimal(args, diag, mode="unavailable", pose_model_path=pose_path,
+                       pose_load_state=pose_load_state, pose_load_error=pose_load_error)
         return {"status": "unavailable", "reason": diag["reason"]}
 
     # ---- trackers ----
@@ -363,6 +382,8 @@ def run(args: argparse.Namespace) -> dict:
         args.input, os.path.relpath(args.output_dir), modes,
         assist_json=args.assist_json,
         pose_model_path=pose_path,
+        pose_load_state=pose_load_state,
+        pose_load_error=pose_load_error,
         extra={
             "source_sha256": sha.hexdigest(),
             "source_frames_total": src_w,
@@ -423,7 +444,8 @@ def _resolve_club_seed(seed_arg, assist, source_frames):
     return None  # conservative: no guessing for club seed in automatic mode
 
 
-def _write_minimal(args, diag, mode="unavailable", pose_model_path=None):
+def _write_minimal(args, diag, mode="unavailable", pose_model_path=None,
+                   pose_load_state="not_attempted", pose_load_error=None):
     with open(os.path.join(args.output_dir, "diagnostics.json"), "w") as fh:
         json.dump(diag, fh, indent=1)
     prov = build_provenance(args.input, os.path.relpath(args.output_dir),
@@ -431,6 +453,8 @@ def _write_minimal(args, diag, mode="unavailable", pose_model_path=None):
                                    "clubhead": "unavailable", "crop": "unresolved"},
                             assist_json=args.assist_json,
                             pose_model_path=pose_model_path,
+                            pose_load_state=pose_load_state,
+                            pose_load_error=pose_load_error,
                             extra={"status": "unavailable", "reason": diag.get("reason")})
     with open(os.path.join(args.output_dir, "provenance.json"), "w") as fh:
         json.dump(prov, fh, indent=1)
@@ -451,12 +475,18 @@ def _render_model_route(prov) -> List[str]:
         + (", ".join(f"{k} {v}" for k, v in sorted(libs.items())) or "none recorded"),
     ]
     for m in route.get("local_models", []):
-        if m.get("exists"):
-            out.append(f"- Local model ({m.get('role')}): `{m.get('path')}` "
-                       f"sha256 `{m.get('sha256')}` [{m.get('state')}]")
-        else:
-            out.append(f"- Local model ({m.get('role')}): unavailable "
-                       f"(no path recorded, no hash)")
+        role, state = m.get("role"), m.get("state")
+        if not m.get("discovered"):
+            out.append(f"- Local model ({role}): unavailable "
+                       f"(no model file found; no hash)")
+            continue
+        line = (f"- Local model ({role}): `{m.get('path')}` "
+                f"sha256 `{m.get('sha256')}` [{state}]")
+        if state == "load_failed":
+            line += f" - load attempted and FAILED: {m.get('load_error')}"
+        elif state == "not_attempted":
+            line += " - discovered and hashed only; no load was attempted"
+        out.append(line)
     remote = route.get("remote_models") or []
     out.append("- Remote models: "
                + (", ".join(str(r) for r in remote) if remote else

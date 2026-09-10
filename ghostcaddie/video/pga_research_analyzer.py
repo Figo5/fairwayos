@@ -759,39 +759,65 @@ def _sha256_file(path: str) -> Optional[str]:
     return h.hexdigest()
 
 
-def runtime_model_route(pose_model_path: Optional[str]) -> dict:
+LOAD_STATES = ("loaded", "load_failed", "not_attempted")
+
+
+def _provenance_path(path: str) -> str:
+    """Relative inside the repo/cwd, absolute outside it (no ``../..`` chains)."""
+    rel = os.path.relpath(path)
+    return path if rel.startswith(os.pardir) else rel
+
+
+def runtime_model_route(
+    pose_model_path: Optional[str],
+    pose_load_state: str = "not_attempted",
+    pose_load_error: Optional[str] = None,
+) -> dict:
     """Observed runtime provenance for this invocation.
 
     Reports what actually executed: the local interpreter, the versions of the
     libraries that were really imported, and the local weights actually
-    resolved (path + SHA-256). It never credits a remote/cloud model, because
-    this analyzer performs no network calls -- authorship of the source code
-    is recorded in git history, not in an artifact's runtime provenance.
+    resolved. It never credits a remote/cloud model, because this analyzer
+    performs no network calls -- authorship of the source code is recorded in
+    git history, not in an artifact's runtime provenance.
+
+    Discovery and hashing are NOT evidence that a model loaded: a file on disk
+    only ever yields ``discovered``/``sha256``. ``pose_load_state`` must be the
+    outcome OBSERVED by the caller that actually attempted the load, and it can
+    never upgrade a file that is missing -- an undiscovered model stays
+    ``unavailable``.
     """
+    if pose_load_state not in LOAD_STATES:
+        raise ValueError(
+            f"pose_load_state must be one of {LOAD_STATES}, got {pose_load_state!r}"
+        )
+
     libraries: Dict[str, str] = {}
     for name in ("cv2", "numpy", "ultralytics", "torch"):
         mod = sys.modules.get(name)
         if mod is not None:
             libraries[name] = str(getattr(mod, "__version__", "unknown"))
 
-    models: List[dict] = []
-    if pose_model_path is None:
-        models.append({
+    discovered = bool(pose_model_path) and os.path.exists(pose_model_path)
+    if discovered:
+        model = {
             "role": "pose",
-            "path": None,
-            "sha256": None,
-            "exists": False,
-            "state": "unavailable",
-        })
+            "path": _provenance_path(pose_model_path),  # type: ignore[arg-type]
+            "sha256": _sha256_file(pose_model_path),  # type: ignore[arg-type]
+            "discovered": True,
+            "state": pose_load_state,
+            "load_error": pose_load_error if pose_load_state == "load_failed" else None,
+        }
     else:
-        exists = os.path.exists(pose_model_path)
-        models.append({
+        # Never claim a load for a model that was never found.
+        model = {
             "role": "pose",
-            "path": os.path.relpath(pose_model_path) if exists else pose_model_path,
-            "sha256": _sha256_file(pose_model_path) if exists else None,
-            "exists": exists,
-            "state": "loaded" if exists else "unavailable",
-        })
+            "path": pose_model_path,
+            "sha256": None,
+            "discovered": False,
+            "state": "unavailable",
+            "load_error": pose_load_error,
+        }
 
     return {
         "runtime": {
@@ -800,10 +826,17 @@ def runtime_model_route(pose_model_path: Optional[str]) -> dict:
             "executable": sys.executable,
         },
         "libraries": libraries,
-        "local_models": models,
+        "local_models": [model],
         "remote_models": [],
-        "note": "observed at runtime; no remote inference. Source-code authorship "
-                "is recorded in git history, not in artifact provenance.",
+        "state_meaning": {
+            "loaded": "the caller attempted the load and it succeeded",
+            "load_failed": "the caller attempted the load and it raised",
+            "not_attempted": "file discovered and hashed; no load was attempted",
+            "unavailable": "no model file was found at the recorded path",
+        },
+        "note": "observed at runtime; no remote inference. Discovery and hashing "
+                "are not evidence of a successful load. Source-code authorship is "
+                "recorded in git history, not in artifact provenance.",
     }
 
 
@@ -814,6 +847,8 @@ def build_provenance(
     assist_json: Optional[str] = None,
     extra: Optional[dict] = None,
     pose_model_path: Optional[str] = None,
+    pose_load_state: str = "not_attempted",
+    pose_load_error: Optional[str] = None,
 ) -> dict:
     prov = {
         "schema": "ghostcaddie-pga-research-provenance/v1",
@@ -821,7 +856,7 @@ def build_provenance(
         "output_dir": output_dir,
         "modes": dict(modes),
         "assist_json": os.path.relpath(assist_json) if assist_json else None,
-        "model_route": runtime_model_route(pose_model_path),
+        "model_route": runtime_model_route(pose_model_path, pose_load_state, pose_load_error),
         "local_only": True,
         "no_network_calls": True,
         **RESEARCH_FLAGS,
