@@ -248,5 +248,58 @@ class MilDistinctness(unittest.TestCase):
                             for r in rows))
 
 
+class MilSingleSegmentMode(unittest.TestCase):
+    """single_segment=True disables reacquisition entirely: when the track is
+    lost the tracker emits ONE 'ended' row and every subsequent frame is
+    'unavailable' with no box — it never starts segment 2. This eliminates the
+    wrong-object body lock BY CONSTRUCTION (no reacquisition to false-lock on),
+    which is the only approach that cannot false-accept. Default stays
+    multi-segment (reacquisition on)."""
+
+    def test_single_segment_ends_on_first_loss_and_never_reacquires(self):
+        # object hidden frames 4-6, reappears at 7. Multi-segment would
+        # reacquire into segment 2; single-segment must end at the loss.
+        frames, present, truth = swing_frames(n=10, gap_at=4, gap_len=3)
+        t = MilRegionTracker(single_segment=True)
+        t.init(frames[0], SEED_BOX, 0)
+        rows = t.track(frames)
+        # exactly one 'ended' row (the loss frame), then all unavailable
+        ended = [r for r in rows if r.state == "ended"]
+        self.assertEqual(len(ended), 1, f"expected one ended row, got {len(ended)}")
+        self.assertIsNone(ended[0].bbox)
+        # every frame after the ended frame is unavailable with no box
+        eidx = rows.index(ended[0])
+        for r in rows[eidx + 1:]:
+            self.assertEqual(r.state, "unavailable")
+            self.assertIsNone(r.bbox)
+        # no reacquisition ever, segment stays 1
+        self.assertNotIn("reacquired", [r.state for r in rows])
+        self.assertEqual({r.segment_id for r in rows}, {1})
+
+    def test_single_segment_tracks_normally_when_no_loss(self):
+        frames, _, _ = swing_frames(n=10)
+        t = MilRegionTracker(single_segment=True)
+        t.init(frames[0], SEED_BOX, 0)
+        rows = t.track(frames)
+        vis = [r for r in rows if r.visibility == "visible"]
+        self.assertGreaterEqual(len(vis), 8)
+        self.assertNotIn("ended", [r.state for r in rows])
+        self.assertNotIn("reacquired", [r.state for r in rows])
+
+    def test_default_is_multi_segment(self):
+        # default (single_segment=False) must keep reacquiring into segment 2
+        frames, _, _ = swing_frames(n=10, gap_at=4, gap_len=3)
+        t = MilRegionTracker()
+        t.init(frames[0], SEED_BOX, 0)
+        rows = t.track(frames)
+        r7 = rows[7]
+        self.assertEqual(r7.state, "reacquired")
+        self.assertGreater(r7.segment_id, 1)
+
+    def test_single_segment_rejects_non_bool(self):
+        with self.assertRaises(ValueError):
+            MilRegionTracker(single_segment="yes")
+
+
 if __name__ == "__main__":
     unittest.main()

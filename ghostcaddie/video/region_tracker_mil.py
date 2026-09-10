@@ -89,7 +89,10 @@ class MilRegionTracker:
                  reacquire_radius_px: float = DEFAULT_REACQUIRE_RADIUS_PX,
                  max_runtime_s: float = DEFAULT_MAX_RUNTIME_S,
                  max_lost_frames: int = DEFAULT_MAX_LOST_FRAMES,
-                 fps: float = DEFAULT_FPS) -> None:
+                 fps: float = DEFAULT_FPS,
+                 single_segment: bool = False) -> None:
+        if isinstance(single_segment, bool) is False:
+            raise ValueError("single_segment must be a bool")
         for name, v in (("min_appearance_ncc", min_appearance_ncc),
                         ("reacquire_min_score", reacquire_min_score)):
             if isinstance(v, bool) or not isinstance(v, (int, float)) \
@@ -113,6 +116,8 @@ class MilRegionTracker:
         self.max_runtime_s = float(max_runtime_s)
         self.max_lost_frames = int(max_lost_frames)
         self.fps = float(fps)
+        self.single_segment = bool(single_segment)
+        self._diag: list = []  # diagnostic-only: per-frame rejection reasons (no behavior change)
         self._seed_box: Optional[Tuple[float, float, float, float]] = None
         self._seed_source_frame: Optional[int] = None
         self._seed_patch = None
@@ -214,6 +219,7 @@ class MilRegionTracker:
         lost_streak = 0
         ended = False
         end_reason: Optional[str] = None
+        single_ended_done = False  # single-segment: one 'ended' row, then unavailable
 
         for offset in range(1, len(frames_bgr)):
             idx = self._seed_source_frame + offset
@@ -221,11 +227,21 @@ class MilRegionTracker:
 
             # ---- terminal states: keep emitting honest rows, no positions
             if ended:
-                rows.append(MilTrackFrame(
-                    source_frame_index=idx, timestamp=ts, bbox=None,
-                    visibility="missing", state="ended", confidence=0.0,
-                    segment_id=segment_id, provenance=_PROVENANCE,
-                    uncertainty_px=None, warning=end_reason))
+                if self.single_segment and single_ended_done:
+                    # after the single 'ended' row, every subsequent frame is
+                    # 'unavailable' (no box) — never a second segment
+                    rows.append(MilTrackFrame(
+                        source_frame_index=idx, timestamp=ts, bbox=None,
+                        visibility="missing", state="unavailable", confidence=0.0,
+                        segment_id=segment_id, provenance=_PROVENANCE,
+                        uncertainty_px=None, warning=end_reason))
+                else:
+                    rows.append(MilTrackFrame(
+                        source_frame_index=idx, timestamp=ts, bbox=None,
+                        visibility="missing", state="ended", confidence=0.0,
+                        segment_id=segment_id, provenance=_PROVENANCE,
+                        uncertainty_px=None, warning=end_reason))
+                single_ended_done = True
                 continue
             if time.monotonic() > deadline:
                 ended, end_reason = True, "runtime_budget_exceeded"
@@ -238,6 +254,9 @@ class MilRegionTracker:
 
             frame = frames_bgr[offset]
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            diag = {"frame": idx, "mil_ok": False, "step": None, "ncc": None,
+                    "local_score": None, "reject": None}
+            self._diag.append(diag)
 
             # ---- verdict for this frame (exactly one row will be appended)
             verdict = None  # MilTrackFrame
@@ -249,16 +268,19 @@ class MilRegionTracker:
                 ok, bb = False, None
             if ok:
                 mil_proposed = True
+                diag["mil_ok"] = True
                 box = tuple(float(v) for v in bb)
                 area = box[2] * box[3]
                 cx, cy = box[0] + box[2] / 2.0, box[1] + box[3] / 2.0
                 step = math.hypot(cx - cur_center[0], cy - cur_center[1])
+                diag["step"] = round(step, 1)
                 x0, y0 = max(0.0, box[0]), max(0.0, box[1])
                 x1, y1 = min(float(w), box[0] + box[2]), min(float(h), box[1] + box[3])
                 inside_frac = max(0.0, x1 - x0) * max(0.0, y1 - y0) / area if area > 0 else 0.0
                 outside_frac = 1.0 - inside_frac
                 patch = self._crop(gray, box)
                 if patch is None or outside_frac > 0.5:
+                    diag["reject"] = "box_left_frame"
                     verdict = MilTrackFrame(
                         source_frame_index=idx, timestamp=ts, bbox=None,
                         visibility="off_frame", state="unavailable", confidence=0.0,
@@ -274,12 +296,15 @@ class MilRegionTracker:
                     if step > self.reacquire_radius_px:
                         # MIL's whole-image scan teleported: refuse it and
                         # fall through to bounded-window reacquisition
+                        diag["reject"] = f"step>{self.reacquire_radius_px}"
                         mil_proposed = False
                     else:
                         ncc = _ncc_of(patch, self._seed_patch)
+                        diag["ncc"] = round(ncc, 3)
                         if ncc >= self.min_appearance_ncc:
                             score, refined, unc = self._local_search(
                                 gray, box, self.local_refine_radius_px)
+                            diag["local_score"] = round(score, 3) if score is not None else None
                             if refined is not None and score >= self.min_appearance_ncc:
                                 resuming = lost_streak > 0
                                 if resuming:
@@ -318,53 +343,69 @@ class MilRegionTracker:
                                 lost_streak = 0
             # --- 2) bounded-window reacquisition (when MIL path failed)
             if verdict is None and not ended:
-                score, found, unc = self._local_search(
-                    gray, cur, self.reacquire_radius_px)
-                if found is not None and score >= self.reacquire_min_score:
-                    segment_id += 1
-                    conf = max(0.0, min(1.0, score)) * 0.9
+                if self.single_segment:
+                    # single-segment mode: no reacquisition. The track ends
+                    # here BY CONSTRUCTION — emit one 'ended' row and every
+                    # subsequent frame 'unavailable' with no box. This is the
+                    # only approach that cannot false-accept a wrong-object
+                    # lock, because it never starts a second segment.
+                    diag["reject"] = "single_segment_end"
+                    ended, end_reason = True, "track_ended_single_segment"
+                    single_ended_done = True
                     verdict = MilTrackFrame(
-                        source_frame_index=idx, timestamp=ts, bbox=found,
-                        visibility="visible", state="reacquired", confidence=conf,
+                        source_frame_index=idx, timestamp=ts, bbox=None,
+                        visibility="missing", state="ended", confidence=0.0,
                         segment_id=segment_id, provenance=_PROVENANCE,
-                        uncertainty_px=unc, warning="seed_appearance_reacquired")
-                    cur = found
-                    cur_center = (found[0] + found[2] / 2.0,
-                                  found[1] + found[3] / 2.0)
-                    # a new segment is a new MIL episode
-                    mil.init(frame, (int(round(found[0])), int(round(found[1])),
-                                     int(round(found[2])),
-                                     int(round(found[3]))))  # type: ignore[call-arg]
-                    lost_streak = 0
+                        uncertainty_px=None, warning=end_reason)
                 else:
-                    # unverifiable this frame. Only report the region as
-                    # having left the canvas when the SEED box had clearance
-                    # (so "at the edge" is evidence of exit, not seed placement)
-                    # and the last verified box now sits at the boundary.
-                    bw_, bh_ = cur[2], cur[3]
-                    edge_gap = min(cur_center[0], cur_center[1],
-                                   w - cur_center[0], h - cur_center[1])
-                    sx, sy, sw_, sh_ = self._seed_box
-                    seed_clearance = min(sx, sy, w - sx - sw_, h - sy - sh_)
-                    if seed_clearance > max(sw_, sh_) and edge_gap <= max(bw_, bh_):
+                    score, found, unc = self._local_search(
+                        gray, cur, self.reacquire_radius_px)
+                    if found is not None and score >= self.reacquire_min_score:
+                        segment_id += 1
+                        conf = max(0.0, min(1.0, score)) * 0.9
                         verdict = MilTrackFrame(
-                            source_frame_index=idx, timestamp=ts, bbox=None,
-                            visibility="off_frame", state="unavailable",
-                            confidence=0.0, segment_id=segment_id,
-                            provenance=_PROVENANCE, uncertainty_px=None,
-                            warning="box_left_frame")
+                            source_frame_index=idx, timestamp=ts, bbox=found,
+                            visibility="visible", state="reacquired", confidence=conf,
+                            segment_id=segment_id, provenance=_PROVENANCE,
+                            uncertainty_px=unc, warning="seed_appearance_reacquired")
+                        cur = found
+                        cur_center = (found[0] + found[2] / 2.0,
+                                      found[1] + found[3] / 2.0)
+                        # a new segment is a new MIL episode
+                        mil.init(frame, (int(round(found[0])), int(round(found[1])),
+                                         int(round(found[2])),
+                                         int(round(found[3]))))  # type: ignore[call-arg]
+                        lost_streak = 0
                     else:
-                        reason = "appearance_verification_failed" if mil_proposed \
-                            else "reacquire_failed"
-                        verdict = MilTrackFrame(
-                            source_frame_index=idx, timestamp=ts, bbox=None,
-                            visibility="missing", state="unavailable",
-                            confidence=0.0, segment_id=segment_id,
-                            provenance=_PROVENANCE, uncertainty_px=None,
-                            warning=reason)
-                    lost_streak += 1
-                    if lost_streak >= self.max_lost_frames:
-                        ended, end_reason = True, "track_terminated_no_reacquire"
+                        # unverifiable this frame. Only report the region as
+                        # having left the canvas when the SEED box had clearance
+                        # (so "at the edge" is evidence of exit, not seed placement)
+                        # and the last verified box now sits at the boundary.
+                        bw_, bh_ = cur[2], cur[3]
+                        edge_gap = min(cur_center[0], cur_center[1],
+                                       w - cur_center[0], h - cur_center[1])
+                        sx, sy, sw_, sh_ = self._seed_box
+                        seed_clearance = min(sx, sy, w - sx - sw_, h - sy - sh_)
+                        if seed_clearance > max(sw_, sh_) and edge_gap <= max(bw_, bh_):
+                            verdict = MilTrackFrame(
+                                source_frame_index=idx, timestamp=ts, bbox=None,
+                                visibility="off_frame", state="unavailable",
+                                confidence=0.0, segment_id=segment_id,
+                                provenance=_PROVENANCE, uncertainty_px=None,
+                                warning="box_left_frame")
+                        else:
+                            reason = "appearance_verification_failed" if mil_proposed \
+                                else "reacquire_failed"
+                            diag["reject"] = reason
+                            verdict = MilTrackFrame(
+                                source_frame_index=idx, timestamp=ts, bbox=None,
+                                visibility="missing", state="unavailable",
+                                confidence=0.0, segment_id=segment_id,
+                                provenance=_PROVENANCE, uncertainty_px=None,
+                                warning=reason)
+                        lost_streak += 1
+                        if lost_streak >= self.max_lost_frames:
+                            ended, end_reason = True, "track_terminated_no_reacquire"
             elif verdict is None:
                 verdict = MilTrackFrame(
                     source_frame_index=idx, timestamp=ts, bbox=None,
