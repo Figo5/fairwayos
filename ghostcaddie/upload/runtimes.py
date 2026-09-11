@@ -102,12 +102,41 @@ class RuntimeRegistry:
         return self._cache[target]
 
     def readiness(self) -> dict:
+        """DEPENDENCY readiness only.
+
+        Finding 6: this previously reported a single "ready" flag that probed
+        interpreter modules and nothing else, which read as though the target
+        could produce a result. Interpreter readiness, model-file presence and
+        actual executability are now reported separately, and executability is
+        false whenever the adapter cannot run unattended.
+        """
+        from ghostcaddie.upload.adapters import all_adapters
+        ads = all_adapters()
         out = {}
-        for t, s in self.specs.items():
+        for t, sp in self.specs.items():
             r = self.probe(t)
-            out[t] = {"ready": r.ok, "reason": r.reason, "interpreter": s.interpreter,
-                      "python_version": r.python_version, "modules": list(s.modules),
-                      "missing": list(r.missing), "purpose": s.purpose}
+            cap = ads[t].capability() if t in ads else None
+            model_present = bool(cap.model_present) if cap else False
+            model_sha = (cap.model_sha256 if cap else "") or ""
+            needs_seed = t in ("clubhead", "ball")
+            can_exec = bool(r.ok and model_present and not needs_seed)
+            reason = r.reason if not r.ok else (
+                f"model file not found: {cap.model_path}" if not model_present else
+                ("interpreter and model are present, but this target cannot run "
+                 "unattended: it requires a reviewed source-specific seed that is "
+                 "not yet wired into the job path" if needs_seed
+                 else "interpreter and model present; target can execute"))
+            out[t] = {
+                "interpreter_ready": r.ok,
+                "model_file_present": model_present,
+                "model_sha256": model_sha[:16],
+                "requires_reviewed_seed": needs_seed,
+                "can_execute_now": can_exec,
+                "reason": reason,
+                "interpreter": sp.interpreter, "python_version": r.python_version,
+                "modules": list(sp.modules), "missing": list(r.missing),
+                "purpose": sp.purpose,
+            }
         return out
 
     def require(self, target: str) -> RuntimeSpec:

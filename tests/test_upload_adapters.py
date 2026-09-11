@@ -29,7 +29,7 @@ class ProbeTests(unittest.TestCase):
         """Same adapter class, different model paths -> different answers."""
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "m.tflite")
-            open(p, "wb").write(b"x" * 16)
+            with open(p, "wb") as fh: fh.write(b"x" * 16)
             a1 = BodyMoveNetAdapter(model_path=p)
             a2 = BodyMoveNetAdapter(model_path="/no/such.tflite")
             self.assertNotEqual(a1.capability().model_present,
@@ -37,7 +37,8 @@ class ProbeTests(unittest.TestCase):
 
     def test_model_hash_is_reported_when_present(self):
         with tempfile.TemporaryDirectory() as d:
-            p = os.path.join(d, "m.tflite"); open(p, "wb").write(b"abc")
+            p = os.path.join(d, "m.tflite")
+            with open(p, "wb") as fh: fh.write(b"abc")
             c = BodyMoveNetAdapter(model_path=p).capability()
             self.assertEqual(len(c.model_sha256), 64)
 

@@ -21,6 +21,8 @@ class ServerTests(unittest.TestCase):
                                limits=VideoLimits(max_seconds=60))
         cls.port = cls.srv.server_address[1]
         cls.host = cls.srv.server_address[0]
+        cls.token = cls.srv.RequestHandlerClass.csrf_token
+        cls.imports = cls.srv.RequestHandlerClass.store.import_dir
         threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
 
     @classmethod
@@ -33,13 +35,24 @@ class ServerTests(unittest.TestCase):
         with urllib.request.urlopen(self.url(p)) as r:
             return r.status, json.loads(r.read() or b"null")
 
-    def post_path(self, path):
-        data = urllib.parse.urlencode({"path": path}).encode()
+    def _post(self, field, value):
+        data = urllib.parse.urlencode({field: value}).encode()
+        req = urllib.request.Request(
+            self.url("/jobs"), data=data,
+            headers={"X-FairwayOS-Token": self.token,
+                     "Content-Type": "application/x-www-form-urlencoded"})
         try:
-            with urllib.request.urlopen(self.url("/jobs"), data=data) as r:
+            with urllib.request.urlopen(req) as r:
                 return r.status, json.loads(r.read())
         except urllib.error.HTTPError as e:
             return e.code, json.loads(e.read())
+
+    def post_path(self, path):
+        """Submit an absolute path (now refused: import-dir only)."""
+        return self._post("name", path)
+
+    def post_import(self, filename):
+        return self._post("name", filename)
 
     def test_binds_localhost_only(self):
         self.assertIn(self.host, ("127.0.0.1", "::1"))
@@ -61,15 +74,22 @@ class ServerTests(unittest.TestCase):
     def test_remote_url_is_refused(self):
         s, b = self.post_path("https://example.com/a.mp4")
         self.assertEqual(s, 400)
-        self.assertIn("remote", b["error"].lower())
+        self.assertIn("remote urls", b["error"].lower())
 
-    def test_traversal_path_is_refused(self):
+    def test_absolute_path_outside_import_dir_is_refused(self):
+        """Superseded misleading test.
+
+        The old version posted /etc/passwd and passed only because OpenCV
+        rejected it, not because absolute paths were refused. Submission is now
+        confined to the import directory, so this asserts the containment.
+        """
         s, b = self.post_path("/etc/passwd")
         self.assertEqual(s, 400)
+        self.assertIn("import directory", b["error"])
 
     def test_real_video_runs_a_job_to_completion(self):
-        p = synth(os.path.join(self.d, "ok.mp4"))
-        s, job = self.post_path(p)
+        p = synth(os.path.join(self.imports, "ok.mp4"))
+        s, job = self.post_import("ok.mp4")
         self.assertEqual(s, 202)
         for _ in range(100):
             _, j = self.get(f"/jobs/{job['id']}")

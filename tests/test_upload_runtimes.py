@@ -36,7 +36,10 @@ class RegistryTests(unittest.TestCase):
         st = reg.readiness()
         for t in ("body", "clubhead", "ball"):
             self.assertIn(t, st)
-            self.assertIn("ready", st[t])
+            # dependency readiness is now reported in separate, honest fields
+            self.assertIn("interpreter_ready", st[t])
+            self.assertIn("model_file_present", st[t])
+            self.assertIn("can_execute_now", st[t])
             self.assertTrue(st[t]["reason"])
 
     def test_unready_target_raises_rather_than_running(self):

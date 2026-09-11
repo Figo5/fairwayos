@@ -22,10 +22,15 @@ class UIEndpointTests(unittest.TestCase):
         cls.srv = build_server(os.path.join(cls.d, "root"), port=0,
                                limits=VideoLimits(max_seconds=60))
         cls.host, cls.port = cls.srv.server_address[0], cls.srv.server_address[1]
+        cls.token = cls.srv.RequestHandlerClass.csrf_token
+        imports = cls.srv.RequestHandlerClass.store.import_dir
         threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
-        p = synth(os.path.join(cls.d, "s.mp4"))
-        data = urllib.parse.urlencode({"path": p}).encode()
-        with urllib.request.urlopen(cls.u("/jobs"), data=data) as r:
+        synth(os.path.join(imports, "s.mp4"))
+        data = urllib.parse.urlencode({"name": "s.mp4"}).encode()
+        req = urllib.request.Request(cls.u("/jobs"), data=data,
+            headers={"X-FairwayOS-Token": cls.token,
+                     "Content-Type": "application/x-www-form-urlencoded"})
+        with urllib.request.urlopen(req) as r:
             cls.job = json.loads(r.read())["id"]
         for _ in range(120):
             with urllib.request.urlopen(cls.u(f"/jobs/{cls.job}")) as r:
@@ -71,7 +76,8 @@ class UIEndpointTests(unittest.TestCase):
                            "seeds": [{"target": "ball", "frame": 1,
                                       "point_xy": [1, 2]}]}).encode()
         req = urllib.request.Request(self.u(f"/jobs/{self.job}/seeds"), data=body,
-                                     headers={"Content-Type": "application/json"})
+                                     headers={"Content-Type": "application/json",
+                                              "X-FairwayOS-Token": self.token})
         with self.assertRaises(urllib.error.HTTPError) as cm:
             urllib.request.urlopen(req)
         self.assertIn("different source", json.loads(cm.exception.read())["error"])
@@ -82,7 +88,8 @@ class UIEndpointTests(unittest.TestCase):
                            "seeds": [{"target": "clubhead", "frame": 5,
                                       "box_xyxy": [10, 10, 40, 40]}]}).encode()
         req = urllib.request.Request(self.u(f"/jobs/{self.job}/seeds"), data=body,
-                                     headers={"Content-Type": "application/json"})
+                                     headers={"Content-Type": "application/json",
+                                              "X-FairwayOS-Token": self.token})
         with urllib.request.urlopen(req) as r:
             d = json.loads(r.read())
         s = d["accepted"]["seeds"][0]

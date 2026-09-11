@@ -51,8 +51,8 @@ pre{white-space:pre-wrap;word-break:break-all;color:var(--dim);font-size:11px;ma
       <button id=up>Upload &amp; analyse</button>
     </div>
     <div class=row style="margin-top:8px">
-      <input type=text id=path placeholder="or an absolute local path">
-      <button id=upPath>Analyse path</button>
+      <input type=text id=path placeholder="or a filename inside the import directory">
+      <button id=upPath>Analyse import file</button>
     </div>
     <div id=srcInfo class=reason style="margin-top:8px"></div>
   </div>
@@ -109,6 +109,8 @@ pre{white-space:pre-wrap;word-break:break-all;color:var(--dim);font-size:11px;ma
 </main>
 <script>
 const $=s=>document.querySelector(s);
+const TOKEN='__FAIRWAYOS_TOKEN__';
+const H={'X-FairwayOS-Token':TOKEN};
 let JOB=null, SRC=null, MODE=null, PICKS=[], POLL=null;
 
 async function jget(u){const r=await fetch(u);if(!r.ok)throw new Error((await r.json()).error||r.status);return r.json()}
@@ -149,7 +151,7 @@ async function poll(){
 }
 
 async function startJob(body,isForm){
-  const r=await fetch('/jobs',{method:'POST',body:isForm?body:new URLSearchParams(body)});
+  const r=await fetch('/jobs',{method:'POST',headers:H,body:isForm?body:new URLSearchParams(body)});
   const j=await r.json();
   if(!r.ok){$('#jobErr').textContent=j.error||('HTTP '+r.status);return}
   JOB=j.id;$('#cancel').disabled=false;$('#refresh').disabled=false;$('#jobErr').textContent='';
@@ -162,9 +164,9 @@ async function startJob(body,isForm){
 
 $('#up').onclick=()=>{const f=$('#file').files[0];if(!f){$('#jobErr').textContent='choose a file';return}
   const fd=new FormData();fd.append('video',f);startJob(fd,true)};
-$('#upPath').onclick=()=>{const p=$('#path').value.trim();if(!p){$('#jobErr').textContent='enter a path';return}
-  startJob({path:p},false)};
-$('#cancel').onclick=async()=>{await fetch('/jobs/'+JOB+'/cancel',{method:'POST'});poll()};
+$('#upPath').onclick=()=>{const p=$('#path').value.trim();if(!p){$('#jobErr').textContent='enter a filename from the import directory';return}
+  startJob({name:p},false)};
+$('#cancel').onclick=async()=>{await fetch('/jobs/'+JOB+'/cancel',{method:'POST',headers:H});poll()};
 $('#refresh').onclick=poll;
 
 async function loadFrame(n){
@@ -230,7 +232,7 @@ $('#sendSeed').onclick=async()=>{
   if(MODE==='clubhead'){const[a,b]=PICKS;seed.box_xyxy=[Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.max(a[0],b[0]),Math.max(a[1],b[1])]}
   else seed.point_xy=PICKS[0];
   const r=await fetch('/jobs/'+JOB+'/seeds',{method:'POST',
-    headers:{'Content-Type':'application/json'},
+    headers:{'Content-Type':'application/json','X-FairwayOS-Token':TOKEN},
     body:JSON.stringify({source_sha256:SRC.sha,seeds:[seed]})});
   const d=await r.json();
   $('#pickInfo').innerHTML=r.ok

@@ -187,9 +187,9 @@ class ClubheadSam2Adapter(_Adapter):
     def capability(self) -> Capability:
         return self._probe(
             safe=True,
-            safe_reason="SAM2.1 tiny: sam2/build_sam.py hardcodes "
-                        "torch.load(..., weights_only=True) with no fallback; the "
-                        "unused Hiera weights_path load is guarded at call time.",
+            safe_reason="NOT EXECUTED by this adapter yet, so no load-path safety "
+                        "is claimed here. It requires a reviewed source-specific "
+                        "seed box; the seed path is not wired into the worker.",
             demonstrated="57 accepted frames f310-366 on the Tommy source, "
                          "independently audited; requires a reviewed seed box")
 
@@ -207,8 +207,9 @@ class BallTapirAdapter(_Adapter):
     def capability(self) -> Capability:
         return self._probe(
             safe=True,
-            safe_reason="BootsTAPIR loads with weights_only=True via the repaired "
-                        "safe loader.",
+            safe_reason="NOT EXECUTED by this adapter yet, so no load-path safety "
+                        "is claimed here. It requires a source-specific reviewed "
+                        "seed bound to the source hash.",
             demonstrated="did NOT transfer on a hash-bound cross-clip rerun "
                          "(1/51 Morikawa, 0/71 Gotterup); needs a source-specific "
                          "reviewed seed and is unproven on new footage")

@@ -61,6 +61,64 @@ def safe_join(root: str, name: str) -> str:
     return target
 
 
+def resolve_import_path(name: str, import_dir: str) -> str:
+    """Resolve a submitted name INSIDE the import directory.
+
+    Finding 1: the service previously accepted any absolute path readable by the
+    service user. A readable video outside the root was accepted and its absolute
+    path, hash and metadata returned. Submission is now confined to an explicit
+    import directory, checked after realpath so symlinks cannot escape.
+    """
+    if not name:
+        raise UploadRejected("no filename given")
+    if _URL.match(str(name)):
+        raise UploadRejected("remote URLs are not accepted")
+    root = os.path.realpath(import_dir)
+    cand = name if os.path.isabs(name) else os.path.join(root, name)
+    real = os.path.realpath(cand)          # resolves symlinks BEFORE the check
+    if real != root and not real.startswith(root + os.sep):
+        raise UploadRejected(
+            f"{name!r} is outside the import directory. Put the file in "
+            f"{root} and submit its name, or upload it through the browser.")
+    if not os.path.isfile(real):
+        raise UploadRejected(f"file not found in the import directory: {name}")
+    return real
+
+
+def probe_video(path: str, timeout: float = 60.0) -> dict:
+    """Decode-probe OUT OF PROCESS with a hard wall-clock kill.
+
+    Finding 3: decode_timeout_seconds was declared but never enforced; a hostile
+    or corrupt file could hang the serving thread inside cv2 before the bounded
+    worker path was ever reached.
+    """
+    import subprocess, sys, json as _json
+    code = (
+        "import sys,json,cv2\n"
+        "p=sys.argv[1]\n"
+        "c=cv2.VideoCapture(p)\n"
+        "ok=c.isOpened()\n"
+        "w=int(c.get(cv2.CAP_PROP_FRAME_WIDTH)); h=int(c.get(cv2.CAP_PROP_FRAME_HEIGHT))\n"
+        "n=int(c.get(cv2.CAP_PROP_FRAME_COUNT)); f=float(c.get(cv2.CAP_PROP_FPS) or 0)\n"
+        "r,_=c.read()\n"
+        "c.release()\n"
+        "print(json.dumps({'opened':bool(ok),'read':bool(r),'width':w,'height':h,"
+        "'frames':n,'fps':f}))\n"
+    )
+    try:
+        pr = subprocess.run([sys.executable, "-c", code, path],
+                            capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise UploadRejected(
+            f"decode probe timed out after {timeout}s; refusing the file")
+    if pr.returncode != 0:
+        raise UploadRejected("file could not be probed as video")
+    try:
+        return _json.loads((pr.stdout or "").strip().splitlines()[-1])
+    except Exception:
+        raise UploadRejected("decode probe returned unparsable output")
+
+
 def sha256_file(path: str) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as fh:
@@ -85,18 +143,11 @@ def validate_upload(path: str, limits: Optional[VideoLimits] = None,
         raise UploadRejected(
             f"file size {size} exceeds limit {limits.max_bytes}")
 
-    import cv2
-    cap = cv2.VideoCapture(path)
-    try:
-        if not cap.isOpened():
-            raise UploadRejected("file could not be opened as video")
-        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        fps = float(cap.get(cv2.CAP_PROP_FPS)) or 0.0
-        ok, _ = cap.read()                          # prove at least one real frame
-    finally:
-        cap.release()
+    info = probe_video(path, timeout=limits.decode_timeout_seconds)
+    ok = info.get("opened") and info.get("read")
+    w, h = int(info.get("width", 0)), int(info.get("height", 0))
+    frames = int(info.get("frames", 0))
+    fps = float(info.get("fps", 0) or 0)
 
     if not ok or w <= 0 or h <= 0:
         raise UploadRejected("file could not be decoded as video")

@@ -17,7 +17,8 @@ import argparse, cgi, json, os, threading, traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from ghostcaddie.upload.validation import (UploadRejected, VideoLimits,
-                                           safe_join, validate_upload)
+                                           resolve_import_path, safe_join,
+                                           validate_upload)
 from ghostcaddie.upload.jobs import JobStore, JobState
 from ghostcaddie.upload.ui import PAGE
 from ghostcaddie.upload.targets import (describe_runtime, plan_targets,
@@ -25,6 +26,8 @@ from ghostcaddie.upload.targets import (describe_runtime, plan_targets,
 
 MAX_ANALYSED_FRAMES = 40        # bounded work per job
 WORKER_TIMEOUT_SECONDS = 300    # bounded wall time per target
+MULTIPART_OVERHEAD_ALLOWANCE = 1 << 20   # headers/boundaries above the media cap
+RETAIN_UPLOADED_MEDIA = False   # finding 5: delete uploaded media at terminal state
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 INDEX = """<!doctype html><meta charset=utf-8><title>FairwayOS upload (research)</title>
@@ -71,10 +74,18 @@ def _run_job(store: JobStore, job_id: str, video):
                             "max_frames": MAX_ANALYSED_FRAMES}, fh)
                 req = fh.name
             try:
-                p = subprocess.run([spec.interpreter, "-m", "ghostcaddie.upload.worker",
-                                    name, req], capture_output=True, text=True,
-                                   timeout=WORKER_TIMEOUT_SECONDS, cwd=REPO_ROOT)
-                out = _json.loads((p.stdout or "").strip().splitlines()[-1])
+                proc = subprocess.Popen(
+                    [spec.interpreter, "-m", "ghostcaddie.upload.worker", name, req],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                    cwd=REPO_ROOT)
+                store.set_proc(job_id, proc)
+                try:
+                    stdout, _ = proc.communicate(timeout=WORKER_TIMEOUT_SECONDS)
+                finally:
+                    store.clear_proc(job_id)
+                if store.cancelled(job_id):
+                    return
+                out = _json.loads((stdout or "").strip().splitlines()[-1])
             except subprocess.TimeoutExpired:
                 plan[name].outcome = TargetOutcome.UNAVAILABLE
                 plan[name].reason = f"worker exceeded {WORKER_TIMEOUT_SECONDS}s and was stopped"
@@ -119,15 +130,25 @@ def _run_job(store: JobStore, job_id: str, video):
         }
         if store.cancelled(job_id):
             return
+        if not RETAIN_UPLOADED_MEDIA:
+            result["media_retention"] = (
+                "uploaded media deleted at job completion; only sanitised result "
+                "metadata is kept" if store.drop_source_media(job_id)
+                else "no uploaded media to delete (analysed in place from the "
+                     "import directory)")
         store.finish(job_id, result)
     except Exception as e:              # never leak a traceback to the client
         traceback.print_exc()
         store.fail(job_id, f"{type(e).__name__}: {e}")
 
 
+ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
+
+
 class Handler(BaseHTTPRequestHandler):
     store: JobStore = None
     limits: VideoLimits = None
+    csrf_token: str = ""
     server_version = "FairwayOSUpload/0.1"
 
     def log_message(self, *a): pass
@@ -142,18 +163,58 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    # ---- finding 1: DNS-rebinding / cross-origin defence
+    def _host_ok(self) -> bool:
+        host = (self.headers.get("Host") or "").split(":")[0].strip().lower()
+        return host in ALLOWED_HOSTS or host == ""
+
+    def _origin_ok(self) -> bool:
+        import urllib.parse as up
+        for h in ("Origin", "Referer"):
+            v = self.headers.get(h)
+            if not v:
+                continue
+            host = (up.urlparse(v).hostname or "").lower()
+            if host not in ALLOWED_HOSTS:
+                return False
+        return True
+
+    def _guard(self, mutating: bool) -> bool:
+        if not self._host_ok():
+            self._send(403, {"error": "Host header not allowed; this service only "
+                                      "answers to localhost"})
+            return False
+        if not self._origin_ok():
+            self._send(403, {"error": "cross-origin request refused"})
+            return False
+        if mutating:
+            tok = (self.headers.get("X-FairwayOS-Token") or "").strip()
+            if not tok:
+                import urllib.parse as up
+                tok = up.parse_qs(up.urlparse(self.path).query).get("token", [""])[0]
+            if not self.csrf_token or tok != self.csrf_token:
+                self._send(403, {"error": "missing or invalid request token"})
+                return False
+        return True
+
     def do_GET(self):
+        if not self._guard(mutating=False):
+            return
         if self.path == "/":
-            return self._send(200, PAGE, "text/html; charset=utf-8")
+            page = PAGE.replace("__FAIRWAYOS_TOKEN__", self.csrf_token)
+            return self._send(200, page, "text/html; charset=utf-8")
         if self.path == "/ready":
             from ghostcaddie.upload.runtimes import RuntimeRegistry
             rd = RuntimeRegistry.default().readiness()
-            payload = {"service": "ok", "runtimes": rd,
-                       "all_runtimes_ready": all(v["ready"] for v in rd.values()),
-                       "note": "runtime readiness is not a three-target claim; "
-                               "clubhead and ball additionally require a reviewed "
-                               "source-specific seed."}
-            return self._send(200, payload)
+            return self._send(200, {
+                "service": "ok",
+                "dependency_readiness": rd,
+                "executable_now": [t for t, v in rd.items() if v["can_execute_now"]],
+                "note": "This is DEPENDENCY readiness, not tracking success and not "
+                        "a three-target claim. A target is only executable when its "
+                        "interpreter and model file are present AND it needs no "
+                        "reviewed seed. clubhead and ball currently accept and store "
+                        "seeds but do NOT yet execute their models."})
         if self.path == "/runtime":
             return self._send(200, {n: vars(r) for n, r in describe_runtime().items()})
         if self.path == "/jobs":
@@ -237,11 +298,17 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(b)
 
     def do_POST(self):
+        if not self._guard(mutating=True):
+            return
         if self.path.startswith("/jobs/") and self.path.endswith("/cancel"):
             jid = self.path.split("/")[2]
             try:
-                self.store.cancel(jid); self.store.cleanup(jid)
-                return self._send(200, self.store.get(jid).to_dict())
+                self.store.cancel(jid)
+                killed = self.store.kill_proc(jid)
+                self.store.cleanup(jid)
+                d = self.store.get(jid).to_dict()
+                d["active_child_terminated"] = killed
+                return self._send(200, d)
             except KeyError:
                 return self._send(404, {"error": "unknown job"})
         if self.path.startswith("/jobs/") and self.path.endswith("/seeds"):
@@ -268,34 +335,65 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(404, {"error": "not found"})
 
         ctype = self.headers.get("Content-Type", "")
+        # finding 2: bound the request BEFORE parsing or writing anything
+        raw_len = self.headers.get("Content-Length")
+        if raw_len is None:
+            return self._send(411, {"error": "Content-Length is required"})
+        try:
+            declared = int(raw_len)
+        except ValueError:
+            return self._send(400, {"error": "invalid Content-Length"})
+        if declared <= 0:
+            return self._send(400, {"error": "empty request"})
+        if declared > self.limits.max_bytes + MULTIPART_OVERHEAD_ALLOWANCE:
+            return self._send(413, {"error": f"request of {declared} bytes exceeds "
+                                             f"the limit {self.limits.max_bytes}"})
+
         path = None
+        job = None
         try:
             if ctype.startswith("multipart/form-data"):
                 fs = cgi.FieldStorage(fp=self.rfile, headers=self.headers,
                                       environ={"REQUEST_METHOD": "POST",
-                                               "CONTENT_TYPE": ctype})
+                                               "CONTENT_TYPE": ctype},
+                                      limit=self.limits.max_bytes + MULTIPART_OVERHEAD_ALLOWANCE)
                 item = fs["video"] if "video" in fs else None
                 if item is None or not getattr(item, "filename", ""):
                     return self._send(400, {"error": "no video field"})
                 job = self.store.create(item.filename)
                 wd = self.store.workdir(job.id); os.makedirs(wd, exist_ok=True)
                 path = safe_join(wd, os.path.basename(item.filename))
+                written = 0
                 with open(path, "wb") as out:
                     while True:
                         chunk = item.file.read(1 << 20)
-                        if not chunk: break
+                        if not chunk:
+                            break
+                        written += len(chunk)
+                        if written > self.limits.max_bytes:   # cumulative cap
+                            out.close()
+                            self.store.fail(job.id, "upload exceeded size limit")
+                            self.store.cleanup(job.id)        # drop partial file
+                            return self._send(413, {"error": "upload exceeded the "
+                                                             "size limit and was discarded"})
                         out.write(chunk)
             else:
-                n = int(self.headers.get("Content-Length") or 0)
+                n = min(declared, 64 * 1024)
                 raw = self.rfile.read(n).decode("utf-8", "replace")
                 import urllib.parse as up
-                path = up.parse_qs(raw).get("path", [""])[0]
-                if not path:
-                    return self._send(400, {"error": "path is required"})
-                job = self.store.create(path)
+                form = up.parse_qs(raw)
+                name = (form.get("name") or form.get("path") or [""])[0]
+                if not name:
+                    return self._send(400, {"error": "name is required"})
+                # finding 1: only files inside the import directory, never an
+                # arbitrary absolute path
+                path = resolve_import_path(name, self.store.import_dir)
+                job = self.store.create(os.path.basename(path))
         except UploadRejected as e:
+            if job: self.store.cleanup(job.id)
             return self._send(400, {"error": str(e)})
         except Exception as e:
+            if job: self.store.cleanup(job.id)
             return self._send(400, {"error": f"{type(e).__name__}: {e}"})
 
         try:
@@ -311,8 +409,13 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def build_server(root: str, host="127.0.0.1", port=0, limits=None):
+    import secrets
     Handler.store = JobStore(root)
     Handler.limits = limits or VideoLimits()
+    # A per-launch token. Must never be empty: an empty token would compare equal
+    # to an absent one and silently disable the CSRF check entirely.
+    Handler.csrf_token = secrets.token_urlsafe(32)
+    assert Handler.csrf_token, "csrf token must not be empty"
     return ThreadingHTTPServer((host, port), Handler)
 
 

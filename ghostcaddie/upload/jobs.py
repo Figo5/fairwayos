@@ -46,6 +46,9 @@ class JobStore:
         self._cancel: Dict[str, bool] = {}
         self._sources: Dict[str, object] = {}
         self._seeds: Dict[str, object] = {}
+        self._procs: Dict[str, object] = {}
+        self.import_dir = os.path.join(self.root, 'import')
+        os.makedirs(self.import_dir, exist_ok=True)
         self._lock = threading.Lock()
 
     def create(self, filename: str) -> Job:
@@ -113,6 +116,51 @@ class JobStore:
     def seeds(self, job_id: str):
         with self._lock:
             return self._seeds.get(job_id)
+
+    # --- finding 4: track the active child so cancel can actually stop it
+    def set_proc(self, job_id: str, proc):
+        with self._lock:
+            self._procs[job_id] = proc
+
+    def clear_proc(self, job_id: str):
+        with self._lock:
+            self._procs.pop(job_id, None)
+
+    def kill_proc(self, job_id: str):
+        with self._lock:
+            p = self._procs.get(job_id)
+        if p is None:
+            return False
+        try:
+            p.terminate()
+            try:
+                p.wait(timeout=5)
+            except Exception:
+                p.kill()
+            return True
+        except Exception:
+            return False
+
+    # --- finding 5: explicit, bounded media retention
+    def drop_source_media(self, job_id: str) -> bool:
+        """Delete the uploaded media for a finished job, keeping metadata."""
+        with self._lock:
+            v = self._sources.get(job_id)
+        if v is None:
+            return False
+        path = getattr(v, "path", None)
+        if not path:
+            return False
+        real = os.path.realpath(path)
+        # only ever delete inside our own root; never a user's import file
+        upload_area = os.path.realpath(os.path.join(self.root, job_id))
+        if not real.startswith(upload_area + os.sep):
+            return False
+        try:
+            os.remove(real)
+            return True
+        except OSError:
+            return False
 
     def cleanup(self, job_id: str):
         wd = os.path.join(self.root, job_id)
