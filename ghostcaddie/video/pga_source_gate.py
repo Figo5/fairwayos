@@ -267,3 +267,94 @@ def require_demo_eligible(path: Optional[str] = None,
             f"footage must never be substituted."
         )
     return d
+
+
+# ===================== official PGA TOUR candidates (not local) =====================
+#
+# These are genuinely OFFICIAL PGA TOUR competition videos identified from public
+# pgatour.com video metadata (2026-09-11). They are the first real broadcast
+# candidates found. They are NOT on this machine and this agent MUST NOT acquire
+# them, because the PGA TOUR Terms of Use say, verbatim:
+#
+#   "You shall not use or permit or facilitate others to use PGATOUR.COM by
+#    automated electronic processes, robots, spiders, scrapers, webcrawlers, or
+#    other computer programs that monitor, copy or download data or other content
+#    found on or accessed through PGATOUR.COM"
+#
+# An automated agent downloading this video is exactly the prohibited act, so the
+# acquisition route for ME is closed. The same terms separately say "You may
+# download copyrighted material for Your personal use only" -- a route available
+# to a PERSON, not to this process -- and "You may not modify, publish, transmit,
+# participate in the transfer or sale, create derivative works, or in any way
+# exploit, any of the content", which bears directly on whether a rendered
+# analysis overlay may be produced or shown at all.
+#
+# Viewing is not reuse. Personal-use download is not derivative-work permission.
+# Local research permission is not public-demo clearance. Keep the three apart.
+
+PGA_TOU_URL = "https://www.pgatour.com/company/terms-of-use"
+
+OFFICIAL_CANDIDATES: Dict[str, dict] = {
+    "6404323161112": {
+        "title": "Scottie Scheffler sinks 24-foot birdie putt on No. 4 at TOUR Championship",
+        "player": "Scottie Scheffler", "duration_s": 20, "hole": "4", "round": "4",
+        "event": "2026 TOUR Championship (tournamentId 060)",
+        "share_url": "https://www.pgatour.com/video/competition/6404323161112/"
+                     "scottie-scheffler-sinks-foot-birdie-putt-on-no--at-tour-championship",
+        "poster_evidence": "1920x1080 poster inspected 2026-09-11: tight follow shot "
+                           "of the player from behind with a burned-in leaderboard bug. "
+                           "Poster framing is a thumbnail choice, not proof of the "
+                           "whole clip's framing.",
+    },
+    "6404324364112": {
+        "title": "Justin Rose sinks 32-foot birdie putt on No. 11 at TOUR Championship",
+        "player": "Justin Rose", "duration_s": 23, "hole": "11", "round": "4",
+        "event": "2026 TOUR Championship (tournamentId 060)",
+        "share_url": "https://www.pgatour.com/video/competition/6404324364112/"
+                     "justin-rose-sinks-foot-birdie-putt-on-no--at-tour-championship",
+        "poster_evidence": "1920x1080 poster inspected 2026-09-11: down-the-line par-3 "
+                           "tee shot, TOUR CHAMPIONSHIP final-round leaderboard, Rolex "
+                           "bug, AND A BURNED-IN BROADCAST SHOT TRACER with a "
+                           "'BALL SPEED 149 MPH' graphic.",
+        "hazard": "The broadcast's OWN tracer and ball-speed graphic are burned into "
+                  "the picture. Any analysis of this clip must never present the "
+                  "broadcaster's tracer as our detection, and must never read the "
+                  "broadcast's ball-speed number back out as a measurement of ours.",
+    },
+    "6404321996112": {
+        "title": "Si Woo Kim holes 120-yard shot for eagle on No. 10 at TOUR Championship",
+        "player": "Si Woo Kim", "duration_s": 22, "hole": "10", "round": "4",
+        "event": "2026 TOUR Championship (tournamentId 060)",
+        "share_url": "https://www.pgatour.com/video/competition/6404321996112/"
+                     "si-woo-kim-holes-yard-shot-for-eagle-on-no--at-tour-championship",
+        "poster_evidence": "1920x1080 poster inspected 2026-09-11: player and caddie "
+                           "walking, leaderboard bug. Poster shows no ball-strike "
+                           "moment; the approach shot itself is unverified.",
+    },
+}
+
+for _c in OFFICIAL_CANDIDATES.values():
+    _c.update({
+        "official_pga_tour": True,
+        "locally_available": False,
+        "status": REVIEW_REQUIRED,
+        "acquisition_by_this_agent": "PROHIBITED",
+        "acquisition_blocker": (
+            "PGA TOUR Terms of Use forbid automated download of site content, "
+            "including video. This agent is an automated process, so it must not "
+            "fetch these clips. " + PGA_TOU_URL),
+        "human_route": (
+            "The Terms permit a PERSON to 'download copyrighted material for Your "
+            "personal use only'. That covers local viewing. It does NOT grant "
+            "derivative-work or redistribution rights, which the same Terms "
+            "restrict explicitly."),
+        "rights": "PGA TOUR owns the footage. No redistribution. Archive licensing "
+                  "runs through T3Media (sales@t3media.com).",
+        "public_redistribution_cleared": False,
+        "demo_eligible": False,
+    })
+
+
+def official_candidates() -> Dict[str, dict]:
+    """Official PGA TOUR candidates and why this agent cannot acquire them."""
+    return {k: dict(v) for k, v in OFFICIAL_CANDIDATES.items()}

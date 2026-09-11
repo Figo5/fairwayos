@@ -139,3 +139,51 @@ class EvidenceIntegrityTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OfficialCandidateTests(unittest.TestCase):
+    """Official PGA TOUR clips are still not eligible, and not acquirable here."""
+
+    def _c(self):
+        from ghostcaddie.video.pga_source_gate import official_candidates
+        return official_candidates()
+
+    def test_official_candidates_are_recorded(self):
+        c = self._c()
+        self.assertIn("6404323161112", c)   # Scheffler
+        self.assertIn("6404324364112", c)   # Rose
+        self.assertIn("6404321996112", c)   # Si Woo Kim
+
+    def test_being_official_does_not_make_a_source_demo_eligible(self):
+        """Official PGA TOUR origin is necessary, not sufficient."""
+        for v in self._c().values():
+            self.assertTrue(v["official_pga_tour"])
+            self.assertEqual(v["status"], REVIEW_REQUIRED)
+            self.assertFalse(v["demo_eligible"])
+            self.assertFalse(v["public_redistribution_cleared"])
+
+    def test_agent_acquisition_is_prohibited_with_a_stated_reason(self):
+        for v in self._c().values():
+            self.assertEqual(v["acquisition_by_this_agent"], "PROHIBITED")
+            self.assertIn("automated", v["acquisition_blocker"].lower())
+            self.assertIn("pgatour.com", v["acquisition_blocker"].lower())
+
+    def test_none_are_locally_available(self):
+        for v in self._c().values():
+            self.assertFalse(v["locally_available"])
+
+    def test_personal_download_is_not_derivative_or_redistribution_rights(self):
+        for v in self._c().values():
+            self.assertIn("personal use", v["human_route"])
+            self.assertIn("does NOT grant", v["human_route"])
+
+    def test_broadcast_tracer_hazard_is_recorded_for_the_rose_clip(self):
+        """The Rose poster has the broadcaster's OWN tracer burned in."""
+        v = self._c()["6404324364112"]
+        self.assertIn("tracer", v["hazard"].lower())
+        self.assertIn("never present", v["hazard"].lower())
+
+    def test_official_candidates_cannot_reach_require_demo_eligible(self):
+        for vid in self._c():
+            with self.assertRaises(SourceNotEligible):
+                require_demo_eligible(sha256="f" * 64)
