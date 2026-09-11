@@ -63,22 +63,30 @@ _REGISTRY: Dict[str, dict] = {
     },
     # ---- REVIEW REQUIRED: genuine PGA TOUR players, unverified source.
     "d3311ea7470b027e43611fc1251313aa917dcc66f35462b27bf486cdd228b4f0": {
-        "label": "YouTube f3kTTMZlxds - vertical countdown compilation",
+        "label": "YouTube f3kTTMZlxds - DUAL-PANEL side-by-side countdown edit",
         "status": REVIEW_REQUIRED,
-        "reason": "Frames show genuine PGA TOUR players via burned-in captions "
+        "reason": "Frames show 10 genuine PGA TOUR players via burned-in captions "
                   "(Zalatoris, Spieth, Fitzpatrick, Homa, C. Smith, Schauffele, "
-                  "Cantlay, McIlroy, Scheffler). BUT it is a third-party vertical "
-                  "re-cut with burned-in ranking captions and hard cuts between "
-                  "players/venues, and NO source URL was ever recorded for it "
-                  "(download.py names 6n3nFFiS5sE, which is a different id). "
-                  "Real players on screen is not source clearance.",
+                  "Cantlay, McIlroy, Scheffler, Rahm). BUT structural inspection "
+                  "on 2026-09-11 found it is a DUAL-PANEL edit: two 640x720 "
+                  "portrait panels side by side with a hard black divider at "
+                  "x~638, showing two DIFFERENT players simultaneously (frame 200 "
+                  "= Zalatoris left / Spieth right; frame 3400 = Scheffler left / "
+                  "McIlroy right), with burned-in ranking captions and a panel "
+                  "change roughly every 455 frames. That is a social-media "
+                  "comparison edit, not broadcast footage, and it is the opposite "
+                  "of the 'dominant uncluttered broadcast footage' the demo "
+                  "requires. NO source URL was ever recorded (download.py names "
+                  "6n3nFFiS5sE, a different id). Real players on screen is not "
+                  "source clearance.",
         "source_url": None,
         "event_evidence": None,
         "player_evidence": "Burned-in captions naming 9 PGA TOUR players, "
                            "visually confirmed in extracted frames 2026-09-11",
         "rights": "Third-party re-upload, origin unverified. Local research only; "
                   "no redistribution, no public demo.",
-        "frames_inspected": "8-frame contact strip across 4905 frames, 2026-09-11",
+        "frames_inspected": "8-frame contact strip + per-segment caption crops + "
+                            "column-variance seam analysis at frame 400, 2026-09-11",
         "local_research_allowed": True,
         "public_redistribution_cleared": False,
     },

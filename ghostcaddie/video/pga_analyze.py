@@ -43,6 +43,8 @@ from ghostcaddie.video.pga_research_analyzer import (
     render_frame,
     run_ball_track,
     run_club_track,
+    layer_initialisation,
+    automatic_tee_seed,
     static_dark_mask,
     write_video,
     RESEARCH_FLAGS,
@@ -255,12 +257,25 @@ def run(args: argparse.Namespace) -> dict:
                 ("assisted" if crop_source in ("assist_json", "cli_crop") else crop_source),
     }
 
-    if ball_tee is None or club_seed is None:
+    layers = layer_initialisation(
+        ball_tee, club_seed,
+        ball_tee_source=("cli" if args.seed_ball_tee else
+                         "assisted" if assist.get("ball_tee") else
+                         "automatic_unconfirmed"),
+        club_seed_source=("cli" if args.seed_club else
+                          "assisted" if assist.get("club_seed") else
+                          "automatic_unconfirmed"),
+    )
+    # Layers degrade INDEPENDENTLY. A missing clubhead seed must not discard
+    # pose and ball as well -- clubhead is falsified at this resolution, so
+    # gating everything behind it means PGA footage yields nothing at all.
+    if not any(v["can_run"] for v in layers.values()):
         diag = {
             "schema": "ghostcaddie-pga-research-diagnostics/v1",
             "status": "unavailable",
-            "reason": ("no reliable ball tee position" if ball_tee is None
-                       else "no reliable club seed"),
+            "reason": "no layer could initialise: " + "; ".join(
+                v["reason"] for v in layers.values() if v["reason"]),
+            "layers": layers,
             "modes": modes,
             "crop": crop,
             "crop_source": crop_source,
@@ -274,12 +289,31 @@ def run(args: argparse.Namespace) -> dict:
     # ---- trackers ----
     book_ball = MotionBookkeeper(expected_step=step)
     book_club = MotionBookkeeper(expected_step=step)
-    ball_rows, ball_meta = run_ball_track(crops, source_frames, book_ball, duplicate_frames,
-                                          ball_tee, params, segment_ids)
-    static_dark = static_dark_mask(crops)
-    club_rows = run_club_track(crops, source_frames, book_club, duplicate_frames,
-                               static_dark, (club_seed["x"], club_seed["y"]),
-                               int(club_seed["source_frame"]), pose_rows, params, segment_ids)
+    def _all_unavailable(book, reason):
+        """A layer that could not initialise still reports, frame by frame."""
+        rows = []
+        for f in source_frames:
+            obs = book.observe(f, None, None, 0.0, "unavailable", reason)
+            rows.append({"source_frame": f, "state": "unavailable", "x": None,
+                         "y": None, "confidence": 0.0, "source": reason,
+                         "segment_id": 1, "_book": obs})
+        return rows
+
+    if layers["ball"]["can_run"]:
+        ball_rows, ball_meta = run_ball_track(crops, source_frames, book_ball,
+                                              duplicate_frames, ball_tee, params,
+                                              segment_ids)
+    else:
+        ball_rows, ball_meta = _all_unavailable(book_ball, "seed_unavailable"), {}
+
+    if layers["clubhead"]["can_run"]:
+        static_dark = static_dark_mask(crops)
+        club_rows = run_club_track(crops, source_frames, book_club, duplicate_frames,
+                                   static_dark, (club_seed["x"], club_seed["y"]),
+                                   int(club_seed["source_frame"]), pose_rows, params,
+                                   segment_ids)
+    else:
+        club_rows = _all_unavailable(book_club, "seed_unavailable")
 
     # ---- flag results / reference agreement (evaluation-only) ----
     flag_results: Dict[str, object] = {
@@ -325,11 +359,14 @@ def run(args: argparse.Namespace) -> dict:
             "crop_source": crop_source,
             "assist_json": os.path.relpath(args.assist_json) if args.assist_json else None,
             "initialization": {
-                "ball_tee_xy": list(ball_tee),
-                "ball_tee_source": ("assist_json" if assist.get("ball_tee") else "cli") if (args.seed_ball_tee or assist.get("ball_tee")) else "auto_tee_blob",
-                "club_seed_xy": [club_seed["x"], club_seed["y"]],
-                "club_seed_source_frame": int(club_seed["source_frame"]),
-                "club_seed_source": ("assist_json" if assist.get("club_seed") else "cli") if (args.seed_club or assist.get("club_seed")) else "auto_dark_seed",
+                "ball_tee_xy": list(ball_tee) if ball_tee else None,
+                "ball_tee_source": layers["ball"]["seed_source"],
+                "club_seed_xy": ([club_seed["x"], club_seed["y"]]
+                                 if club_seed else None),
+                "club_seed_source_frame": (int(club_seed["source_frame"])
+                                           if club_seed else None),
+                "club_seed_source": layers["clubhead"]["seed_source"],
+                "layers": layers,
             },
             "ball_track_meta": ball_meta,
             "reference_agreement": {
@@ -389,6 +426,7 @@ def run(args: argparse.Namespace) -> dict:
             "source_frames_total": src_w,
             "sampled_frames": len(source_frames),
             "crop": crop,
+            "layers": layers,
             "render_fps": render_fps,
             "outputs": ["annotated_video.mp4", "contact_sheet.jpg", "diagnostics.json",
                         "provenance.json", "report.md"],
@@ -423,7 +461,14 @@ def _resolve_tee(seed_arg, assist, crops, source_frames, pose_rows):
         return (x, y)
     if assist.get("ball_tee"):
         return (float(assist["ball_tee"][0]), float(assist["ball_tee"][1]))
-    # automatic: scan first sampled frames for a small bright round blob
+    # automatic: deterministic persistence locator first (bounded lower ROI).
+    # A ball at rest is round AND stays put across frames; a single-frame bright
+    # blob scan cannot tell a ball from a shoe highlight or a cloud.
+    cand = automatic_tee_seed(crops[: min(12, len(crops))], roi_fraction=0.45,
+                              ball_color="white")
+    if cand is not None:
+        return (float(cand[0]), float(cand[1]))
+    # fallback: single-frame bright round blob
     for img in crops[: min(12, len(crops))]:
         from ghostcaddie.video.pga_research_analyzer import bright_blobs
         for b in bright_blobs(img, DEFAULTS["ball_tee_v_thr"], DEFAULTS["ball_tee_s_thr"]):

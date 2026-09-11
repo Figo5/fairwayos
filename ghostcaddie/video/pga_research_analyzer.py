@@ -1136,3 +1136,69 @@ def make_contact_sheet(video_path: str, out_jpg: str, n_frames: int = 12) -> Non
         rows.append(np.zeros_like(rows[0]))
     grid = np.vstack(rows)
     cv2.imwrite(out_jpg, grid)
+
+# ===================== independent layer initialisation =====================
+#
+# Clubhead is locally falsified at broadcast resolution/frame rate. Gating every
+# other layer behind a clubhead seed means PGA footage produces nothing at all
+# (measured 2026-09-11: both the evaluation and held-out intervals aborted with
+# "no reliable club seed", discarding pose and ball with it). Layers therefore
+# degrade INDEPENDENTLY: a layer that cannot initialise reports unavailable with
+# its reason, and the layers that can still run, still run.
+
+def layer_initialisation(
+    ball_tee: Optional[Tuple[float, float]],
+    club_seed: Optional[dict],
+    ball_tee_source: str = "unavailable",
+    club_seed_source: str = "unavailable",
+) -> Dict[str, dict]:
+    """Per-layer runnability, each with its own reason and labelled seed source.
+
+    ``*_source`` is the PROVENANCE of the seed and is never "detected":
+    "assisted" (human/AI-supplied), "automatic_unconfirmed" (found by the
+    deterministic locator, not confirmed), "cli" or "unavailable".
+    """
+    return {
+        "ball": {
+            "can_run": ball_tee is not None,
+            "state": "ready" if ball_tee is not None else "unavailable",
+            "reason": "" if ball_tee is not None else
+                      "no reliable tee-ball seed; ball layer cannot initialise",
+            "seed_source": ball_tee_source if ball_tee is not None else "unavailable",
+        },
+        "clubhead": {
+            "can_run": club_seed is not None,
+            "state": "ready" if club_seed is not None else "unavailable",
+            "reason": "" if club_seed is not None else
+                      "no reliable clubhead seed; clubhead layer cannot initialise",
+            "seed_source": club_seed_source if club_seed is not None else "unavailable",
+        },
+    }
+
+
+def automatic_tee_seed(frames: Sequence[np.ndarray], roi_fraction: float = 0.45,
+                       ball_color: str = "white") -> Optional[Tuple[float, float]]:
+    """Deterministic tee-ball seed candidate, restricted to the lower ROI.
+
+    Delegates to the existing ``research_ball.find_static_ball`` persistence
+    locator rather than re-implementing blob search. The ROI restriction is not
+    cosmetic: on an unbounded ROI the locator locks onto sky/cloud highlights
+    (measured on the held-out McIlroy interval, which returned a sky candidate
+    at y=33 with the full frame and the real tee ball at y=619 with the lower
+    ROI).
+
+    Returns an UNCONFIRMED candidate or None. It is never a detection claim.
+    """
+    if not 0.0 < roi_fraction <= 1.0:
+        raise ValueError("roi_fraction must be in (0, 1]")
+    frames = list(frames)
+    if not frames:
+        return None
+    h, w = frames[0].shape[:2]
+    roi = (0, int(h * (1.0 - roi_fraction)), w, h)
+    from ghostcaddie.video.research_ball import find_static_ball
+    try:
+        return find_static_ball(frames, roi=roi, min_persistent_frames=3,
+                                ball_color=ball_color)
+    except (ValueError, RuntimeError):
+        return None
