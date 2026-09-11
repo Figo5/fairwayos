@@ -19,8 +19,14 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
+
 import cv2
 import numpy as np
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))))
+from ghostcaddie.video.pga_source_gate import require_demo_eligible
 
 ROOT = "out/research_training_gauntlet"
 SRC = f"{ROOT}/pexels_6573485/source.mp4"
@@ -181,6 +187,11 @@ def main():
     ap.add_argument("--fps", type=float, default=15.0)
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
+
+    # PGA-ONLY GATE (2026-09-11 reset): fails closed. This builder was written
+    # against Pexels amateur footage, which the user rejected as the product
+    # demo; the gate now refuses it rather than letting it drift back in.
+    require_demo_eligible(SRC)
 
     acc = json.load(open(f"{ACCEPTED}/diagnostics.json"))
     rej = json.load(open(f"{REJECTED}/diagnostics.json"))
