@@ -15,8 +15,10 @@ class RuntimeSafetyTests(unittest.TestCase):
         permanently blocked by the superseded Ultralytics route.
         """
         b = describe_runtime()[TargetName.BODY]
-        self.assertNotIn("ultralytics", b.reason.lower())
-        self.assertNotIn("weights_only=False", b.reason)
+        # property, not substring: body must never be reported unsafe because of
+        # the superseded pickle route
+        self.assertNotIn("unsafe", b.reason.lower())
+        self.assertNotIn("BLOCKED:", b.reason)
 
     def test_unrunnable_target_names_its_actual_missing_dependency(self):
         """Whatever the reason, it must be specific and computed, not generic."""

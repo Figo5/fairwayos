@@ -48,10 +48,16 @@ class ProbeTests(unittest.TestCase):
         self.assertIn("weights_only=False", c.reason)
 
     def test_movenet_adapter_is_not_blocked_by_ultralytics(self):
-        """Body must not be permanently blocked by the old pickle runtime."""
+        """Body must not be blocked by the old pickle runtime.
+
+        Asserts the PROPERTY, not the absence of a substring: the earlier
+        version failed because the reason string mentions ultralytics only to
+        say the blocker does not apply, which is exactly the wording we want.
+        """
         c = BodyMoveNetAdapter().capability()
-        self.assertNotIn("ultralytics", c.reason.lower())
         self.assertTrue(c.safe, "TFLite flatbuffer has no pickle surface")
+        self.assertNotEqual(c.runtime, "ultralytics")
+        self.assertNotIn("unsafe", c.reason.lower())
 
 
 class FailurePathTests(unittest.TestCase):

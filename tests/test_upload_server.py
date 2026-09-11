@@ -44,10 +44,19 @@ class ServerTests(unittest.TestCase):
     def test_binds_localhost_only(self):
         self.assertIn(self.host, ("127.0.0.1", "::1"))
 
-    def test_runtime_reports_body_blocked(self):
+    def test_runtime_reports_every_target_with_a_reason(self):
+        """Updated: body is no longer blocked (MoveNet TFLite route).
+
+        The previous assertion (body.safe_to_run is False) encoded a fact that
+        has since changed. The durable invariant is that every target reports a
+        boolean plus a specific reason.
+        """
         s, b = self.get("/runtime")
         self.assertEqual(s, 200)
-        self.assertFalse(b["body"]["safe_to_run"])
+        for t in ("body", "clubhead", "ball"):
+            self.assertIn(t, b)
+            self.assertIsInstance(b[t]["safe_to_run"], bool)
+            self.assertTrue(len(b[t]["reason"]) > 20)
 
     def test_remote_url_is_refused(self):
         s, b = self.post_path("https://example.com/a.mp4")
@@ -72,10 +81,12 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(len(r["source"]["sha256"]), 64)
         return r
 
-    def test_blocked_target_is_not_three_target_success(self):
+    def test_incomplete_layers_are_not_three_target_success(self):
+        """Synthetic fixture: no target should claim a golf observation."""
         r = self.test_real_video_runs_a_job_to_completion()
         self.assertFalse(r["three_target_success"])
-        self.assertEqual(r["targets"]["body"]["outcome"], "blocked")
+        observed = [n for n, t in r["targets"].items() if t["outcome"] == "observed"]
+        self.assertLess(len(observed), 3, f"unexpected full coverage: {observed}")
 
     def test_no_target_returns_a_synthetic_result(self):
         r = self.test_real_video_runs_a_job_to_completion()
