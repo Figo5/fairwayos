@@ -84,13 +84,17 @@ class _Adapter:
     def capability(self) -> Capability:
         raise NotImplementedError
 
-    def run_frames(self, frames: Sequence, source_sha256: Optional[str]) -> List[dict]:
+    def run_frames(self, frames: Sequence, source_sha256: Optional[str],
+                   seed: Optional[dict] = None) -> List[dict]:
         cap = self.capability()
         if not source_sha256:
             raise ValueError("source_sha256 is required: output must be source-bound")
         if not cap.available:
             raise AdapterUnavailable(f"{self.target}: {cap.reason}")
-        return self._run(frames, source_sha256, cap)
+        try:
+            return self._run(frames, source_sha256, cap, seed=seed)
+        except TypeError:
+            return self._run(frames, source_sha256, cap)
 
     def _run(self, frames, source_sha256, cap) -> List[dict]:
         raise NotImplementedError
@@ -193,10 +197,75 @@ class ClubheadSam2Adapter(_Adapter):
             demonstrated="57 accepted frames f310-366 on the Tommy source, "
                          "independently audited; requires a reviewed seed box")
 
-    def _run(self, frames, source_sha256, cap):
-        raise AdapterUnavailable(
-            "clubhead requires a reviewed seed box for the specific source; "
-            "it is not an unattended automatic detector. Provide a reviewed seed.")
+    def _run(self, frames, source_sha256, cap, seed=None):
+        """Box-prompted SAM2.1 video segmentation from a reviewed seed.
+
+        Loads ONLY through sam2/build_sam.py, which hardcodes
+        torch.load(..., weights_only=True) with no fallback, and installs a guard
+        that raises if the unused Hiera weights_path load is ever entered.
+        """
+        if seed is None or not seed.get("box_xyxy"):
+            raise AdapterUnavailable(
+                "clubhead requires a reviewed seed box bound to this source; "
+                "it is not an unattended automatic detector")
+        import os, sys, tempfile
+        import numpy as np
+        import cv2
+        sys.path.insert(0, "/tmp/fairway-sam-head/pkgs")
+        sys.path.insert(0, "/tmp/fairway-sam-head/sam2-src")
+        import torch
+        import sam2.modeling.backbones.hieradet as hd
+        _orig = hd.Hiera.__init__
+        def _guarded(self_, *a, **k):
+            if k.get("weights_path") is not None:
+                raise RuntimeError("unsafe backbone weights_path load is disabled")
+            return _orig(self_, *a, **k)
+        hd.Hiera.__init__ = _guarded
+        from sam2.build_sam import build_sam2_video_predictor
+
+        tmp = tempfile.mkdtemp(prefix="sam2frames_")
+        order = []
+        for i, (sf, img) in enumerate(frames):
+            cv2.imwrite(os.path.join(tmp, f"{i:05d}.jpg"), img,
+                        [cv2.IMWRITE_JPEG_QUALITY, 95])
+            order.append(int(sf))
+        seed_idx = order.index(int(seed["frame"])) if int(seed["frame"]) in order else 0
+        pred = build_sam2_video_predictor(
+            "configs/sam2.1/sam2.1_hiera_t.yaml", cap.model_path,
+            device=torch.device("cpu"), apply_postprocessing=False)
+        st = pred.init_state(video_path=tmp, offload_video_to_cpu=True,
+                             offload_state_to_cpu=True, async_loading_frames=False)
+        pred.add_new_points_or_box(inference_state=st, frame_idx=seed_idx, obj_id=1,
+                                   box=np.array(seed["box_xyxy"], dtype=np.float32))
+        recs = []
+        for idx, _ids, logits in pred.propagate_in_video(
+                st, start_frame_idx=seed_idx, max_frame_num_to_track=len(order),
+                reverse=False):
+            m = (logits[0].detach().cpu() > 0).numpy()
+            if m.ndim == 3:
+                m = m[0]
+            area = int(m.sum())
+            sf = order[int(idx)]
+            rec = {"source_frame": sf, "source_sha256": source_sha256,
+                   "area_px": area, "visible": area > 0, "bbox_xyxy": None,
+                   "mask_rle_area": area,
+                   "initialization": "assisted",
+                   "assistance": ("reviewed seed box on native frame "
+                                  f"{seed['frame']}; AI-reviewed, not ground truth"),
+                   "limitations": ("object-box/mask semantics only; the mask centroid "
+                                   "is NOT a material point, NO trajectory, speed or 3D "
+                                   "is implied"),
+                   "research_only": True, "pseudo_label": True,
+                   "ground_truth": False, "production_eligible": False}
+            if area > 0:
+                ys, xs = np.where(m)
+                rec["bbox_xyxy"] = [int(xs.min()), int(ys.min()),
+                                    int(xs.max() + 1), int(ys.max() + 1)]
+                np.save(os.path.join(tmp, f"mask_{sf:06d}.npy"), m)
+                rec["mask_path"] = os.path.join(tmp, f"mask_{sf:06d}.npy")
+            recs.append(rec)
+        recs.sort(key=lambda r: r["source_frame"])
+        return recs
 
 
 class BallTapirAdapter(_Adapter):
@@ -214,10 +283,76 @@ class BallTapirAdapter(_Adapter):
                          "(1/51 Morikawa, 0/71 Gotterup); needs a source-specific "
                          "reviewed seed and is unproven on new footage")
 
-    def _run(self, frames, source_sha256, cap):
-        raise AdapterUnavailable(
-            "ball requires a source-specific reviewed seed bound to the source "
-            "hash; unattended operation is not demonstrated on new sources.")
+    def _run(self, frames, source_sha256, cap, seed=None):
+        """Point-tracked ball from a reviewed seed, via the repaired safe loader.
+
+        The checkpoint is loaded with weights_only=True; there is no unrestricted
+        fallback. Loss is preserved: a frame the model marks occluded/uncertain is
+        reported not-visible, never interpolated.
+        """
+        if seed is None or not seed.get("point_xy"):
+            raise AdapterUnavailable(
+                "ball requires a reviewed seed point bound to this source hash")
+        import sys
+        import numpy as np
+        import cv2
+        sys.path.insert(0, "/tmp/fairway-learned/tracker")
+        import inspect
+        import torch
+        from tapnet.torch import tapir_model
+
+        order = [int(sf) for sf, _ in frames]
+        seed_idx = order.index(int(seed["frame"])) if int(seed["frame"]) in order else 0
+        H, W = frames[0][1].shape[:2]
+        rw, rh = 512, 320
+        vid = np.stack([cv2.resize(cv2.cvtColor(im, cv2.COLOR_BGR2RGB), (rw, rh))
+                        for _, im in frames]).astype(np.float32)
+        vid = torch.tensor(vid)[None] / 255.0 * 2 - 1
+        sx, sy = rw / W, rh / H
+        q = torch.tensor([[[float(seed_idx),
+                            float(seed["point_xy"][1]) * sy,
+                            float(seed["point_xy"][0]) * sx]]], dtype=torch.float32)
+        # same safe-load contract as the audited tracker CLI: weights_only=True
+        # with NO unrestricted fallback
+        if "weights_only" not in inspect.signature(torch.load).parameters:
+            raise AdapterUnavailable(
+                "this torch has no weights_only support; refusing to load")
+        try:
+            sd = torch.load(cap.model_path, map_location="cpu", weights_only=True)
+        except Exception as e:
+            raise AdapterUnavailable(
+                f"safe checkpoint load failed ({type(e).__name__}); aborting "
+                f"without an unrestricted pickle fallback") from e
+        model = tapir_model.TAPIR(pyramid_level=1)
+        model.load_state_dict(sd)
+        model = model.eval()
+        with torch.no_grad():
+            out = model(vid, q)
+        tr = out["tracks"][0][0].detach().cpu().numpy()          # T,2 (x,y resized)
+        occ = out["occlusion"][0][0].detach().cpu().numpy()
+        exp = out["expected_dist"][0][0].detach().cpu().numpy()
+        # exact postprocess from the audited tracker CLI
+        sig = lambda z: 1 / (1 + np.exp(-z))
+        vis = ((1 - sig(occ)) * (1 - sig(exp))) > 0.5
+        recs = []
+        for i, sf in enumerate(order):
+            v = bool(vis[i])
+            recs.append({
+                "source_frame": sf, "source_sha256": source_sha256,
+                "visible": v,
+                "point_xy": ([round(float(tr[i][0]) / sx, 2),
+                              round(float(tr[i][1]) / sy, 2)] if v else None),
+                "occlusion_logit": round(float(occ[i]), 4),
+                "state": "observed" if v else "unavailable",
+                "initialization": "assisted",
+                "assistance": (f"reviewed seed point on native frame {seed['frame']}; "
+                               "AI-reviewed, not ground truth"),
+                "limitations": ("image-space point track only; NO speed, carry, 3D, "
+                                "launch angle or landing is implied. Gaps are gaps: "
+                                "non-visible frames are never interpolated."),
+                "research_only": True, "pseudo_label": True,
+                "ground_truth": False, "production_eligible": False})
+        return recs
 
 
 def all_adapters():

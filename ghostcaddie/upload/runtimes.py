@@ -90,9 +90,9 @@ class RuntimeRegistry:
                 ["torch", "cv2", "numpy"],
                 "SAM2.1 tiny, weights_only=True with the unused Hiera path guarded"),
             "ball": RuntimeSpec(
-                "ball", os.path.join(REPO, ".venv-video-ai", "bin", "python3"),
+                "ball", "/tmp/fairway-learned/tracker/.venv/bin/python",
                 ["torch", "cv2", "numpy"],
-                "BootsTAPIR, weights_only=True"),
+                "BootsTAPIR via the tracker runtime that provides tapnet"),
         })
 
     def probe(self, target: str, refresh: bool = False) -> ProbeResult:

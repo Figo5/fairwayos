@@ -21,6 +21,8 @@ def main(argv=None):
         import cv2
         from ghostcaddie.upload.adapters import all_adapters, AdapterUnavailable
         ad = all_adapters()[target]
+        lo = req.get("frame_start")
+        hi = req.get("frame_end")
         cap = cv2.VideoCapture(req["video"])
         frames, i = [], 0
         step = max(1, int(req.get("sampling_step", 1)))
@@ -29,15 +31,20 @@ def main(argv=None):
             ok, fr = cap.read()
             if not ok:
                 break
-            if i % step == 0:
+            in_range = (lo is None or i >= lo) and (hi is None or i <= hi)
+            if in_range and ((i - (lo or 0)) % step == 0):
                 frames.append((i, fr))
                 if len(frames) >= limit:
                     break
+            if hi is not None and i > hi:
+                break
             i += 1
         cap.release()
-        recs = ad.run_frames(frames, source_sha256=req["source_sha256"])
+        recs = ad.run_frames(frames, source_sha256=req["source_sha256"],
+                             seed=req.get("seed"))
         print(json.dumps({"ok": True, "target": target, "records": recs,
-                          "frames_analysed": len(recs), "sampling_step": step}))
+                          "frames_analysed": len(recs), "sampling_step": step,
+                          "frame_range": [lo, hi]}))
         return 0
     except Exception as e:                      # includes AdapterUnavailable
         print(json.dumps({"ok": False, "target": target,
