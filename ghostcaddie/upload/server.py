@@ -22,7 +22,9 @@ from ghostcaddie.upload.jobs import JobStore, JobState
 from ghostcaddie.upload.targets import (describe_runtime, plan_targets,
                                         is_three_target_success, TargetOutcome)
 
-MAX_ANALYSED_FRAMES = 40   # bounded work per job
+MAX_ANALYSED_FRAMES = 40        # bounded work per job
+WORKER_TIMEOUT_SECONDS = 300    # bounded wall time per target
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 INDEX = """<!doctype html><meta charset=utf-8><title>FairwayOS upload (research)</title>
 <style>body{font:14px system-ui;margin:2rem;max-width:46rem}
@@ -47,45 +49,57 @@ def _run_job(store: JobStore, job_id: str, video):
             return
         plan = plan_targets(runtime)
 
-        # Actually run every target whose adapter reports real capability.
-        # Adapters that cannot run raise AdapterUnavailable and keep their
-        # honest outcome; nothing is substituted for a missing layer.
-        from ghostcaddie.upload.adapters import all_adapters, AdapterUnavailable
-        import cv2
-        for name, ad in all_adapters().items():
-            if not runtime.get(name) or not runtime[name].safe_to_run:
-                continue
+        # Run each target in ITS OWN interpreter as a subprocess. The serving
+        # process never imports torch or any model runtime.
+        import json as _json, subprocess, tempfile
+        from ghostcaddie.upload.runtimes import RuntimeRegistry, InterpreterUnavailable
+        reg = RuntimeRegistry.default()
+        step = max(1, video.frames // max(1, MAX_ANALYSED_FRAMES))
+        for name in ("body", "clubhead", "ball"):
+            if store.cancelled(job_id):
+                return
             try:
-                cap = cv2.VideoCapture(video.path)
-                frames, i = [], 0
-                step = max(1, video.frames // max(1, MAX_ANALYSED_FRAMES))
-                while True:
-                    ok, fr = cap.read()
-                    if not ok or store.cancelled(job_id):
-                        break
-                    if i % step == 0:
-                        frames.append((i, fr))
-                        if len(frames) >= MAX_ANALYSED_FRAMES:
-                            break
-                    i += 1
-                cap.release()
-                recs = ad.run_frames(frames, source_sha256=video.sha256)
-                obs = [r for r in recs if r.get("visible_keypoint_count", 0) > 0]
-                plan[name].outcome = (TargetOutcome.OBSERVED if obs
-                                      else TargetOutcome.UNAVAILABLE)
-                plan[name].reason = (
-                    f"{len(obs)}/{len(recs)} analysed frames produced observations"
-                    if obs else "adapter ran but produced no observation on this source")
-                plan[name].result = ({"frames_analysed": len(recs),
-                                      "frames_with_observation": len(obs),
-                                      "sampling_step": step,
-                                      "records": recs} if obs else None)
-            except AdapterUnavailable as e:
+                spec = reg.require(name)
+            except InterpreterUnavailable as e:
                 plan[name].outcome = TargetOutcome.UNAVAILABLE
                 plan[name].reason = str(e)
+                continue
+            with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+                _json.dump({"video": video.path, "source_sha256": video.sha256,
+                            "sampling_step": step,
+                            "max_frames": MAX_ANALYSED_FRAMES}, fh)
+                req = fh.name
+            try:
+                p = subprocess.run([spec.interpreter, "-m", "ghostcaddie.upload.worker",
+                                    name, req], capture_output=True, text=True,
+                                   timeout=WORKER_TIMEOUT_SECONDS, cwd=REPO_ROOT)
+                out = _json.loads((p.stdout or "").strip().splitlines()[-1])
+            except subprocess.TimeoutExpired:
+                plan[name].outcome = TargetOutcome.UNAVAILABLE
+                plan[name].reason = f"worker exceeded {WORKER_TIMEOUT_SECONDS}s and was stopped"
+                continue
             except Exception as e:
                 plan[name].outcome = TargetOutcome.UNAVAILABLE
-                plan[name].reason = f"adapter error: {type(e).__name__}: {e}"
+                plan[name].reason = f"worker error: {type(e).__name__}: {e}"
+                continue
+            finally:
+                os.unlink(req)
+            if not out.get("ok"):
+                plan[name].outcome = TargetOutcome.UNAVAILABLE
+                plan[name].reason = out.get("error", "worker reported failure")
+                continue
+            recs = out["records"]
+            obs = [r for r in recs if r.get("visible_keypoint_count", 0) > 0]
+            plan[name].outcome = (TargetOutcome.OBSERVED if obs
+                                  else TargetOutcome.UNAVAILABLE)
+            plan[name].reason = (f"{len(obs)}/{len(recs)} analysed frames produced "
+                                 f"observations (interpreter {spec.interpreter})"
+                                 if obs else "adapter ran but produced no observation")
+            plan[name].result = ({"frames_analysed": len(recs),
+                                  "frames_with_observation": len(obs),
+                                  "sampling_step": out.get("sampling_step"),
+                                  "interpreter": spec.interpreter,
+                                  "records": recs} if obs else None)
         store.progress(job_id, 0.8)
         result = {
             "source": {"path": video.path, "sha256": video.sha256,
@@ -130,6 +144,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/":
             return self._send(200, INDEX, "text/html; charset=utf-8")
+        if self.path == "/ready":
+            from ghostcaddie.upload.runtimes import RuntimeRegistry
+            rd = RuntimeRegistry.default().readiness()
+            payload = {"service": "ok", "runtimes": rd,
+                       "all_runtimes_ready": all(v["ready"] for v in rd.values()),
+                       "note": "runtime readiness is not a three-target claim; "
+                               "clubhead and ball additionally require a reviewed "
+                               "source-specific seed."}
+            return self._send(200, payload)
         if self.path == "/runtime":
             return self._send(200, {n: vars(r) for n, r in describe_runtime().items()})
         if self.path == "/jobs":
