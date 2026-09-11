@@ -74,8 +74,8 @@ _REGISTRY: Dict[str, dict] = {
                   "the Brightcove metadata tags (/pgatour/category/competition, "
                   "/pgatour/tournaments/2026/r060) and from the frames themselves "
                   "(TOUR Championship leaderboard bug, 'SCHEFFLER -13 / 4th HOLE / "
-                  "FOR BIRDIE & CO-LEAD' lower third). Acquired by the USER with "
-                  "explicit authorization, not by this agent. Local research is "
+                  "FOR BIRDIE & CO-LEAD' lower third). Acquired by HERMES at the user's"
+                  " direction (corrected 2026-09-11; not downloaded by the user personally). Local research is "
                   "authorized; redistribution rights are UNVERIFIED, so it stays "
                   "review_required and is never demo-eligible for publication.",
         "source_url": "https://www.pgatour.com/video/competition/6404323161112/"
@@ -90,12 +90,47 @@ _REGISTRY: Dict[str, dict] = {
         "rights": "PGA TOUR owns the footage. PUBLIC REDISTRIBUTION RIGHTS ARE "
                   "UNVERIFIED. Do not publish this clip or any render derived from "
                   "it. Local research only.",
-        "user_authorization": "Gio explicitly authorized yt-dlp acquisition for "
-                              "LOCAL ANALYSIS (relayed via Hermes 2026-09-11). "
+        "user_authorization": "Gio explicitly authorized ordinary yt-dlp acquisition "
+                              "for LOCAL ANALYSIS; HERMES performed the download at "
+                              "his direction (corrected attribution 2026-09-11). "
                               "Authorization to analyse is NOT a rights "
                               "determination and confers no publication right.",
         "frames_inspected": "16-tile contact sheet over all 587 frames plus a "
                             "10-frame strip across the putt, 2026-09-11.",
+        "local_research_allowed": True,
+        "public_redistribution_cleared": False,
+    },
+    # ---- OFFICIAL PGA TOUR APPROACH shot. Tee/approach only per the user's
+    # 2026-09-11 direction; putting clips are out of scope for demos.
+    "cefbdf25400f5821893747e2b4a60ca5a11f990920ab3a9c8bba32a8c2d3deae": {
+        "label": "PGA TOUR official - Si Woo Kim 120-yard approach holed for eagle, "
+                 "No. 10, 2026 TOUR Championship final round (Brightcove 6404321996112)",
+        "status": REVIEW_REQUIRED,
+        "reason": "Official PGA TOUR competition footage (Brightcove tags "
+                  "/pgatour/category/competition, /pgatour/tournaments/2026/r060). "
+                  "APPROACH shot: setup with a 'TO HOLE: 120 YDS' broadcast graphic, "
+                  "visible strike, a flight-follow camera pan, ball clearly visible "
+                  "against cloud through the flight, then the green and reaction. "
+                  "No broadcaster tracer graphic is present in this clip.",
+        "source_url": "https://www.pgatour.com/video/competition/6404321996112/"
+                      "si-woo-kim-holes-yard-shot-for-eagle-on-no--at-tour-championship",
+        "source_metadata": "yt-dlp brightcove:new, 1280x720, 30000/1001 fps, 667 "
+                           "frames, 22.27 s, full decode passes. One hard cut at "
+                           "f216; f4-215 is the continuous strike-and-flight shot.",
+        "event_evidence": "2026 TOUR Championship final round, hole 10; burned-in "
+                          "'S.W. KIM -8 / 10th / 431 YDS / DRIVE 310 YDS / TO HOLE: "
+                          "120 YDS' graphic and leaderboard visible in frames.",
+        "player_evidence": "Si Woo Kim - named in the broadcast graphic and in the "
+                           "official PGA TOUR video metadata.",
+        "rights": "PGA TOUR owns the footage. PUBLIC REDISTRIBUTION RIGHTS ARE "
+                  "UNVERIFIED. Do not publish this clip or any render from it.",
+        "user_authorization": "Gio explicitly authorized ordinary yt-dlp acquisition "
+                              "for LOCAL ANALYSIS; HERMES performed the download at "
+                              "his direction. Authorization is NOT redistribution "
+                              "clearance and is NOT a rights determination.",
+        "frames_inspected": "16-tile contact sheet over all 667 frames, plus gridded "
+                            "strips across the strike (f76-128) and the flight "
+                            "(f140-212), 2026-09-11.",
         "local_research_allowed": True,
         "public_redistribution_cleared": False,
     },
