@@ -7,16 +7,32 @@ from ghostcaddie.upload.jobs import JobStore, JobState
 
 
 class RuntimeSafetyTests(unittest.TestCase):
-    def test_body_runtime_is_blocked_not_silently_skipped(self):
-        r = describe_runtime()
-        b = r[TargetName.BODY]
-        self.assertFalse(b.safe_to_run)
-        self.assertIn("weights_only=False", b.reason)
+    def test_body_is_no_longer_blocked_by_the_ultralytics_pickle_route(self):
+        """Updated: body moved to MoveNet TFLite, which has no pickle surface.
 
-    def test_blocked_runtime_never_becomes_runnable_implicitly(self):
+        The old assertion (body blocked by weights_only=False) encoded a fact
+        that has since changed. The durable invariant is that body must not be
+        permanently blocked by the superseded Ultralytics route.
+        """
+        b = describe_runtime()[TargetName.BODY]
+        self.assertNotIn("ultralytics", b.reason.lower())
+        self.assertNotIn("weights_only=False", b.reason)
+
+    def test_unrunnable_target_names_its_actual_missing_dependency(self):
+        """Whatever the reason, it must be specific and computed, not generic."""
+        for name, r in describe_runtime().items():
+            if not r.safe_to_run:
+                self.assertTrue(len(r.reason) > 20, f"{name} reason too vague")
+                self.assertTrue(
+                    any(k in r.reason.lower() for k in
+                        ("not importable", "model file not found", "unsafe", "seed")),
+                    f"{name}: {r.reason}")
+
+    def test_unsafe_or_absent_runtime_never_becomes_runnable_implicitly(self):
         plan = plan_targets(describe_runtime())
-        self.assertEqual(plan[TargetName.BODY].outcome, TargetOutcome.BLOCKED)
-        self.assertIsNone(plan[TargetName.BODY].result)
+        for name, p in plan.items():
+            if p.outcome in (TargetOutcome.BLOCKED, TargetOutcome.UNAVAILABLE):
+                self.assertIsNone(p.result)
 
     def test_every_target_has_an_explicit_outcome(self):
         plan = plan_targets(describe_runtime())

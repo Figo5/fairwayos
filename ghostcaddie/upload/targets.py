@@ -54,38 +54,21 @@ class TargetPlan:
     assisted_disclosure: str = ""
 
 
-SAM2_CKPT = "/tmp/fairway-sam-head/checkpoints/sam2.1_hiera_tiny.pt"
-TAPIR_CKPT = "/tmp/fairway-learned/tracker/weights/bootstapir_checkpoint_v2.pt"
+from ghostcaddie.upload.adapters import all_adapters, AdapterUnavailable
 
 
 def describe_runtime() -> Dict[str, RuntimeSafety]:
-    """Current, traced runtime safety per target. No model is loaded here."""
-    return {
-        TargetName.BODY: RuntimeSafety(
-            target=TargetName.BODY, safe_to_run=False, model_present=True,
-            reason="BLOCKED: ultralytics injects weights_only=False "
-                   "(ultralytics/utils/patches.py) so YOLO() performs an "
-                   "unrestricted pickle load. Not executed.",
-            evidence="loader trace 2026-09-11; ULTRALYTICS_SAFE_LOAD unset, "
-                     "SAFE_LOAD=False, _SafeLoad.SUPPORTED=True"),
-        TargetName.CLUBHEAD: RuntimeSafety(
-            target=TargetName.CLUBHEAD,
-            safe_to_run=os.path.exists(SAM2_CKPT), model_present=os.path.exists(SAM2_CKPT),
-            reason="SAM2.1 tiny: torch.load(..., weights_only=True) hardcoded at "
-                   "sam2/build_sam.py with no fallback; unused Hiera weights_path "
-                   "load guarded." if os.path.exists(SAM2_CKPT)
-                   else "SAM2 checkpoint not present on this machine",
-            evidence="independent head audit + loader trace"),
-        TargetName.BALL: RuntimeSafety(
-            target=TargetName.BALL,
-            safe_to_run=os.path.exists(TAPIR_CKPT), model_present=os.path.exists(TAPIR_CKPT),
-            reason="BootsTAPIR loads with weights_only=True, but a hash-bound "
-                   "cross-clip rerun did NOT transfer (1/51 Morikawa, 0/71 "
-                   "Gotterup). Safe to run; not demonstrated on new sources."
-                   if os.path.exists(TAPIR_CKPT)
-                   else "BootsTAPIR checkpoint not present on this machine",
-            evidence="source-binding repair 2026-09-11"),
-    }
+    """Probe REAL adapter capability. Nothing here is a hardcoded boolean."""
+    out: Dict[str, RuntimeSafety] = {}
+    for name, ad in all_adapters().items():
+        c = ad.capability()
+        out[name] = RuntimeSafety(
+            target=name, safe_to_run=bool(c.available and c.safe), reason=c.reason,
+            model_present=c.model_present,
+            evidence=(f"runtime={c.runtime} present={c.runtime_present}; "
+                      f"model_sha256={c.model_sha256[:16] or 'n/a'}; "
+                      f"demonstrated: {c.demonstrated or 'nothing yet'}"))
+    return out
 
 
 def plan_targets(runtime: Dict[str, RuntimeSafety]) -> Dict[str, TargetPlan]:

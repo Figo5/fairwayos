@@ -22,6 +22,8 @@ from ghostcaddie.upload.jobs import JobStore, JobState
 from ghostcaddie.upload.targets import (describe_runtime, plan_targets,
                                         is_three_target_success, TargetOutcome)
 
+MAX_ANALYSED_FRAMES = 40   # bounded work per job
+
 INDEX = """<!doctype html><meta charset=utf-8><title>FairwayOS upload (research)</title>
 <style>body{font:14px system-ui;margin:2rem;max-width:46rem}
 code{background:#eee;padding:.1rem .3rem}.b{color:#b00}.u{color:#a60}.o{color:#070}</style>
@@ -44,6 +46,46 @@ def _run_job(store: JobStore, job_id: str, video):
         if store.cancelled(job_id):
             return
         plan = plan_targets(runtime)
+
+        # Actually run every target whose adapter reports real capability.
+        # Adapters that cannot run raise AdapterUnavailable and keep their
+        # honest outcome; nothing is substituted for a missing layer.
+        from ghostcaddie.upload.adapters import all_adapters, AdapterUnavailable
+        import cv2
+        for name, ad in all_adapters().items():
+            if not runtime.get(name) or not runtime[name].safe_to_run:
+                continue
+            try:
+                cap = cv2.VideoCapture(video.path)
+                frames, i = [], 0
+                step = max(1, video.frames // max(1, MAX_ANALYSED_FRAMES))
+                while True:
+                    ok, fr = cap.read()
+                    if not ok or store.cancelled(job_id):
+                        break
+                    if i % step == 0:
+                        frames.append((i, fr))
+                        if len(frames) >= MAX_ANALYSED_FRAMES:
+                            break
+                    i += 1
+                cap.release()
+                recs = ad.run_frames(frames, source_sha256=video.sha256)
+                obs = [r for r in recs if r.get("visible_keypoint_count", 0) > 0]
+                plan[name].outcome = (TargetOutcome.OBSERVED if obs
+                                      else TargetOutcome.UNAVAILABLE)
+                plan[name].reason = (
+                    f"{len(obs)}/{len(recs)} analysed frames produced observations"
+                    if obs else "adapter ran but produced no observation on this source")
+                plan[name].result = ({"frames_analysed": len(recs),
+                                      "frames_with_observation": len(obs),
+                                      "sampling_step": step,
+                                      "records": recs} if obs else None)
+            except AdapterUnavailable as e:
+                plan[name].outcome = TargetOutcome.UNAVAILABLE
+                plan[name].reason = str(e)
+            except Exception as e:
+                plan[name].outcome = TargetOutcome.UNAVAILABLE
+                plan[name].reason = f"adapter error: {type(e).__name__}: {e}"
         store.progress(job_id, 0.8)
         result = {
             "source": {"path": video.path, "sha256": video.sha256,
