@@ -79,9 +79,12 @@ _REGISTRY: Dict[str, dict] = {
                   "requires. NO source URL was ever recorded (download.py names "
                   "6n3nFFiS5sE, a different id). Real players on screen is not "
                   "source clearance.",
-        "source_url": None,
+        "source_url": "https://www.youtube.com/watch?v=f3kTTMZlxds",
+        "source_metadata": "oEmbed 2026-09-11: title 'Fantastic Driver Slow "
+                           "Motion Swings of World Top 10', channel 'King of Golf' "
+                           "(@King_of_Golf) -- a third-party aggregator, NOT PGA TOUR.",
         "event_evidence": None,
-        "player_evidence": "Burned-in captions naming 9 PGA TOUR players, "
+        "player_evidence": "Burned-in captions naming 10 PGA TOUR players, "
                            "visually confirmed in extracted frames 2026-09-11",
         "rights": "Third-party re-upload, origin unverified. Local research only; "
                   "no redistribution, no public demo.",
@@ -105,7 +108,10 @@ _REGISTRY: Dict[str, dict] = {
         "source_url": "https://www.youtube.com/watch?v=zFXYQ8jQbO4",
         "event_evidence": "Franklin Templeton Shootout + GEICO signage and tee "
                           "marker 7 visible in frames, confirmed 2026-09-11",
-        "player_evidence": None,
+        "player_evidence": "oEmbed 2026-09-11: title names ZACH JOHNSON; channel "
+                           "'GolfswingHD'. This is an UPLOADER CLAIM, not "
+                           "independent identification, and the channel is a "
+                           "third-party swing-footage channel, not PGA TOUR.",
         "rights": "YouTube third-party footage; local research only, no "
                   "redistribution (as already recorded in the prior provenance).",
         "frames_inspected": "5-frame contact strip of the 106-frame window, 2026-09-11",
@@ -117,7 +123,14 @@ _REGISTRY: Dict[str, dict] = {
         "label": "YouTube U3AKUznK9us - Titleist brand film",
         "status": REJECTED,
         "reason": "Titleist-watermarked brand/commercial content shot on a beach. "
-                  "Unidentified player, no tournament or PGA TOUR evidence.",
+                  "CORRECTION 2026-09-11: the player IS identified by public "
+                  "metadata as Adam Scott, a PGA TOUR player -- my earlier "
+                  "'unidentified player' reason was wrong on that point. The "
+                  "verdict is unchanged for the correct reason: this is "
+                  "brand-owned commercial content, not PGA TOUR broadcast "
+                  "footage, and Titleist holds the rights.",
+        "source_metadata": "oEmbed 2026-09-11: 'Adam Scott golf swing in slow "
+                           "motion 4K', channel 'Titleist' (official brand).",
         "source_url": "https://www.youtube.com/watch?v=U3AKUznK9us",
         "event_evidence": None,
         "player_evidence": None,
@@ -129,10 +142,15 @@ _REGISTRY: Dict[str, dict] = {
     "1f3109f3ba4433d595c591f18d67dd1f3a3fd64a900f8823f811029b12c7c865": {
         "label": "YouTube YZZOQXXmnTs window - 'Golf Swing HD' channel",
         "status": REJECTED,
-        "reason": "Third-party aggregator channel watermark ('Golf Swing HD'). "
-                  "Unidentified player on a practice area with a golf cart. No "
-                  "tournament signage, no PGA TOUR evidence.",
-        "source_url": None,
+        "reason": "Third-party aggregator channel ('GolfswingHD'). CORRECTION "
+                  "2026-09-11: the player IS identified by public metadata as "
+                  "Justin Thomas, a PGA TOUR player -- my earlier 'unidentified "
+                  "player' reason was wrong. Verdict unchanged for the correct "
+                  "reason: third-party re-upload of practice-area footage, not "
+                  "PGA TOUR broadcast, no redistribution rights.",
+        "source_url": "https://www.youtube.com/watch?v=YZZOQXXmnTs",
+        "source_metadata": "oEmbed 2026-09-11: 'JUSTIN THOMAS 120fps SLOW MOTION "
+                           "DTL GOLF SWING FOOTAGE 1080 HD', channel 'GolfswingHD'.",
         "event_evidence": None,
         "player_evidence": None,
         "rights": "Third-party re-upload; no redistribution rights.",
@@ -143,10 +161,14 @@ _REGISTRY: Dict[str, dict] = {
     "d4e6bc391b13ba30c554e539c70fb583ff78c2429d6d701db7c569fa7e37ec0c": {
         "label": "YouTube rDDuYNSFXF8 window - unidentified player",
         "status": REJECTED,
-        "reason": "Unidentified player. A courtesy car in frame hints at a "
-                  "tournament venue but carries no event or player identification. "
-                  "Venue ambience is not PGA TOUR evidence.",
-        "source_url": None,
+        "reason": "CORRECTION 2026-09-11: the player IS identified by public "
+                  "metadata as Justin Thomas, a PGA TOUR player -- my earlier "
+                  "'unidentified player' reason was wrong. Verdict unchanged for "
+                  "the correct reason: third-party re-upload on 'GolfswingHD', "
+                  "not PGA TOUR broadcast, no redistribution rights.",
+        "source_url": "https://www.youtube.com/watch?v=rDDuYNSFXF8",
+        "source_metadata": "oEmbed 2026-09-11: 'JUSTIN THOMAS 120fps SLOW MOTION "
+                           "DTL IRON GOLF SWING', channel 'GolfswingHD'.",
         "event_evidence": None,
         "player_evidence": None,
         "rights": "Third-party re-upload; no redistribution rights.",

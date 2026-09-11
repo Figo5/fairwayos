@@ -80,12 +80,22 @@ class RejectedSourcesTests(unittest.TestCase):
 
 
 class ReviewRequiredTests(unittest.TestCase):
-    def test_pga_players_without_source_url_stay_review_required(self):
-        """Real PGA players on screen is not by itself source clearance."""
+    def test_named_pga_players_and_known_url_still_are_not_eligible(self):
+        """Resolving the source URL does NOT confer eligibility.
+
+        Updated 2026-09-11: the source URL for this clip was resolved from
+        public oEmbed metadata (channel 'King of Golf', a third-party
+        aggregator). Knowing the URL, and having ten named PGA TOUR players on
+        screen, still leaves it review-required -- an aggregator re-cut is not
+        official PGA TOUR broadcast footage and carries no redistribution
+        rights. This is the stronger invariant than the one it replaces.
+        """
         d = evaluate_sha256(COMPILATION_SHA)
         self.assertEqual(d.status, REVIEW_REQUIRED)
         self.assertTrue(d.player_evidence, "players were visually confirmed")
-        self.assertIsNone(d.source_url, "no source URL was ever recorded")
+        self.assertIsNotNone(d.source_url, "source URL is now resolved")
+        self.assertFalse(d.demo_eligible)
+        self.assertFalse(d.public_redistribution_cleared)
 
     def test_tournament_evidence_without_verified_player_stays_review_required(self):
         d = evaluate_sha256(SHOOTOUT_SHA)

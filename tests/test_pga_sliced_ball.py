@@ -72,3 +72,52 @@ class SlicedCandidateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TemporalRankingTests(unittest.TestCase):
+    """Ranking by temporal support, and abstention when support is absent."""
+
+    def _c(self, x, y, z=6.0, area=30):
+        return {"x": float(x), "y": float(y), "z": z, "area": area}
+
+    def test_static_object_gets_full_support(self):
+        from ghostcaddie.video.pga_sliced_ball import temporal_support
+        r = temporal_support([self._c(100, 100)], [self._c(100, 100)],
+                             [self._c(100, 100)])
+        self.assertAlmostEqual(r[0]["support"], 1.0)
+
+    def test_constant_velocity_object_is_supported(self):
+        from ghostcaddie.video.pga_sliced_ball import temporal_support
+        r = temporal_support([self._c(100, 300)], [self._c(120, 260)],
+                             [self._c(140, 220)])
+        self.assertGreater(r[0]["support"], 0.8)
+
+    def test_reversing_object_is_not_supported(self):
+        """A speck that jumps back and forth is not a ball."""
+        from ghostcaddie.video.pga_sliced_ball import temporal_support
+        r = temporal_support([self._c(100, 300)], [self._c(140, 220)],
+                             [self._c(100, 300)])
+        self.assertEqual(r[0]["support"], 0.0)
+
+    def test_implausibly_fast_jump_is_not_supported(self):
+        from ghostcaddie.video.pga_sliced_ball import temporal_support
+        r = temporal_support([self._c(10, 10)], [self._c(300, 400)],
+                             [self._c(600, 700)])
+        self.assertEqual(r[0]["support"], 0.0)
+
+    def test_abstains_with_no_neighbours(self):
+        from ghostcaddie.video.pga_sliced_ball import select_with_abstention
+        self.assertIsNone(select_with_abstention([], [self._c(100, 100)], []))
+
+    def test_abstains_on_empty_candidates(self):
+        from ghostcaddie.video.pga_sliced_ball import select_with_abstention
+        self.assertIsNone(select_with_abstention([self._c(1, 1)], [], [self._c(1, 1)]))
+
+    def test_selects_the_supported_candidate_over_a_brighter_unsupported_one(self):
+        from ghostcaddie.video.pga_sliced_ball import select_with_abstention
+        ball = self._c(200, 200, z=3.0)
+        speck = self._c(400, 50, z=9.0)
+        sel = select_with_abstention([self._c(200, 200)], [speck, ball],
+                                     [self._c(200, 200)])
+        self.assertIsNotNone(sel)
+        self.assertEqual((sel["x"], sel["y"]), (200.0, 200.0))

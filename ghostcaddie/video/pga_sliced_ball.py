@@ -18,6 +18,7 @@ Candidates are CANDIDATES. Nothing here establishes ball identity.
 """
 from __future__ import annotations
 
+import math
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import cv2
@@ -118,3 +119,94 @@ def global_candidates(img: np.ndarray, v_thr: int = 190, s_thr: int = 90,
                     "area": int(a), "z": float(a)})
     out.sort(key=lambda c: -c["z"])
     return out
+
+
+# ============================ ranking + abstention ============================
+#
+# Measured 2026-09-11 on the held-out interval: the ball is ALWAYS present in the
+# candidate list (recall@k = 100%); it simply loses top-1. So this is a RANKING
+# problem, not a detection-sensitivity problem.
+#
+# A first attempt ranked by an "ideal ball area" prior. That was FALSIFIED and is
+# not kept: apparent ball area spans ~133 px^2 at rest down to ~2 px^2 in late
+# flight, roughly sixty-fold, so any single size prior demotes the true ball. On
+# eval frame 415 it pushed the real ball from rank 0 to rank 2.
+#
+# What the measurements actually show: the distractors that beat the ball are
+# tiny specks (area 4-17) winning on local contrast by about half a sigma
+# (z 4.1 vs 3.55). Specks flicker; a ball persists and moves smoothly. So the
+# discriminator is TEMPORAL, and temporal support is scale-invariant, which the
+# area prior was not. This is also the part the soccer reference gets from its
+# temporal BallTracker.
+#
+# Abstention: a candidate with no temporal support is not a detection. "Nothing
+# here" is a valid and necessary answer.
+
+TEMPORAL_DEFAULTS = {
+    "static_px": 6.0,        # at-rest: same place in neighbouring frames
+    "max_speed_px": 120.0,   # cap on plausible per-frame displacement
+    "speed_ratio": 0.55,     # |v_in| vs |v_out| must be consistent
+    "min_cos": 0.70,         # direction consistency for a moving ball
+    "min_support": 0.35,     # abstain below this support
+}
+
+
+def _pair_support(prev_c, c, next_c, p) -> float:
+    """How well (prev, c, next) behaves like one object: at rest, or moving
+    with roughly constant velocity. Returns 0..1."""
+    d_in = math.hypot(c["x"] - prev_c["x"], c["y"] - prev_c["y"])
+    d_out = math.hypot(next_c["x"] - c["x"], next_c["y"] - c["y"])
+    if d_in <= p["static_px"] and d_out <= p["static_px"]:
+        return 1.0                                  # at rest
+    if d_in > p["max_speed_px"] or d_out > p["max_speed_px"]:
+        return 0.0
+    if d_in < 1e-6 or d_out < 1e-6:
+        return 0.0
+    ratio = min(d_in, d_out) / max(d_in, d_out)
+    if ratio < p["speed_ratio"]:
+        return 0.0
+    vx1, vy1 = (c["x"] - prev_c["x"]) / d_in, (c["y"] - prev_c["y"]) / d_in
+    vx2, vy2 = (next_c["x"] - c["x"]) / d_out, (next_c["y"] - c["y"]) / d_out
+    cos = vx1 * vx2 + vy1 * vy2
+    if cos < p["min_cos"]:
+        return 0.0
+    return float(ratio * cos)
+
+
+def temporal_support(prev_cands, cands, next_cands, params=None) -> List[dict]:
+    """Attach ``support`` (0..1) to each candidate using its neighbours."""
+    p = dict(TEMPORAL_DEFAULTS)
+    if params:
+        p.update(params)
+    out = []
+    for c in cands:
+        best = 0.0
+        for a in prev_cands or []:
+            if math.hypot(c["x"] - a["x"], c["y"] - a["y"]) > p["max_speed_px"]:
+                continue
+            for b in next_cands or []:
+                sup = _pair_support(a, c, b, p)
+                if sup > best:
+                    best = sup
+                    if best >= 1.0:
+                        break
+            if best >= 1.0:
+                break
+        d = dict(c)
+        d["support"] = best
+        d["score"] = best * (1.0 - math.exp(-max(0.0, float(c.get("z", 0.0))) / 4.0))
+        out.append(d)
+    out.sort(key=lambda d: -d["score"])
+    return out
+
+
+def select_with_abstention(prev_cands, cands, next_cands,
+                           params=None) -> Optional[dict]:
+    """Winning candidate, or None when nothing has temporal support."""
+    p = dict(TEMPORAL_DEFAULTS)
+    if params:
+        p.update(params)
+    ranked = temporal_support(prev_cands, cands, next_cands, p)
+    if not ranked or ranked[0]["support"] < p["min_support"]:
+        return None
+    return ranked[0]
