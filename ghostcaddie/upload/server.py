@@ -19,6 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from ghostcaddie.upload.validation import (UploadRejected, VideoLimits,
                                            safe_join, validate_upload)
 from ghostcaddie.upload.jobs import JobStore, JobState
+from ghostcaddie.upload.ui import PAGE
 from ghostcaddie.upload.targets import (describe_runtime, plan_targets,
                                         is_three_target_success, TargetOutcome)
 
@@ -143,7 +144,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/":
-            return self._send(200, INDEX, "text/html; charset=utf-8")
+            return self._send(200, PAGE, "text/html; charset=utf-8")
         if self.path == "/ready":
             from ghostcaddie.upload.runtimes import RuntimeRegistry
             rd = RuntimeRegistry.default().readiness()
@@ -157,6 +158,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {n: vars(r) for n, r in describe_runtime().items()})
         if self.path == "/jobs":
             return self._send(200, [j.to_dict() for j in self.store.list()])
+        if self.path.startswith("/frame"):
+            return self._serve_frame()
+        if self.path.startswith("/video"):
+            return self._serve_video()
         if self.path.startswith("/jobs/"):
             jid = self.path.split("/")[2].split("?")[0]
             try:
@@ -164,6 +169,72 @@ class Handler(BaseHTTPRequestHandler):
             except KeyError:
                 return self._send(404, {"error": "unknown job"})
         return self._send(404, {"error": "not found"})
+
+    def _qs(self):
+        import urllib.parse as up
+        return dict(up.parse_qsl(up.urlparse(self.path).query))
+
+    def _serve_frame(self):
+        """Decode ONE exact native frame. Not a time seek."""
+        q = self._qs()
+        try:
+            job = self.store.get(q.get("job", ""))
+        except KeyError:
+            return self._send(404, {"error": "unknown job"})
+        src = self.store.source(job.id)
+        if not src:
+            return self._send(409, {"error": "job has no validated source yet"})
+        try:
+            n = int(q.get("n", "0"))
+        except ValueError:
+            return self._send(400, {"error": "n must be an integer"})
+        if n < 0 or n >= src.frames:
+            return self._send(400, {"error": f"frame {n} outside 0..{src.frames-1}"})
+        import cv2
+        cap = cv2.VideoCapture(src.path)
+        try:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, n)
+            ok, img = cap.read()
+            got = int(cap.get(cv2.CAP_PROP_POS_FRAMES)) - 1
+        finally:
+            cap.release()
+        if not ok:
+            return self._send(409, {"error": f"frame {n} could not be decoded"})
+        ok2, buf = cv2.imencode(".png", img)
+        if not ok2:
+            return self._send(500, {"error": "frame encode failed"})
+        body = buf.tobytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("X-Source-Sha256", src.sha256)
+        self.send_header("X-Requested-Frame", str(n))
+        self.send_header("X-Decoded-Frame", str(got))   # honest: what was decoded
+        self.send_header("X-Native-Width", str(src.width))
+        self.send_header("X-Native-Height", str(src.height))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _serve_video(self):
+        q = self._qs()
+        try:
+            job = self.store.get(q.get("job", ""))
+        except KeyError:
+            return self._send(404, {"error": "unknown job"})
+        src = self.store.source(job.id)
+        if not src:
+            return self._send(409, {"error": "no source"})
+        size = os.path.getsize(src.path)
+        self.send_response(200)
+        self.send_header("Content-Type", "video/mp4")
+        self.send_header("Content-Length", str(size))
+        self.send_header("Accept-Ranges", "none")
+        self.end_headers()
+        with open(src.path, "rb") as fh:
+            while True:
+                b = fh.read(1 << 20)
+                if not b: break
+                self.wfile.write(b)
 
     def do_POST(self):
         if self.path.startswith("/jobs/") and self.path.endswith("/cancel"):
@@ -173,6 +244,26 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, self.store.get(jid).to_dict())
             except KeyError:
                 return self._send(404, {"error": "unknown job"})
+        if self.path.startswith("/jobs/") and self.path.endswith("/seeds"):
+            jid = self.path.split("/")[2]
+            try:
+                job = self.store.get(jid)
+            except KeyError:
+                return self._send(404, {"error": "unknown job"})
+            src = self.store.source(jid)
+            n = int(self.headers.get("Content-Length") or 0)
+            try:
+                data = json.loads(self.rfile.read(n) or b"{}")
+                from ghostcaddie.upload.seeds import SeedBundle, SeedRejected
+                bundle = SeedBundle.from_dict(data, source_sha256=src.sha256)
+            except SeedRejected as e:
+                return self._send(400, {"error": str(e)})
+            except Exception as e:
+                return self._send(400, {"error": f"{type(e).__name__}: {e}"})
+            self.store.attach_seeds(jid, bundle)
+            return self._send(200, {"accepted": bundle.to_dict(),
+                                    "note": "assisted initialisation recorded and "
+                                            "bound to this source hash"})
         if self.path != "/jobs":
             return self._send(404, {"error": "not found"})
 
@@ -213,6 +304,7 @@ class Handler(BaseHTTPRequestHandler):
             self.store.fail(job.id, str(e)); self.store.cleanup(job.id)
             return self._send(400, {"error": str(e), "job": job.to_dict()})
 
+        self.store.attach_source(job.id, video)
         threading.Thread(target=_run_job, args=(self.store, job.id, video),
                          daemon=True).start()
         return self._send(202, job.to_dict())

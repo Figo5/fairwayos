@@ -44,6 +44,8 @@ class JobStore:
         os.makedirs(self.root, exist_ok=True)
         self._jobs: Dict[str, Job] = {}
         self._cancel: Dict[str, bool] = {}
+        self._sources: Dict[str, object] = {}
+        self._seeds: Dict[str, object] = {}
         self._lock = threading.Lock()
 
     def create(self, filename: str) -> Job:
@@ -95,6 +97,22 @@ class JobStore:
     def cancelled(self, job_id: str) -> bool:
         with self._lock:
             return self._cancel.get(job_id, False)
+
+    def attach_source(self, job_id: str, video):
+        with self._lock:
+            self._sources[job_id] = video
+
+    def source(self, job_id: str):
+        with self._lock:
+            return self._sources.get(job_id)
+
+    def attach_seeds(self, job_id: str, bundle):
+        with self._lock:
+            self._seeds[job_id] = bundle
+
+    def seeds(self, job_id: str):
+        with self._lock:
+            return self._seeds.get(job_id)
 
     def cleanup(self, job_id: str):
         wd = os.path.join(self.root, job_id)
