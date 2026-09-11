@@ -61,6 +61,44 @@ _REGISTRY: Dict[str, dict] = {
         "local_research_allowed": False,
         "public_redistribution_cleared": False,
     },
+    # ---- OFFICIAL PGA TOUR broadcast, acquired by the USER, held locally.
+    # Authorization and rights are DIFFERENT THINGS and are recorded separately:
+    # user_authorization says Gio told us we may analyse this file locally;
+    # public_redistribution_cleared says whether anyone may publish anything made
+    # from it. The first is true, the second is UNVERIFIED and therefore false.
+    "21c8bb54cd550dec2da680351cfd48f9cc61c24ca2ece43e07e30622b26e28f1": {
+        "label": "PGA TOUR official - Scheffler 24-foot birdie putt, No. 4, "
+                 "2026 TOUR Championship final round (Brightcove 6404323161112)",
+        "status": REVIEW_REQUIRED,
+        "reason": "Genuine OFFICIAL PGA TOUR competition footage, verified from "
+                  "the Brightcove metadata tags (/pgatour/category/competition, "
+                  "/pgatour/tournaments/2026/r060) and from the frames themselves "
+                  "(TOUR Championship leaderboard bug, 'SCHEFFLER -13 / 4th HOLE / "
+                  "FOR BIRDIE & CO-LEAD' lower third). Acquired by the USER with "
+                  "explicit authorization, not by this agent. Local research is "
+                  "authorized; redistribution rights are UNVERIFIED, so it stays "
+                  "review_required and is never demo-eligible for publication.",
+        "source_url": "https://www.pgatour.com/video/competition/6404323161112/"
+                      "scottie-scheffler-sinks-foot-birdie-putt-on-no--at-tour-championship",
+        "source_metadata": "yt-dlp brightcove:new, id 6404323161112, 1280x720, "
+                           "30000/1001 fps, 587 frames, 19.62 s, full decode passes. "
+                           "info.json retained alongside the media.",
+        "event_evidence": "2026 TOUR Championship, final round, hole 4; burned-in "
+                          "leaderboard and lower-third graphics visible in frames.",
+        "player_evidence": "Scottie Scheffler - named in the broadcast lower third "
+                           "and in the official PGA TOUR video metadata.",
+        "rights": "PGA TOUR owns the footage. PUBLIC REDISTRIBUTION RIGHTS ARE "
+                  "UNVERIFIED. Do not publish this clip or any render derived from "
+                  "it. Local research only.",
+        "user_authorization": "Gio explicitly authorized yt-dlp acquisition for "
+                              "LOCAL ANALYSIS (relayed via Hermes 2026-09-11). "
+                              "Authorization to analyse is NOT a rights "
+                              "determination and confers no publication right.",
+        "frames_inspected": "16-tile contact sheet over all 587 frames plus a "
+                            "10-frame strip across the putt, 2026-09-11.",
+        "local_research_allowed": True,
+        "public_redistribution_cleared": False,
+    },
     # ---- REVIEW REQUIRED: genuine PGA TOUR players, unverified source.
     "d3311ea7470b027e43611fc1251313aa917dcc66f35462b27bf486cdd228b4f0": {
         "label": "YouTube f3kTTMZlxds - DUAL-PANEL side-by-side countdown edit",
