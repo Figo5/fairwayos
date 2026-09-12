@@ -174,7 +174,7 @@ def build_prompt(video: Path, source_sha256: str, meta: Mapping, frame_paths: Ma
 
 Use your vision tool on each local image path below, one frame at a time. Do not use or ask for annotation seeds, previous demo decisions, reference coordinates, hidden reports, or temporal copying. If a target is not visually separable, emit null/visible false. Inspect all listed frames before answering.
 
-Every frame's answer must come from that frame's own image. Before deciding a frame, view that frame's image; before abstaining on a target, view that frame's image again at the region where the target would be. For each frame record in "inspected_images" the exact local image paths you actually viewed for that frame. A frame's answer must cite that frame's own path and must not cite another listed frame's path. Decide each frame separately: do not carry one frame's conclusion, coordinates or wording across to another frame.
+Every frame's answer must come from that frame's own image. Before deciding a frame, view that frame's image; before abstaining on a target, view that frame's image again at the region where the target would be. For each frame record in "inspected_images" the exact local image paths you actually viewed for that frame. A frame's answer must cite that frame's own path and must not cite another listed frame's path. Decide each frame separately from that frame's own image. Do not carry a conclusion across frames. If two frames genuinely look the same, say so for each; do not vary an answer or its wording to look independent.
 
 Source path: {video}
 Source SHA-256: {source_sha256}
@@ -317,17 +317,19 @@ def normalize_frame_decision(raw: Mapping, *, source_sha256: str, width: int, he
 
 
 def validate_inspection_evidence(raw: Mapping, *, frame_paths: Mapping[int, Path]) -> list[str]:
-    """Require per-frame proof that this frame's own image was viewed before the decision.
+    """Check the child's self-reported attribution of images to this frame's decision.
 
-    Without this a multi-frame job can answer every frame from one image: the frozen 3004-3011 run
-    returned one decision, byte-identical down to the uncertainty prose, replicated over all four
-    frames of each job. Fail closed on an unattributed decision; never substitute a coordinate.
+    This verifies a CLAIM, not an inspection. The child states which paths it viewed for this frame;
+    nothing here confirms a vision call was made on any of them, so a decision can pass with zero
+    image calls. What it buys is that an answer must at least be attributed to its own frame and must
+    not be attributed to a sibling frame, and that an unattributed answer fails the job closed.
+    Never substitutes a coordinate and never forces visibility.
     """
     frame = raw["source_frame"]
     own = str(frame_paths[frame])
     listed = raw.get("inspected_images")
     if not isinstance(listed, Sequence) or isinstance(listed, (str, bytes)) or not listed:
-        raise ValueError(f"frame {frame}: inspected_images must list the images actually viewed for this frame")
+        raise ValueError(f"frame {frame}: inspected_images must list the images the child reports viewing for this frame")
     if any(not isinstance(p, str) for p in listed):
         raise ValueError(f"frame {frame}: inspected_images entries must be strings")
     paths = [str(p) for p in listed]
@@ -340,16 +342,23 @@ def validate_inspection_evidence(raw: Mapping, *, frame_paths: Mapping[int, Path
     return paths
 
 
-def detect_replicated_decisions(decisions: Sequence[Mapping]) -> dict:
-    """Flag targets whose coordinates and wording repeat verbatim on every frame of one job."""
+def detect_repeated_decisions(decisions: Sequence[Mapping]) -> dict:
+    """Report targets whose coordinates and wording repeat verbatim on every frame of one job.
+
+    A warning worth a human look, not evidence of copying. A stationary ball or a target that is
+    genuinely absent across the interval legitimately produces identical answers, and identical
+    wording is not itself suspicious. A job of one frame can never repeat, so an absent flag there
+    is arithmetic, not an improvement. Reported, never corrected, and never used to vary an answer.
+    """
     flags = {}
     for target in TARGETS:
         signatures = {json.dumps([d[target].get("point_xy"), d[target].get("bbox_xyxy"), d[target].get("uncertainty")], sort_keys=True) for d in decisions}
         flags[target] = len(decisions) > 1 and len(signatures) == 1
     return {
-        "replicated_across_all_frames": flags,
+        "repeated_across_all_frames": flags,
         "frames_compared": len(decisions),
-        "note": "identical coordinates and wording on every frame of one job is the signature of a single batch-level decision emitted per frame, not per-frame measurement; it is reported, not corrected",
+        "informative": len(decisions) > 1,
+        "note": "verbatim repetition across every frame of a job is a warning to inspect, not proof that one decision was copied; stationary or absent targets repeat legitimately, and a single-frame job cannot repeat at all",
     }
 
 
@@ -509,7 +518,7 @@ def run_smoke_pipeline(video: Path, frames: Sequence[int], outdir: Path, *, rend
         decision = normalize_frame_decision(by_frame[f], source_sha256=source_sha, width=meta["width"], height=meta["height"])
         decision["inspected_images"] = evidence[f]
         decisions.append(decision)
-    replication = detect_replicated_decisions(decisions)
+    repetition = detect_repeated_decisions(decisions)
     body_status = run_body_pose_inference(video, frame_list, source_sha, outdir / "body_pose", timeout_s=remaining(300.0))
     body_decisions = normalize_body_pose_records(body_status.get("records", []), requested_frames=frame_list, source_sha256=source_sha, width=meta["width"], height=meta["height"])
     for decision, body in zip(decisions, body_decisions):
@@ -518,7 +527,7 @@ def run_smoke_pipeline(video: Path, frames: Sequence[int], outdir: Path, *, rend
         "source": {"path": str(video), "sha256": source_sha, **meta},
         "interval_native_frames": [frame_list[0], frame_list[-1]],
         "requested_frames": frame_list,
-        "inference": {"provenance": {**(raw.get("provenance") or {}), "input_policy": {"withheld": WITHHELD, "images": {str(k): str(v) for k, v in decoded.items()}}, "routing": routing}, "body_pose": {k: v for k, v in body_status.items() if k != "records"}, "frames_per_job": len(frame_list), "replication_check": replication},
+        "inference": {"provenance": {**(raw.get("provenance") or {}), "input_policy": {"withheld": WITHHELD, "images": {str(k): str(v) for k, v in decoded.items()}}, "routing": routing}, "body_pose": {k: v for k, v in body_status.items() if k != "records"}, "frames_per_job": len(frame_list), "repetition_check": repetition},
         "decisions": decisions,
         "sampled_frame_preview": {"available": True, "frame_indices": frame_list, "temporal_interpretation": "contiguous native FPS only" if all((b - a) == 1 for a, b in zip(frame_list, frame_list[1:])) else "sampled non-temporal preview; no speed interpretation"},
         "metric_speed": {"available": False, "reason": "no calibration and no capture-action time; image observations only"},

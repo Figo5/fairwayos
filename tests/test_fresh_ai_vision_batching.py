@@ -9,7 +9,7 @@ from unittest import mock
 
 from ghostcaddie.video.fresh_ai_vision import (
     MAX_BATCH_FRAMES,
-    detect_replicated_decisions,
+    detect_repeated_decisions,
     merge_batch_documents,
     parse_interval,
     partition_interval,
@@ -399,7 +399,11 @@ class JobBudgetTests(unittest.TestCase):
 
 
 class InspectionEvidenceTests(unittest.TestCase):
-    """Per-frame evidence attribution: an unattributed decision fails closed, never gets a coordinate."""
+    """Self-reported attribution only: an unattributed decision fails closed, never gets a coordinate.
+
+    These cover what the contract can check - that an answer names its own frame and not a sibling's.
+    None of them establish that a vision call was made; a claimed path is accepted on the child's word.
+    """
 
     def setUp(self):
         self.paths = {10: Path("/tmp/j/native_000010.jpg"), 11: Path("/tmp/j/native_000011.jpg")}
@@ -430,34 +434,35 @@ class InspectionEvidenceTests(unittest.TestCase):
                                              frame_paths=self.paths)
 
 
-class ReplicationDetectionTests(unittest.TestCase):
-    """The frozen 3004-3011 defect: one decision emitted on every frame of a job."""
+class RepetitionWarningTests(unittest.TestCase):
+    """Repetition is surfaced as a warning to inspect, never treated as proof of copying."""
 
     def _dec(self, frame, point, note):
         return {"source_frame": frame,
                 "ball": {"point_xy": point, "bbox_xyxy": None, "uncertainty": note},
                 "clubhead": {"point_xy": None, "bbox_xyxy": None, "uncertainty": note}}
 
-    def test_flags_verbatim_decision_repeated_on_every_frame(self):
+    def test_warns_when_every_frame_of_a_job_repeats_verbatim(self):
         decisions = [self._dec(f, [834.0, 563.0], "same prose") for f in range(3008, 3012)]
-        flags = detect_replicated_decisions(decisions)["replicated_across_all_frames"]
+        flags = detect_repeated_decisions(decisions)["repeated_across_all_frames"]
         self.assertTrue(flags["ball"])
         self.assertTrue(flags["clubhead"])
 
     def test_does_not_flag_genuinely_per_frame_decisions(self):
         decisions = [self._dec(3008, [834.0, 563.0], "a"), self._dec(3009, [836.0, 561.0], "b")]
-        self.assertFalse(detect_replicated_decisions(decisions)["replicated_across_all_frames"]["ball"])
+        self.assertFalse(detect_repeated_decisions(decisions)["repeated_across_all_frames"]["ball"])
 
-    def test_single_frame_job_is_never_flagged(self):
-        flags = detect_replicated_decisions([self._dec(3008, [1.0, 2.0], "x")])["replicated_across_all_frames"]
-        self.assertFalse(flags["ball"])
-        self.assertFalse(flags["clubhead"])
+    def test_single_frame_job_cannot_repeat_so_its_clear_flag_is_uninformative(self):
+        out = detect_repeated_decisions([self._dec(3008, [1.0, 2.0], "x")])
+        self.assertFalse(out["repeated_across_all_frames"]["ball"])
+        self.assertFalse(out["repeated_across_all_frames"]["clubhead"])
+        self.assertFalse(out["informative"], "one frame cannot repeat; absence of the flag proves nothing")
 
-    def test_frozen_defect_reproduces_the_flag(self):
-        """Guard against regressing to the behaviour the frozen run exhibited."""
+    def test_frozen_run_raises_the_warning(self):
+        """The frozen four-frame jobs repeat verbatim. The warning fires; the cause stays undetermined."""
         frozen = Path("/tmp/fairway-parent-real-batched-smoke/batch_001_3008_3011/fresh_ai_vision_results.json")
         if not frozen.exists():
             self.skipTest("frozen reference run not present on this machine")
         decisions = json.loads(frozen.read_text())["decisions"]
-        flags = detect_replicated_decisions(decisions)["replicated_across_all_frames"]
-        self.assertTrue(flags["clubhead"], "the frozen abstention was one decision replicated over four frames")
+        flags = detect_repeated_decisions(decisions)["repeated_across_all_frames"]
+        self.assertTrue(flags["clubhead"], "the frozen four-frame job repeats verbatim and must be flagged for inspection")
