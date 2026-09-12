@@ -68,13 +68,13 @@ pre{white-space:pre-wrap;word-break:break-all;color:var(--dim);font-size:11px;ma
       <span id=fmeta class=reason></span>
     </div>
     <div class=row style="margin-top:8px">
-      <button id=pickHead>Head box (2 clicks)</button>
+      <button id=pickHead>Clubhead box (2 clicks)</button>
       <button id=pickBall>Ball point (1 click)</button>
       <button id=clearPick>Clear</button>
       <button id=sendSeed disabled>Submit seed</button>
     </div>
     <div class=note style="margin-top:6px">Body runs automatically and takes no seed.
-      Head box and ball point are <b>assisted initialisation</b>, recorded as such and bound to
+      Clubhead box and ball point are <b>assisted initialisation</b> that YOU supply: user-provided assistance, <b>not</b> human-verified or AI-verified truth. Recorded as such and bound to
       this source hash and this exact decoded frame.</div>
     <div id=pickInfo class=reason></div>
   </div>
@@ -91,7 +91,9 @@ pre{white-space:pre-wrap;word-break:break-all;color:var(--dim);font-size:11px;ma
     <div id=jobState class=reason>no job yet</div>
     <div class=bar><i id=prog></i></div>
     <div class=row><button id=cancel disabled>Cancel</button>
-      <button id=refresh disabled>Refresh</button></div>
+      <button id=refresh disabled>Refresh</button>
+      <button id=dl disabled>Download results</button>
+      <button id=delMedia disabled>Delete media now</button></div>
     <div id=jobErr class=reason style="color:var(--bad)"></div>
   </div>
   <div class=card style="margin-top:12px">
@@ -116,10 +118,16 @@ let JOB=null, SRC=null, MODE=null, PICKS=[], POLL=null;
 async function jget(u){const r=await fetch(u);if(!r.ok)throw new Error((await r.json()).error||r.status);return r.json()}
 
 async function loadReady(){
+  // /ready serves dependency_readiness, NOT the old `runtimes`/`ready` shape.
+  // Reading a schema the server stopped serving made this card fail silently.
   try{const d=await jget('/ready');
-    $('#ready').innerHTML=Object.entries(d.runtimes).map(([k,v])=>
-      `<div><b>${k}</b> ${v.ready?'<span class=t-observed>ready</span>':'<span class=t-unavailable>not ready</span>'}
-       <span class=reason>${v.reason}</span></div>`).join('')
+    $('#ready').innerHTML=Object.entries(d.dependency_readiness).map(([k,v])=>{
+      const cls=v.can_execute_now?'t-observed':'t-unavailable';
+      const state=v.can_execute_now?'can execute now'
+        :(v.requires_reviewed_seed&&v.interpreter_ready?'needs a reviewed seed'
+          :'not ready');
+      return `<div><b>${k}</b> <span class=${cls}>${state}</span>
+       <span class=reason>${v.reason}</span></div>`}).join('')
       +`<div class=note style="margin-top:6px">${d.note}</div>`;
   }catch(e){$('#ready').textContent='readiness unavailable: '+e.message}
 }
@@ -146,6 +154,8 @@ async function poll(){
     $('#jobErr').textContent=j.error||'';
     renderTargets(j.result);
     $('#raw').textContent=j.result?JSON.stringify(j.result,null,1):'';
+    $('#dl').disabled=!j.result;
+    $('#delMedia').disabled=!JOB;
     if(['done','failed','cancelled'].includes(j.state)){clearInterval(POLL);POLL=null;$('#cancel').disabled=true}
   }catch(e){$('#jobErr').textContent=e.message}
 }
@@ -168,6 +178,21 @@ $('#upPath').onclick=()=>{const p=$('#path').value.trim();if(!p){$('#jobErr').te
   startJob({name:p},false)};
 $('#cancel').onclick=async()=>{await fetch('/jobs/'+JOB+'/cancel',{method:'POST',headers:H});poll()};
 $('#refresh').onclick=poll;
+// Results download needs no new endpoint: the job JSON is already fetched.
+$('#dl').onclick=async()=>{
+  const j=await jget('/jobs/'+JOB);
+  const b=new Blob([JSON.stringify(j.result,null,1)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(b); a.download=`fairwayos_${JOB}_results.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+};
+$('#delMedia').onclick=async()=>{
+  const r=await fetch('/jobs/'+JOB+'/media/delete',{method:'POST',headers:H});
+  const d=await r.json();
+  $('#jobErr').textContent=r.ok
+    ?('media retention: '+d.media_retention.reason):(d.error||'delete failed');
+  poll();
+};
 
 async function loadFrame(n){
   if(!JOB)return;
@@ -180,7 +205,7 @@ async function loadFrame(n){
   $('#frame').src=URL.createObjectURL(b);
   $('#fnum').value=SRC.req;
   $('#fmeta').innerHTML=`native ${SRC.nw}&times;${SRC.nh} · requested f${SRC.req} · decoded f${SRC.got}`
-    +(SRC.req!==SRC.got?' <span class=t-unavailable>(decoder returned a different frame)</span>':'')
+    +(SRC.req!==SRC.got?' <span class=t-unavailable>(decoder returned a different frame — seeding is disabled for this frame)</span>':'')
     +`<br>source ${SRC.sha.slice(0,16)}…`;
   PICKS=[];draw();
 }
@@ -221,14 +246,20 @@ $('#stage').onclick=e=>{
   const need=MODE==='clubhead'?2:1;
   PICKS.push(n); if(PICKS.length>need)PICKS=[n];
   $('#pickInfo').textContent=`${MODE} · native ${PICKS.map(p=>`(${p[0].toFixed(1)}, ${p[1].toFixed(1)})`).join(' ')}`;
-  $('#sendSeed').disabled=PICKS.length!==need;
+  // Never allow a seed on a frame the decoder did not actually deliver: the
+  // coordinates would describe a picture the operator never saw.
+  $('#sendSeed').disabled=(PICKS.length!==need)||(SRC.req!==SRC.got);
   draw();
 };
 $('#pickHead').onclick=()=>{MODE='clubhead';PICKS=[];$('#stage').classList.add('pick');$('#sendSeed').disabled=true;draw();$('#pickInfo').textContent='click two opposite corners of the clubhead'};
 $('#pickBall').onclick=()=>{MODE='ball';PICKS=[];$('#stage').classList.add('pick');$('#sendSeed').disabled=true;draw();$('#pickInfo').textContent='click the ball centre'};
 $('#clearPick').onclick=()=>{MODE=null;PICKS=[];$('#stage').classList.remove('pick');$('#sendSeed').disabled=true;draw();$('#pickInfo').textContent=''};
 $('#sendSeed').onclick=async()=>{
-  const seed={target:MODE,frame:SRC.req};
+  if(SRC.req!==SRC.got){$('#pickInfo').innerHTML=
+    '<span class=t-unavailable>refusing to seed: the decoder returned f'+SRC.got+
+    ' but f'+SRC.req+' was requested</span>';return}
+  // frame = the frame actually DECODED and shown, not merely the one requested
+  const seed={target:MODE,frame:SRC.got};
   if(MODE==='clubhead'){const[a,b]=PICKS;seed.box_xyxy=[Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.max(a[0],b[0]),Math.max(a[1],b[1])]}
   else seed.point_xy=PICKS[0];
   const r=await fetch('/jobs/'+JOB+'/seeds',{method:'POST',

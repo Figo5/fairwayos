@@ -87,29 +87,37 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(s, 400)
         self.assertIn("import directory", b["error"])
 
-    def test_real_video_runs_a_job_to_completion(self):
-        p = synth(os.path.join(self.imports, "ok.mp4"))
+    def test_upload_runs_the_unseeded_pass_then_waits_for_seeds(self):
+        """Phase 1 deliberately stops at awaiting_seeds.
+
+        It used to run every target and finish, which meant a seed posted
+        afterwards could never reach a worker. The job now holds here, with the
+        media still readable, so a frame can actually be reviewed and seeded.
+        """
+        synth(os.path.join(self.imports, "ok.mp4"))
         s, job = self.post_import("ok.mp4")
         self.assertEqual(s, 202)
-        for _ in range(100):
+        for _ in range(200):
             _, j = self.get(f"/jobs/{job['id']}")
-            if j["state"] in ("done", "failed", "cancelled"): break
+            if j["state"] in ("awaiting_seeds", "done", "failed", "cancelled"): break
             time.sleep(0.05)
-        self.assertEqual(j["state"], "done", j.get("error"))
+        self.assertEqual(j["state"], "awaiting_seeds", j.get("error"))
+        self.assertEqual(sorted(j["awaiting"]), ["ball", "clubhead"])
         r = j["result"]
         self.assertEqual(r["source"]["width"], 640)
         self.assertEqual(len(r["source"]["sha256"]), 64)
+        self.assertEqual(r["awaiting_seeds"], j["awaiting"])
         return r
 
     def test_incomplete_layers_are_not_three_target_success(self):
         """Synthetic fixture: no target should claim a golf observation."""
-        r = self.test_real_video_runs_a_job_to_completion()
+        r = self.test_upload_runs_the_unseeded_pass_then_waits_for_seeds()
         self.assertFalse(r["three_target_success"])
         observed = [n for n, t in r["targets"].items() if t["outcome"] == "observed"]
         self.assertLess(len(observed), 3, f"unexpected full coverage: {observed}")
 
     def test_no_target_returns_a_synthetic_result(self):
-        r = self.test_real_video_runs_a_job_to_completion()
+        r = self.test_upload_runs_the_unseeded_pass_then_waits_for_seeds()
         for t in r["targets"].values():
             if t["outcome"] != "observed":
                 self.assertIsNone(t["result"])

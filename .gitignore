@@ -52,3 +52,7 @@ research_stock/
 *cookie*
 *token*
 *secret*
+
+# user-uploaded media and local service state: never leaves this machine
+.uploads/
+.hermes/

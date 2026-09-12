@@ -52,6 +52,9 @@ class TargetPlan:
     result: Optional[dict] = None
     initialization: str = "automatic"     # "automatic" | "assisted"
     assisted_disclosure: str = ""
+    # the seed actually handed to the worker, or None. Recorded so "assisted"
+    # is auditable rather than a claim.
+    seed_used: Optional[dict] = None
 
 
 from ghostcaddie.upload.adapters import all_adapters, AdapterUnavailable

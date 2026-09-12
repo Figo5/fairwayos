@@ -93,6 +93,11 @@ class RuntimeRegistry:
                 "ball", "/tmp/fairway-learned/tracker/.venv/bin/python",
                 ["torch", "cv2", "numpy"],
                 "BootsTAPIR via the tracker runtime that provides tapnet"),
+            "ball_sam2": RuntimeSpec(
+                "ball_sam2", os.path.join(REPO, ".venv-video-ai", "bin", "python3"),
+                ["torch", "cv2", "numpy"],
+                "SAM2.1 tiny video segmentation, same audited safe load path as "
+                "clubhead; pivot route after the point-tracker was falsified"),
         })
 
     def probe(self, target: str, refresh: bool = False) -> ProbeResult:
@@ -118,13 +123,14 @@ class RuntimeRegistry:
             cap = ads[t].capability() if t in ads else None
             model_present = bool(cap.model_present) if cap else False
             model_sha = (cap.model_sha256 if cap else "") or ""
-            needs_seed = t in ("clubhead", "ball")
+            needs_seed = t in ("clubhead", "ball", "ball_sam2")
             can_exec = bool(r.ok and model_present and not needs_seed)
             reason = r.reason if not r.ok else (
                 f"model file not found: {cap.model_path}" if not model_present else
-                ("interpreter and model are present, but this target cannot run "
-                 "unattended: it requires a reviewed source-specific seed that is "
-                 "not yet wired into the job path" if needs_seed
+                ("interpreter and model are present, but this target never runs "
+                 "unattended: it requires a reviewed seed bound to the uploaded "
+                 "source hash. POST one to /jobs/<id>/seeds and this target runs "
+                 "on a bounded window starting at the frame you chose" if needs_seed
                  else "interpreter and model present; target can execute"))
             out[t] = {
                 "interpreter_ready": r.ok,

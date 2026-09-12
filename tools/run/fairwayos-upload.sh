@@ -17,8 +17,44 @@ mkdir -p "$ROOT"
 
 case "${1:-status}" in
   start)
+    # An existing pidfile is not proof the service is ours, healthy, or running
+    # the code that is checked out now. Verify identity, then readiness, then
+    # whether the live server still matches this working tree.
     if [ -f "$PID" ] && kill -0 "$(cat "$PID")" 2>/dev/null; then
-      echo "already running (pid $(cat "$PID")) on port $PORT"; exit 0
+      RUNPID="$(cat "$PID")"
+      if ! ps -p "$RUNPID" -o command= 2>/dev/null | grep -q "ghostcaddie.upload.server"; then
+        echo "pid $RUNPID is NOT a fairwayos upload server (pidfile is stale); removing it"
+        rm -f "$PID"
+      elif ! curl -fsS "http://127.0.0.1:$PORT/ready" >/dev/null 2>&1; then
+        echo "pid $RUNPID is running but /ready does not answer on port $PORT."
+        echo "Refusing to report it healthy. Run: $0 stop && $0 start $PORT"
+        exit 1
+      else
+        # compare the LIVE server's runtime map against this working tree's.
+        # One python process, no shell quote escaping (which silently broke an
+        # earlier version of this check and made every server look stale).
+        if ! (cd "$REPO" && "$PY" - "$PORT" <<'PYCHECK'
+import json, sys, urllib.request
+from ghostcaddie.upload.runtimes import RuntimeRegistry
+port = sys.argv[1]
+with urllib.request.urlopen(f"http://127.0.0.1:{port}/ready", timeout=5) as r:
+    live = {k: v["interpreter"]
+            for k, v in json.load(r)["dependency_readiness"].items()}
+want = {k: v.interpreter for k, v in RuntimeRegistry.default().specs.items()}
+if live != want:
+    print("STALE: the running server does not match this working tree.")
+    for k in sorted(set(live) | set(want)):
+        if live.get(k) != want.get(k):
+            print(f"  {k}: live={live.get(k, 'ABSENT')} worktree={want.get(k, 'ABSENT')}")
+    sys.exit(1)
+PYCHECK
+        ); then
+          echo "Restart it:  $0 stop && $0 start $PORT"
+          exit 1
+        fi
+        echo "already running (pid $RUNPID) on port $PORT, /ready healthy, code matches worktree"
+        exit 0
+      fi
     fi
     cd "$REPO"
     nohup "$PY" -m ghostcaddie.upload.server --root "$ROOT" --port "$PORT" \
