@@ -28,10 +28,21 @@ AUTOMATIC = {
                  "missing": "a trained golf CLUBHEAD detector checkpoint. The "
                             "SAM2.1 route is a promptable segmenter: it needs a "
                             "box to start and is not a detector."},
+    # CORRECTION to an earlier overstatement of mine: a golf-ball detector DOES
+    # exist and DOES fire on this footage. It is not wired in here because it is
+    # far too weak to be a tracking layer, and its dataset rights are unresolved.
     "ball": {"runs_unattended": False,
-             "missing": "a trained golf BALL detector checkpoint. BootsTAPIR is "
-                        "a point tracker and needs a starting point; it also "
-                        "drifts off this ball once started."},
+             "missing": "a golf BALL detector good enough to track with. One "
+                        "exists (ONNX, declares AGPL-3.0, names={0: golf_ball}) "
+                        "and on this interval it hit the STATIONARY ball at "
+                        "address on f3055-f3060 and the MOVING ball on f3075 and "
+                        "f3079 (both visually confirmed), against 218 predictions "
+                        "that were not the ball. 2 moving detections in 51 frames "
+                        "is not a track. Its training-dataset rights are also "
+                        "unresolved and AGPL-3.0 carries its own obligations. "
+                        "BootsTAPIR is a point tracker, not a detector: it needs "
+                        "a starting point and drifts off this ball once given "
+                        "one."},
 }
 
 
@@ -130,7 +141,7 @@ def main():
         print(f"-- {name}: {len(obs)} automatic observations", flush=True)
 
     # measurement layer over frozen observations
-    timebase = Timebase(slowmo_factor=None,
+    timebase = Timebase(real_seconds_per_playback_second=None,
                         method=f"file declares playback {meta['playback_fps_exact']} "
                                f"and carries no capture-rate metadata")
     speeds, mph_status = {}, {}

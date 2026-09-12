@@ -85,10 +85,30 @@ class Calibration:
 
 @dataclass(frozen=True)
 class Timebase:
-    """real_action_elapsed / playback_elapsed. 1.0 means real time, and even
-    that must be stated explicitly rather than assumed."""
-    slowmo_factor: Optional[float]
+    """How much REAL time passes per second of playback.
+
+    Named for exactly what it is, because the previous name invited its own
+    reciprocal: the field was documented as real_elapsed/playback_elapsed but
+    the arithmetic divided by it, so a declared 0.25 produced a quarter of the
+    documented speed instead of four times it.
+
+        real_dt = playback_dt * real_seconds_per_playback_second
+
+    1.0 is real time, and must still be stated rather than assumed. Footage shot
+    at 4x for slow-motion playback holds 0.25 real seconds per playback second;
+    use from_slowmo_multiple() rather than inverting it by hand.
+    """
+    real_seconds_per_playback_second: Optional[float]
     method: str
+
+    @classmethod
+    def from_slowmo_multiple(cls, multiple: float, method: str) -> "Timebase":
+        """A 4x slow-motion clip is from_slowmo_multiple(4.0) -> 0.25."""
+        m = float(multiple)
+        if not math.isfinite(m) or m <= 0:
+            raise ValueError(f"slow-motion multiple must be finite and positive, "
+                             f"got {multiple!r}")
+        return cls(real_seconds_per_playback_second=1.0 / m, method=method)
 
 
 @dataclass(frozen=True)
@@ -138,6 +158,16 @@ def image_speed_px_s(a: PointObservation, b: PointObservation) -> ImageSpeed:
     """Pixel speed between two REAL observations of the SAME target."""
     if a.target != b.target:
         raise ValueError(f"cannot measure across targets: {a.target} vs {b.target}")
+    if a.source_sha256 != b.source_sha256:
+        # two observations of "the ball" from two different videos are not two
+        # observations of the same ball
+        raise ValueError(
+            f"cannot measure across sources: {a.source_sha256[:12]}... vs "
+            f"{b.source_sha256[:12]}...")
+    if b.frame_index <= a.frame_index:
+        raise ValueError(
+            f"frame indices must strictly increase, got {a.frame_index} then "
+            f"{b.frame_index}")
     dt = b.t_seconds - a.t_seconds
     if dt <= 0:
         raise ValueError("observations must be strictly increasing in time")
@@ -159,7 +189,7 @@ def metric_speed_mps(a: PointObservation, b: PointObservation,
         raise MetricSpeedUnavailable(
             "no spatial calibration: metres per pixel is unknown for this target "
             "at these frames, so no metric speed can be reported")
-    f = timebase.slowmo_factor
+    f = timebase.real_seconds_per_playback_second
     if f is None:
         raise MetricSpeedUnavailable(
             "the real capture rate is unknown: this file declares only its "
@@ -168,9 +198,10 @@ def metric_speed_mps(a: PointObservation, b: PointObservation,
     f = float(f)
     if not math.isfinite(f) or f <= 0:
         raise MetricSpeedUnavailable(
-            f"the slow-motion factor must be finite and positive, got {f!r}")
-    img = image_speed_px_s(a, b)
-    real_dt = img.dt_seconds / f
+            f"real seconds per playback second must be finite and positive, "
+            f"got {f!r}")
+    img = image_speed_px_s(a, b)          # also rejects cross-source pairs
+    real_dt = img.dt_seconds * f
     metres = img.distance_px * calibration.meters_per_pixel
     frac = (calibration.uncertainty / calibration.meters_per_pixel
             if calibration.meters_per_pixel else float("inf"))
