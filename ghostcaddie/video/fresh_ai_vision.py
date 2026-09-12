@@ -11,7 +11,10 @@ import argparse
 import hashlib
 import json
 import math
+import os
+import signal
 import subprocess
+import uuid
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
@@ -28,12 +31,52 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def _run_bounded_process(cmd: Sequence[str], *, cwd: Path | None = None, timeout_s: float = 60) -> subprocess.CompletedProcess:
+    popen_kwargs = {
+        "cwd": str(cwd) if cwd is not None else None,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "text": True,
+    }
+    if hasattr(os, "setsid"):
+        popen_kwargs["preexec_fn"] = os.setsid
+    proc = subprocess.Popen(list(cmd), **popen_kwargs)
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout_s)
+    except subprocess.TimeoutExpired as exc:
+        if hasattr(os, "killpg"):
+            try:
+                pgid = os.getpgid(proc.pid)
+                os.killpg(pgid, signal.SIGTERM)
+                try:
+                    proc.communicate(timeout=2)
+                except subprocess.TimeoutExpired:
+                    os.killpg(pgid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        else:
+            proc.kill()
+        try:
+            proc.communicate(timeout=1)
+        except Exception:
+            pass
+        raise exc
+    return subprocess.CompletedProcess(list(cmd), proc.returncode, stdout, stderr)
+
+
+def _run_checked(cmd: Sequence[str], *, cwd: Path | None = None, timeout_s: float = 60) -> subprocess.CompletedProcess:
+    proc = _run_bounded_process(cmd, cwd=cwd, timeout_s=timeout_s)
+    if proc.returncode != 0:
+        raise subprocess.CalledProcessError(proc.returncode, proc.args, output=proc.stdout, stderr=proc.stderr)
+    return proc
+
+
 def ffprobe_video(path: Path) -> dict:
-    out = subprocess.run([
+    out = _run_checked([
         "ffprobe", "-v", "error", "-select_streams", "v:0",
         "-show_entries", "stream=width,height,r_frame_rate,avg_frame_rate,nb_frames,duration,codec_name,pix_fmt",
         "-of", "json", str(path),
-    ], check=True, capture_output=True, text=True).stdout
+    ], timeout_s=30).stdout
     s = json.loads(out)["streams"][0]
     return {
         "width": int(s["width"]),
@@ -69,19 +112,20 @@ def decode_frames(video: Path, frames: Sequence[int], outdir: Path) -> dict[int,
     paths: dict[int, Path] = {}
     for frame in frames:
         p = outdir / f"native_{frame:06d}.jpg"
-        subprocess.run([
+        _run_checked([
             "ffmpeg", "-y", "-v", "error", "-i", str(video),
             "-vf", f"select=eq(n\\,{frame})", "-vsync", "0", "-frames:v", "1", str(p),
-        ], check=True, capture_output=True, text=True)
+        ], timeout_s=45)
         if not p.exists() or p.stat().st_size == 0:
             raise RuntimeError(f"failed to decode source frame {frame}")
         paths[frame] = p
     return paths
 
 
-def build_prompt(video: Path, source_sha256: str, meta: Mapping, frame_paths: Mapping[int, Path]) -> str:
+def build_prompt(video: Path, source_sha256: str, meta: Mapping, frame_paths: Mapping[int, Path], *, job_nonce: str | None = None) -> str:
     listing = "\n".join(f"- source_frame {f}: {p}" for f, p in frame_paths.items())
     frames = list(frame_paths)
+    nonce = job_nonce or uuid.uuid4().hex
     return f"""You are doing a bounded blind golf-video visual inspection.
 
 Use your vision tool on each local image path below, one frame at a time. Do not use or ask for annotation seeds, previous demo decisions, reference coordinates, hidden reports, or temporal copying. If a target is not visually separable, emit null/visible false. Inspect all listed frames before answering.
@@ -90,14 +134,16 @@ Source path: {video}
 Source SHA-256: {source_sha256}
 Geometry: {meta.get('width')}x{meta.get('height')}
 Native frames requested: {frames}
+Job nonce: {nonce}
 Images:
 {listing}
 
-Return ONLY one strict JSON object with this shape:
+Return ONLY one strict JSON object with this shape. The job_nonce value must exactly match the Job nonce above:
 {{
+  "job_nonce": "{nonce}",
   "frames": [
     {{
-      "source_frame": 3058,
+      "source_frame": <one requested native frame index>,
       "ball": {{"visible": false, "point_xy": null, "confidence": 0.0, "uncertainty": "why/null or why visible"}},
       "clubhead": {{"visible": false, "bbox_xyxy": null, "point_xy": null, "confidence": 0.0, "uncertainty": "why/null or why visible"}}
     }}
@@ -116,42 +162,36 @@ def build_hermes_command(query_file: Path, max_turns: int = 8) -> list[str]:
     ]
 
 
-def _extract_json(text: str) -> dict:
+def _extract_json(text: str, *, expected_nonce: str | None = None) -> dict:
     text = text.strip()
+    decoder = json.JSONDecoder()
+
+    def acceptable(obj: object) -> bool:
+        return isinstance(obj, dict) and "frames" in obj and (expected_nonce is None or obj.get("job_nonce") == expected_nonce)
+
     try:
-        return json.loads(text)
+        obj = json.loads(text)
+        if acceptable(obj):
+            return obj
     except json.JSONDecodeError:
         pass
-    # Hermes chat prints banners and session trailers. Prefer complete JSON lines,
-    # then fall back to balanced-brace objects that contain the required key.
-    for line in reversed(text.splitlines()):
-        s = line.strip().strip("│╭╰─ ")
-        if s.startswith("{") and s.endswith("}"):
-            try:
-                obj = json.loads(s)
-            except json.JSONDecodeError:
-                continue
-            if "frames" in obj:
-                return obj
-    starts = [i for i, ch in enumerate(text) if ch == "{"]
-    for start in reversed(starts):
-        depth = 0
-        for end in range(start, len(text)):
-            if text[end] == "{":
-                depth += 1
-            elif text[end] == "}":
-                depth -= 1
-                if depth == 0:
-                    candidate = text[start:end + 1]
-                    try:
-                        obj = json.loads(candidate)
-                    except json.JSONDecodeError:
-                        break
-                    if "frames" in obj:
-                        return obj
-                    break
-    raise json.JSONDecodeError("No strict JSON object with frames found", text, 0)
 
+    found_nonce_mismatch = False
+    for start, ch in reversed(list(enumerate(text))):
+        if ch != "{":
+            continue
+        try:
+            obj, end = decoder.raw_decode(text, start)
+        except json.JSONDecodeError:
+            continue
+        if acceptable(obj):
+            return obj
+        if isinstance(obj, dict) and "frames" in obj and expected_nonce is not None:
+            found_nonce_mismatch = True
+    msg = "No strict JSON object with frames found"
+    if found_nonce_mismatch:
+        msg = "No strict JSON object with matching job_nonce found"
+    raise json.JSONDecodeError(msg, text, 0)
 
 def _bounded_conf(v) -> float:
     if type(v) not in (int, float):
@@ -229,15 +269,16 @@ def normalize_frame_decision(raw: Mapping, *, source_sha256: str, width: int, he
     return out
 
 
-def run_child_inference(query_file: Path, outdir: Path, max_turns: int) -> tuple[dict, dict]:
+def run_child_inference(query_file: Path, outdir: Path, max_turns: int, *, job_nonce: str | None = None, timeout_s: float = 900) -> tuple[dict, dict]:
     cmd = build_hermes_command(query_file, max_turns=max_turns)
-    proc = subprocess.run(cmd, cwd=str(Path(__file__).resolve().parents[2]), capture_output=True, text=True, timeout=900)
+    outdir.mkdir(parents=True, exist_ok=True)
+    proc = _run_bounded_process(cmd, cwd=outdir, timeout_s=timeout_s)
     (outdir / "hermes_stdout.log").write_text(proc.stdout or "")
     (outdir / "hermes_stderr.log").write_text(proc.stderr or "")
-    routing = {"command": cmd[:7] + ["chat", "--max-turns", str(max_turns), "--query", "<prompt omitted; see prompt.md>"], "returncode": proc.returncode}
+    routing = {"command": cmd[:7] + ["chat", "--max-turns", str(max_turns), "--query", "<prompt omitted; see prompt.md>"], "returncode": proc.returncode, "cwd": str(outdir), "isolation_note": "child runs in per-job cwd; prompt-only withholding is not a sandbox"}
     if proc.returncode != 0:
         raise RuntimeError(f"Hermes child failed rc={proc.returncode}; stderr tail={(proc.stderr or '')[-500:]}")
-    return _extract_json(proc.stdout), routing
+    return _extract_json(proc.stdout, expected_nonce=job_nonce), routing
 
 
 def render_video(video: Path, decisions: Sequence[Mapping], meta: Mapping, outdir: Path) -> Path:
@@ -262,13 +303,15 @@ def render_video(video: Path, decisions: Sequence[Mapping], meta: Mapping, outdi
                 x0, y0, x1, y1 = [int(round(v)) for v in r["bbox_xyxy"]]
                 cv2.rectangle(img, (x0, y0), (x1, y1), color, 2)
         cv2.rectangle(img, (0, h - 54), (w, h), (16, 14, 14), -1)
-        cv2.putText(img, f"fresh GPT5.5 vision pseudo-labels | native source f{f} | no seeds/references | research only", (16, h - 22), cv2.FONT_HERSHEY_SIMPLEX, 0.58, (220, 220, 220), 1, cv2.LINE_AA)
+        timing = "native-timed contiguous" if all((b - a) == 1 for a, b in zip(frames, frames[1:])) else "sampled non-temporal preview; no speed"
+        cv2.putText(img, f"fresh GPT5.5 pseudo-labels | sampled {idx+1}/{len(frames)} source f{f} | {timing}", (16, h - 22), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (220, 220, 220), 1, cv2.LINE_AA)
         p = annotated / f"seq_{idx:06d}.jpg"
         cv2.imwrite(str(p), img)
     final = outdir / "fresh_ai_vision_overlay.mp4"
-    fps_exact = str(meta.get("r_frame_rate") or "30/1")
-    subprocess.run(["ffmpeg", "-y", "-v", "error", "-framerate", fps_exact, "-i", str(annotated / "seq_%06d.jpg"), "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "19", "-movflags", "+faststart", str(final)], check=True, capture_output=True, text=True)
-    subprocess.run(["ffmpeg", "-v", "error", "-i", str(final), "-f", "null", "-"], check=True, capture_output=True, text=True)
+    is_contiguous = all((b - a) == 1 for a, b in zip(frames, frames[1:]))
+    fps_exact = str(meta.get("r_frame_rate") or "30/1") if is_contiguous else "1"
+    _run_checked(["ffmpeg", "-y", "-v", "error", "-framerate", fps_exact, "-i", str(annotated / "seq_%06d.jpg"), "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "19", "-movflags", "+faststart", str(final)], timeout_s=120)
+    _run_checked(["ffmpeg", "-v", "error", "-i", str(final), "-f", "null", "-"], timeout_s=60)
     return final
 
 
@@ -282,8 +325,9 @@ def run_smoke_pipeline(video: Path, frames: Sequence[int], outdir: Path, *, rend
     frame_list = validate_frames(frames, meta.get("nb_frames"))
     decoded = decode_frames(video, frame_list, outdir / "input_frames")
     query_file = outdir / "prompt.md"
-    query_file.write_text(build_prompt(video, source_sha, meta, decoded))
-    raw, routing = run_child_inference(query_file, outdir, max_turns=max_turns)
+    job_nonce = uuid.uuid4().hex
+    query_file.write_text(build_prompt(video, source_sha, meta, decoded, job_nonce=job_nonce))
+    raw, routing = run_child_inference(query_file, outdir, max_turns=max_turns, job_nonce=job_nonce)
     returned_frames = []
     for r in raw.get("frames", []):
         source_frame = r.get("source_frame")
@@ -300,6 +344,7 @@ def run_smoke_pipeline(video: Path, frames: Sequence[int], outdir: Path, *, rend
         "requested_frames": frame_list,
         "inference": {"provenance": {**(raw.get("provenance") or {}), "input_policy": {"withheld": WITHHELD, "images": {str(k): str(v) for k, v in decoded.items()}}, "routing": routing}},
         "decisions": decisions,
+        "sampled_frame_preview": {"available": True, "frame_indices": frame_list, "temporal_interpretation": "contiguous native FPS only" if all((b - a) == 1 for a, b in zip(frame_list, frame_list[1:])) else "sampled non-temporal preview; no speed interpretation"},
         "metric_speed": {"available": False, "reason": "no calibration and no capture-action time; image observations only"},
         "research_only": True,
         "pseudo_label": True,
