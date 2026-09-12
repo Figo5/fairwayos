@@ -77,7 +77,7 @@ class AssociationTests(unittest.TestCase):
                 _c(f, 100.0 + 10 * i, 200.0 + 5 * i, score=0.02),   # the ball
                 _c(f, 600.0 + 250 * ((i % 2) * 2 - 1), 400.0, score=0.95),  # noise
             ]
-        track = associate(frames, self.POLICY)
+        track = associate(frames, self.POLICY, identity_qualified=True)
         self.assertEqual(len(track), 10)
         for i, f in enumerate(range(10, 20)):
             self.assertIsNotNone(track[f], f"frame {f} dropped")
@@ -93,7 +93,7 @@ class AssociationTests(unittest.TestCase):
                 Candidate(frame=f, x1=400.0, y1=100.0, x2=570.0,
                           y2=575.0, score=0.99),
             ]
-        track = associate(frames, self.POLICY)
+        track = associate(frames, self.POLICY, identity_qualified=True)
         for i, f in enumerate(range(10, 18)):
             self.assertAlmostEqual(track[f].cx, 100.0 + 8 * i, places=6)
 
@@ -108,7 +108,7 @@ class AssociationTests(unittest.TestCase):
         }
         policy = AssociationPolicy(score_weight=0.0, size_change_weight=0.0,
                                    min_track_frames=3)
-        track = associate(frames, policy)
+        track = associate(frames, policy, identity_qualified=True)
         self.assertAlmostEqual(track[0].cx, 100.0, places=6)
         self.assertAlmostEqual(track[1].cx, 50.0, places=6)
         self.assertAlmostEqual(track[2].cx, 0.0, places=6)
@@ -122,7 +122,7 @@ class AssociationTests(unittest.TestCase):
     def test_a_frame_with_no_candidate_emits_nothing_and_is_not_interpolated(self):
         frames = {f: [_c(f, 100.0 + 10 * (f - 10), 200.0)] for f in range(10, 20)}
         frames[14] = []
-        track = associate(frames, self.POLICY)
+        track = associate(frames, self.POLICY, identity_qualified=True)
         self.assertIsNone(track[14])
         self.assertIsNotNone(track[13])
         self.assertIsNotNone(track[15])
@@ -130,7 +130,7 @@ class AssociationTests(unittest.TestCase):
     def test_a_frame_whose_only_candidates_are_incoherent_emits_nothing(self):
         frames = {f: [_c(f, 100.0 + 10 * (f - 10), 200.0)] for f in range(10, 20)}
         frames[14] = [_c(14, 1200.0, 60.0)]      # far outside any plausible step
-        track = associate(frames, self.POLICY)
+        track = associate(frames, self.POLICY, identity_qualified=True)
         self.assertIsNone(track[14], "an incoherent jump must not be selected")
 
     def test_association_uses_no_reference_coordinate_and_no_seed(self):
@@ -138,7 +138,7 @@ class AssociationTests(unittest.TestCase):
         proving nothing is anchored to a fixed coordinate."""
         mk = lambda off: {f: [_c(f, off + 10 * (f - 10), 200.0 + off)]
                           for f in range(10, 20)}
-        a, b = associate(mk(0.0), self.POLICY), associate(mk(500.0), self.POLICY)
+        a, b = associate(mk(0.0), self.POLICY, identity_qualified=True), associate(mk(500.0), self.POLICY, identity_qualified=True)
         for f in range(10, 20):
             self.assertAlmostEqual(b[f].cx - a[f].cx, 500.0, places=6)
 
@@ -150,7 +150,7 @@ class AssociationTests(unittest.TestCase):
         detector candidate object from that frame."""
         frames = {f: [_c(f, 100.0 + 10 * (f - 10), 200.0), _c(f, 900.0, 100.0)]
                   for f in range(10, 20)}
-        track = associate(frames, self.POLICY)
+        track = associate(frames, self.POLICY, identity_qualified=True)
         for f, sel in track.items():
             if sel is not None:
                 self.assertIn(sel, frames[f])

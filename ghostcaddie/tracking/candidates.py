@@ -7,15 +7,17 @@ clubhead distractors. So the detector is not the bottleneck -- picking the right
 candidate is. Confidence alone cannot do it: the ball is routinely the FAINTEST
 candidate in the frame.
 
-What this does. It reads every candidate in every frame and chooses one coherent
-path through them, scoring motion coherence rather than confidence. The path is
-found by dynamic programming over the whole interval, so the track is
+What this does. It reads every candidate in every frame and proposes one
+coherent path through them, scoring motion coherence rather than confidence. The
+proposal is found by dynamic programming over the whole interval, so it is
 initialised by the optimiser -- there is no seed, no reference coordinate, no
 crop, and no per-frame greedy pick that could lock onto a distractor early.
 
-What it refuses to do. A frame whose candidates cannot continue the path emits
-NOTHING. Gaps are gaps: nothing is interpolated, smoothed or carried forward,
-and every emitted point is one of the detector's own candidate objects.
+What it refuses to do. The reference-free proposal is not an accepted ball
+observation without independent identity qualification. A frame whose candidates
+cannot continue the proposal emits NOTHING. Gaps are gaps: nothing is
+interpolated, smoothed or carried forward, and every proposed point is one of
+the detector's own candidate objects.
 
 Invalid geometry is rejected at the boundary, not repaired: the decoder audit
 found NaN coordinates and negative/inverted boxes reaching NMS, and silently
@@ -132,6 +134,28 @@ class AssociationPolicy:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class AssociationResult:
+    """Reference-free association output before/after identity acceptance.
+
+    `proposed_by_frame` preserves the coherent path as a research proposal.
+    `accepted_by_frame` is empty unless an independent identity qualifier is
+    explicitly supplied by a caller outside this reference-free selector.
+    """
+    proposed_by_frame: Dict[int, Optional[Candidate]]
+    accepted_by_frame: Dict[int, Optional[Candidate]]
+    acceptance_state: str
+    rejection_reasons: Tuple[str, ...]
+
+    @property
+    def proposed_frames(self) -> int:
+        return sum(c is not None for c in self.proposed_by_frame.values())
+
+    @property
+    def accepted_frames(self) -> int:
+        return sum(c is not None for c in self.accepted_by_frame.values())
+
+
 _MISS = None
 
 
@@ -162,10 +186,10 @@ def _pair_cost(prev: Candidate, cur: Candidate, prev_v, gap: int,
     return cost
 
 
-def associate(frames: Dict[int, Sequence[Candidate]],
-              policy: Optional[AssociationPolicy] = None
-              ) -> Dict[int, Optional[Candidate]]:
-    """Pick one coherent path through all candidates. Gaps stay empty.
+def _associate_path(frames: Dict[int, Sequence[Candidate]],
+                    policy: Optional[AssociationPolicy] = None
+                    ) -> Dict[int, Optional[Candidate]]:
+    """Propose one coherent path through all candidates. Gaps stay empty.
 
     Dynamic programming over (frame, candidate, incoming velocity): each state
     keeps the cheapest way to arrive at that candidate, so the chosen track is
@@ -233,3 +257,51 @@ def associate(frames: Dict[int, Sequence[Candidate]],
     for fi, ci, _, _ in path:
         track[order[fi]] = frames[order[fi]][ci]
     return track
+
+
+def associate_proposals(frames: Dict[int, Sequence[Candidate]],
+                        policy: Optional[AssociationPolicy] = None,
+                        *,
+                        identity_qualified: bool = False
+                        ) -> AssociationResult:
+    """Return proposed association separately from accepted observations.
+
+    This selector is reference-free: it has no seed, crop, reviewed coordinate,
+    or independent visual identity input. Therefore its coherent path is only a
+    proposal by default. Callers that have independently qualified identity may
+    opt in with `identity_qualified=True`; this function does not fabricate that
+    evidence from length, confidence, size, or motion coherence.
+    """
+    proposed = _associate_path(frames, policy)
+    if identity_qualified:
+        return AssociationResult(
+            proposed_by_frame=proposed,
+            accepted_by_frame=dict(proposed),
+            acceptance_state="accepted_identity_qualified",
+            rejection_reasons=(),
+        )
+    accepted = {f: None for f in proposed}
+    reasons = ("independent_identity_required",)
+    if not any(c is not None for c in proposed.values()):
+        reasons = ("no_coherent_proposal",) + reasons
+    return AssociationResult(
+        proposed_by_frame=proposed,
+        accepted_by_frame=accepted,
+        acceptance_state="proposal_only",
+        rejection_reasons=reasons,
+    )
+
+
+def associate(frames: Dict[int, Sequence[Candidate]],
+              policy: Optional[AssociationPolicy] = None,
+              *,
+              identity_qualified: bool = False
+              ) -> Dict[int, Optional[Candidate]]:
+    """Return accepted ball observations, abstaining by default.
+
+    Use `associate_proposals` to inspect the unvalidated coherent path. The
+    accepted API intentionally emits no ball observations unless independent
+    identity qualification is supplied by the caller.
+    """
+    return associate_proposals(
+        frames, policy, identity_qualified=identity_qualified).accepted_by_frame
