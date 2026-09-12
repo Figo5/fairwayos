@@ -95,6 +95,7 @@ pre{white-space:pre-wrap;word-break:break-all;color:var(--dim);font-size:11px;ma
       <button id=dl disabled>Download results</button>
       <button id=delMedia disabled>Delete media now</button></div>
     <div id=jobErr class=reason style="color:var(--bad)"></div>
+    <div id=retention class=reason></div>
   </div>
   <div class=card style="margin-top:12px">
     <h2>targets</h2>
@@ -152,6 +153,11 @@ async function poll(){
     $('#jobState').textContent=`${j.id} — ${j.state}`;
     $('#prog').style.width=Math.round((j.progress||0)*100)+'%';
     $('#jobErr').textContent=j.error||'';
+    // Rendered from the job's own state, not from the click handler, so the
+    // next poll re-renders it instead of wiping it.
+    const mr=j.media_retention||(j.result&&j.result.media_retention);
+    $('#retention').textContent=mr
+      ?`media: ${mr.retained?'retained for review':'not available'} — ${mr.reason}`:'';
     renderTargets(j.result);
     $('#raw').textContent=j.result?JSON.stringify(j.result,null,1):'';
     $('#dl').disabled=!j.result;
@@ -189,9 +195,9 @@ $('#dl').onclick=async()=>{
 $('#delMedia').onclick=async()=>{
   const r=await fetch('/jobs/'+JOB+'/media/delete',{method:'POST',headers:H});
   const d=await r.json();
-  $('#jobErr').textContent=r.ok
-    ?('media retention: '+d.media_retention.reason):(d.error||'delete failed');
-  poll();
+  if(!r.ok){$('#jobErr').textContent=d.error||'delete failed';return}
+  $('#jobErr').textContent='';
+  await poll();          // the retention line is rendered from job state
 };
 
 async function loadFrame(n){
@@ -213,8 +219,23 @@ $('#load').onclick=()=>loadFrame(parseInt($('#fnum').value||'0',10));
 $('#prev').onclick=()=>loadFrame(Math.max(0,(SRC?SRC.req:0)-1));
 $('#next').onclick=()=>loadFrame((SRC?SRC.req:0)+1);
 
-function tf(){const img=$('#frame');return{native_w:SRC.nw,native_h:SRC.nh,
-  display_w:img.clientWidth,display_h:img.clientHeight}}
+// The image's CONTENT box in fractional CSS pixels.
+// clientWidth/clientHeight are integer-rounded and measure the PADDING box,
+// while getBoundingClientRect() is fractional and measures the BORDER box.
+// Mixing the two shifted every seeded coordinate (a click intended at native
+// 821,477 recorded 819.76,475.45). Origin AND scale now come from this one box.
+function contentBox(img){
+  const r=img.getBoundingClientRect(), cs=getComputedStyle(img);
+  const n=v=>parseFloat(v)||0;
+  const bl=n(cs.borderLeftWidth), bt=n(cs.borderTopWidth);
+  const br=n(cs.borderRightWidth), bb=n(cs.borderBottomWidth);
+  const pl=n(cs.paddingLeft), pt=n(cs.paddingTop);
+  const pr=n(cs.paddingRight), pb=n(cs.paddingBottom);
+  return {left:r.left+bl+pl, top:r.top+bt+pt,
+          width:r.width-bl-br-pl-pr, height:r.height-bt-bb-pt-pb};
+}
+function tf(){const b=contentBox($('#frame'));return{native_w:SRC.nw,native_h:SRC.nh,
+  display_w:b.width,display_h:b.height}}
 function toNative(t,dx,dy){
   const s=Math.min(t.display_w/t.native_w,t.display_h/t.native_h);
   const cw=t.native_w*s, ch=t.native_h*s;
@@ -223,7 +244,8 @@ function toNative(t,dx,dy){
   return [(dx-px)/s,(dy-py)/s];
 }
 function draw(){
-  const c=$('#ov'),img=$('#frame');c.width=img.clientWidth;c.height=img.clientHeight;
+  const c=$('#ov'),img=$('#frame');const cb=contentBox(img);
+  c.width=cb.width;c.height=cb.height;
   const x=c.getContext('2d');x.clearRect(0,0,c.width,c.height);
   x.strokeStyle='#4fd1ff';x.fillStyle='#4fd1ff';x.lineWidth=2;
   const t=SRC?tf():null;
@@ -240,8 +262,8 @@ function draw(){
 }
 $('#stage').onclick=e=>{
   if(!MODE||!SRC)return;
-  const r=$('#frame').getBoundingClientRect();
-  const n=toNative(tf(),e.clientX-r.left,e.clientY-r.top);
+  const b=contentBox($('#frame'));
+  const n=toNative(tf(),e.clientX-b.left,e.clientY-b.top);
   if(!n){$('#pickInfo').innerHTML='<span class=t-unavailable>click was in the letterbox padding, not on the image — ignored (never clamped)</span>';return}
   const need=MODE==='clubhead'?2:1;
   PICKS.push(n); if(PICKS.length>need)PICKS=[n];
@@ -267,7 +289,8 @@ $('#sendSeed').onclick=async()=>{
     body:JSON.stringify({source_sha256:SRC.sha,seeds:[seed]})});
   const d=await r.json();
   $('#pickInfo').innerHTML=r.ok
-    ?`<span class=t-observed>seed accepted (assisted, bound to ${SRC.sha.slice(0,12)}… f${SRC.req})</span>`
+    ?`<span class=t-observed>seed accepted — your assistance, bound to `
+     +`${SRC.sha.slice(0,12)}… f${SRC.got}. Not human-verified, not AI-verified.</span>`
     :`<span class=t-unavailable>${d.error}</span>`;
 };
 window.addEventListener('resize',draw);

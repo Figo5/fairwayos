@@ -505,3 +505,35 @@ class ResultsDownloadTests(_Base):
         page = page.decode()
         self.assertIn("Download results", page)
         self.assertIn("Delete media now", page)
+
+
+class DisclosureAndRetentionMessageTests(_Base):
+    def test_the_seed_disclosure_does_not_claim_a_review_that_never_happened(self):
+        """A click in the UI is assistance. The response used to call it
+        "AI/human reviewed", which claims verification nobody performed."""
+        d = self.upload("disclosure.mp4")
+        st, body = self.post(f"/jobs/{d['id']}/seeds",
+                             {"source_sha256": d["result"]["source"]["sha256"],
+                              "seeds": [{"target": "ball", "frame": 2,
+                                         "point_xy": [10.0, 12.0]}]})
+        self.assertEqual(st, 200, body)
+        disc = body["accepted"]["seeds"][0]["disclosure"]
+        self.assertNotIn("AI/human reviewed", disc)
+        self.assertIn("not human-verified", disc.lower())
+        self.assertIn("not ai-verified", disc.lower())
+        self.assertFalse(body["accepted"]["seeds"][0]["ground_truth"])
+
+    def test_retention_state_is_durable_so_a_refresh_cannot_erase_it(self):
+        """The delete message was written by the click handler and wiped by the
+        next poll. It now comes from the job's own state, which must therefore
+        stay readable and truthful across repeated fetches."""
+        d = self.upload("retmsg.mp4")
+        jid = d["id"]
+        st, body = self.post(f"/jobs/{jid}/media/delete")
+        self.assertEqual(st, 200)
+        for _ in range(3):
+            _, j = self.get(f"/jobs/{jid}")
+            mr = j["media_retention"]
+            self.assertFalse(mr["retained"])
+            self.assertTrue(mr["reason"], "a reason must survive every refresh")
+            self.assertIn("request", mr["reason"])

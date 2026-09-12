@@ -22,8 +22,12 @@ class Seed:
     box_xyxy: Optional[List[float]] = None
     point_xy: Optional[List[float]] = None
     initialization: str = "assisted"
+    # A click in the review UI is assistance, nothing more. Calling it
+    # "AI/human reviewed" overstated it: nobody verified the coordinate, the
+    # operator simply supplied it.
     disclosure: str = ("source-specific assisted initialisation supplied by the "
-                       "operator; AI/human reviewed, NOT ground truth")
+                       "operator. USER-PROVIDED ASSISTANCE: not human-verified "
+                       "and not AI-verified, NOT ground truth")
 
     def to_dict(self) -> dict:
         return {"target": self.target, "frame": self.frame,
