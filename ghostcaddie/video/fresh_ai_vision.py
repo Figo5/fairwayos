@@ -48,9 +48,13 @@ def ffprobe_video(path: Path) -> dict:
 
 
 def validate_frames(frames: Sequence[int], nb_frames: int | None = None) -> list[int]:
-    vals = [int(f) for f in frames]
+    vals = list(frames)
     if not vals:
         raise ValueError("at least one frame is required")
+    if len(vals) > 32:
+        raise ValueError("at most 32 frames are allowed for smoke runs")
+    if any(type(f) is not int for f in vals):
+        raise ValueError("frames must be strict integer native indices")
     if vals != sorted(vals) or len(vals) != len(set(vals)):
         raise ValueError("frames must be unique and sorted native indices")
     if min(vals) < 0:
@@ -150,23 +154,21 @@ def _extract_json(text: str) -> dict:
 
 
 def _bounded_conf(v) -> float:
-    try:
-        x = float(v)
-    except Exception:
-        return 0.0
-    if not math.isfinite(x):
-        return 0.0
-    return max(0.0, min(1.0, x))
+    if type(v) not in (int, float):
+        raise ValueError("confidence must be a finite number in 0..1")
+    x = float(v)
+    if not math.isfinite(x) or not (0.0 <= x <= 1.0):
+        raise ValueError("confidence must be a finite number in 0..1")
+    return x
 
 
 def _point(raw, width: int, height: int):
     if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)) or len(raw) != 2:
         return None
-    try:
-        x, y = float(raw[0]), float(raw[1])
-    except Exception:
+    if any(type(v) not in (int, float) for v in raw):
         return None
-    if not (math.isfinite(x) and math.isfinite(y) and 0 <= x <= width and 0 <= y <= height):
+    x, y = float(raw[0]), float(raw[1])
+    if not (math.isfinite(x) and math.isfinite(y) and 0 <= x < width and 0 <= y < height):
         return None
     return [x, y]
 
@@ -174,22 +176,24 @@ def _point(raw, width: int, height: int):
 def _box(raw, width: int, height: int):
     if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)) or len(raw) != 4:
         return None
-    try:
-        x0, y0, x1, y1 = [float(v) for v in raw]
-    except Exception:
+    if any(type(v) not in (int, float) for v in raw):
         return None
+    x0, y0, x1, y1 = [float(v) for v in raw]
     if not all(math.isfinite(v) for v in (x0, y0, x1, y1)):
         return None
-    if not (0 <= x0 < x1 <= width and 0 <= y0 < y1 <= height):
+    if not (0 <= x0 < x1 < width and 0 <= y0 < y1 < height):
         return None
     return [x0, y0, x1, y1]
 
 
 def normalize_frame_decision(raw: Mapping, *, source_sha256: str, width: int, height: int) -> dict:
-    if len(source_sha256) != 64:
+    if len(source_sha256) != 64 or any(ch not in "0123456789abcdefABCDEF" for ch in source_sha256):
         raise ValueError("source_sha256 must be full hex sha256")
+    source_frame = raw["source_frame"]
+    if type(source_frame) is not int:
+        raise ValueError("source_frame must be a strict integer native index")
     out = {
-        "source_frame": int(raw["source_frame"]),
+        "source_frame": source_frame,
         "source_sha256": source_sha256,
         "pseudo_label": True,
         "research_only": True,
@@ -198,18 +202,24 @@ def normalize_frame_decision(raw: Mapping, *, source_sha256: str, width: int, he
     }
     for target in TARGETS:
         r = raw.get(target) or {}
-        visible = bool(r.get("visible"))
+        visible = r.get("visible")
+        if type(visible) is not bool:
+            raise ValueError(f"{target}.visible must be boolean")
         pt = _point(r.get("point_xy"), width, height)
         box = _box(r.get("bbox_xyxy"), width, height)
-        if target == "ball" and pt is None:
-            visible = False
-        if target == "clubhead" and pt is None and box is None:
-            visible = False
+        if visible:
+            if target == "ball" and pt is None:
+                raise ValueError("ball.point_xy must be in-bounds when visible")
+            if target == "clubhead" and pt is None and box is None:
+                raise ValueError("clubhead point_xy or bbox_xyxy must be in-bounds when visible")
+            confidence = _bounded_conf(r.get("confidence"))
+        else:
+            confidence = 0.0
         out[target] = {
             "visible": visible,
             "point_xy": pt if visible else None,
             "bbox_xyxy": box if visible else None,
-            "confidence": _bounded_conf(r.get("confidence")) if visible else 0.0,
+            "confidence": confidence,
             "uncertainty": str(r.get("uncertainty") or ("visible" if visible else "not visually separable")),
             "pseudo_label": True,
             "ground_truth": False,
@@ -274,9 +284,15 @@ def run_smoke_pipeline(video: Path, frames: Sequence[int], outdir: Path, *, rend
     query_file = outdir / "prompt.md"
     query_file.write_text(build_prompt(video, source_sha, meta, decoded))
     raw, routing = run_child_inference(query_file, outdir, max_turns=max_turns)
-    by_frame = {int(r["source_frame"]): r for r in raw.get("frames", [])}
-    if sorted(by_frame) != frame_list:
-        raise RuntimeError(f"child returned frames {sorted(by_frame)}, expected {frame_list}")
+    returned_frames = []
+    for r in raw.get("frames", []):
+        source_frame = r.get("source_frame")
+        if type(source_frame) is not int:
+            raise RuntimeError("child returned non-integer source_frame")
+        returned_frames.append(source_frame)
+    if returned_frames != frame_list or len(returned_frames) != len(set(returned_frames)):
+        raise RuntimeError(f"child returned frames {returned_frames}, expected {frame_list}")
+    by_frame = {r["source_frame"]: r for r in raw.get("frames", [])}
     decisions = [normalize_frame_decision(by_frame[f], source_sha256=source_sha, width=meta["width"], height=meta["height"]) for f in frame_list]
     doc = {
         "source": {"path": str(video), "sha256": source_sha, **meta},
