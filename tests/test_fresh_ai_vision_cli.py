@@ -225,8 +225,8 @@ class FreshAIVisionCliTests(unittest.TestCase):
                     out = json.dumps({
                         "job_nonce": nonce,
                         "frames": [
-                            {"source_frame": 3058, "ball": {"visible": False}, "clubhead": {"visible": False}},
-                            {"source_frame": 3068, "ball": {"visible": True, "point_xy": [5, 6], "confidence": 0.8}, "clubhead": {"visible": False}},
+                            {"source_frame": 3058, "inspected_images": [str(root / "out" / "input_frames" / "native_003058.jpg")], "ball": {"visible": False}, "clubhead": {"visible": False}},
+                            {"source_frame": 3068, "inspected_images": [str(root / "out" / "input_frames" / "native_003068.jpg")], "ball": {"visible": True, "point_xy": [5, 6], "confidence": 0.8}, "clubhead": {"visible": False}},
                         ],
                         "provenance": {"model": "gpt-5.5", "provider": "openai-codex"},
                     })

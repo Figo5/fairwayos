@@ -9,11 +9,13 @@ from unittest import mock
 
 from ghostcaddie.video.fresh_ai_vision import (
     MAX_BATCH_FRAMES,
+    detect_replicated_decisions,
     merge_batch_documents,
     parse_interval,
     partition_interval,
     reusable_batch_document,
     run_batched_pipeline,
+    validate_inspection_evidence,
 )
 
 SHA = "a" * 64
@@ -348,6 +350,7 @@ class JobBudgetTests(unittest.TestCase):
             seen["child"] = timeout_s
             return ({"job_nonce": job_nonce,
                      "frames": [{"source_frame": 0,
+                                 "inspected_images": [str(d / "f.jpg")],
                                  "ball": {"visible": False, "confidence": 0.0},
                                  "clubhead": {"visible": False, "confidence": 0.0}}]}, {"returncode": 0})
 
@@ -379,6 +382,7 @@ class JobBudgetTests(unittest.TestCase):
             seen["child"] = timeout_s
             return ({"job_nonce": job_nonce,
                      "frames": [{"source_frame": 0,
+                                 "inspected_images": [str(d / "f.jpg")],
                                  "ball": {"visible": False, "confidence": 0.0},
                                  "clubhead": {"visible": False, "confidence": 0.0}}]}, {"returncode": 0})
 
@@ -392,3 +396,68 @@ class JobBudgetTests(unittest.TestCase):
         ):
             fav.run_smoke_pipeline(video, [0], d / "job", render=False)
         self.assertEqual(seen["child"], 900.0)
+
+
+class InspectionEvidenceTests(unittest.TestCase):
+    """Per-frame evidence attribution: an unattributed decision fails closed, never gets a coordinate."""
+
+    def setUp(self):
+        self.paths = {10: Path("/tmp/j/native_000010.jpg"), 11: Path("/tmp/j/native_000011.jpg")}
+
+    def test_accepts_a_decision_citing_its_own_frame_image(self):
+        got = validate_inspection_evidence(
+            {"source_frame": 10, "inspected_images": [str(self.paths[10]), "/tmp/j/crop_a.jpg"]},
+            frame_paths=self.paths)
+        self.assertIn(str(self.paths[10]), got)
+
+    def test_rejects_decision_that_never_cites_its_own_frame(self):
+        with self.assertRaises(ValueError) as ctx:
+            validate_inspection_evidence(
+                {"source_frame": 10, "inspected_images": ["/tmp/j/crop_a.jpg"]}, frame_paths=self.paths)
+        self.assertIn("own image", str(ctx.exception))
+
+    def test_rejects_decision_borrowing_another_requested_frames_image(self):
+        with self.assertRaises(ValueError) as ctx:
+            validate_inspection_evidence(
+                {"source_frame": 10, "inspected_images": [str(self.paths[10]), str(self.paths[11])]},
+                frame_paths=self.paths)
+        self.assertIn("another requested frame", str(ctx.exception))
+
+    def test_rejects_missing_empty_or_non_string_evidence(self):
+        for bad in (None, [], "a string", [123], {"a": 1}):
+            with self.assertRaises(ValueError):
+                validate_inspection_evidence({"source_frame": 10, "inspected_images": bad},
+                                             frame_paths=self.paths)
+
+
+class ReplicationDetectionTests(unittest.TestCase):
+    """The frozen 3004-3011 defect: one decision emitted on every frame of a job."""
+
+    def _dec(self, frame, point, note):
+        return {"source_frame": frame,
+                "ball": {"point_xy": point, "bbox_xyxy": None, "uncertainty": note},
+                "clubhead": {"point_xy": None, "bbox_xyxy": None, "uncertainty": note}}
+
+    def test_flags_verbatim_decision_repeated_on_every_frame(self):
+        decisions = [self._dec(f, [834.0, 563.0], "same prose") for f in range(3008, 3012)]
+        flags = detect_replicated_decisions(decisions)["replicated_across_all_frames"]
+        self.assertTrue(flags["ball"])
+        self.assertTrue(flags["clubhead"])
+
+    def test_does_not_flag_genuinely_per_frame_decisions(self):
+        decisions = [self._dec(3008, [834.0, 563.0], "a"), self._dec(3009, [836.0, 561.0], "b")]
+        self.assertFalse(detect_replicated_decisions(decisions)["replicated_across_all_frames"]["ball"])
+
+    def test_single_frame_job_is_never_flagged(self):
+        flags = detect_replicated_decisions([self._dec(3008, [1.0, 2.0], "x")])["replicated_across_all_frames"]
+        self.assertFalse(flags["ball"])
+        self.assertFalse(flags["clubhead"])
+
+    def test_frozen_defect_reproduces_the_flag(self):
+        """Guard against regressing to the behaviour the frozen run exhibited."""
+        frozen = Path("/tmp/fairway-parent-real-batched-smoke/batch_001_3008_3011/fresh_ai_vision_results.json")
+        if not frozen.exists():
+            self.skipTest("frozen reference run not present on this machine")
+        decisions = json.loads(frozen.read_text())["decisions"]
+        flags = detect_replicated_decisions(decisions)["replicated_across_all_frames"]
+        self.assertTrue(flags["clubhead"], "the frozen abstention was one decision replicated over four frames")
