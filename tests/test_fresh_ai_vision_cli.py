@@ -15,6 +15,8 @@ from ghostcaddie.video.fresh_ai_vision import (
     run_smoke_pipeline,
     validate_frames,
     render_video,
+    normalize_body_pose_records,
+    run_body_pose_inference,
 )
 
 
@@ -240,6 +242,42 @@ class FreshAIVisionCliTests(unittest.TestCase):
             self.assertTrue(doc["source"]["sha256"])
             self.assertEqual(doc["inference"]["provenance"]["input_policy"]["withheld"], ["saved demo decisions", "evaluation references", "annotation seeds"])
             self.assertEqual([r["source_frame"] for r in doc["decisions"]], [3058, 3068])
+    def test_normalize_body_pose_records_keeps_supported_joints_only(self):
+        raw = [{
+            "source_frame": 3069,
+            "source_sha256": "b" * 64,
+            "keypoints": [
+                {"name": "sh_l", "x": 10, "y": 20, "score": 0.9, "visible": True},
+                {"name": "sh_r", "x": 30, "y": 20, "score": 0.8, "visible": True},
+                {"name": "hip_l", "x": 12, "y": 50, "score": 0.7, "visible": True},
+                {"name": "hip_r", "x": 28, "y": 50, "score": 0.6, "visible": True},
+                {"name": "wr_l", "x": 99, "y": 99, "score": 0.95, "visible": True},
+            ],
+            "visible_keypoint_count": 5,
+        }]
+        got = normalize_body_pose_records(raw, requested_frames=[3069], source_sha256="b" * 64, width=40, height=60)[0]
+        self.assertEqual(got["state"], "observed")
+        self.assertIn("sh_l", got["keypoints"])
+        self.assertIn("hip_r", got["keypoints"])
+        self.assertNotIn("wr_l", got["keypoints"])
+        self.assertEqual(got["anchor"], "torso_hips_legs")
+        self.assertTrue(got["automatic"])
+        self.assertFalse(got["production_eligible"])
+
+    def test_run_body_pose_inference_failure_is_unavailable_not_raised(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            video = root / "in.mp4"
+            video.write_bytes(b"fake")
+
+            class FakeReg:
+                def require(self, target):
+                    raise RuntimeError("missing litert")
+
+            status = run_body_pose_inference(video, [3069, 3070], "c" * 64, root, registry=FakeReg(), timeout_s=1)
+            self.assertEqual(status["state"], "unavailable")
+            self.assertEqual(status["observations"], 0)
+            self.assertIn("missing litert", status["blocker"])
 
 
 if __name__ == "__main__":

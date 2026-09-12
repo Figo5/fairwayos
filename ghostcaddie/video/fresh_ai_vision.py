@@ -14,12 +14,14 @@ import math
 import os
 import signal
 import subprocess
+import time
 import uuid
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
 
 TARGETS = ("ball", "clubhead")
+BODY_SUPPORTED_KEYPOINTS = ("sh_l", "sh_r", "hip_l", "hip_r", "kn_l", "kn_r", "ank_l", "ank_r")
 WITHHELD = ["saved demo decisions", "evaluation references", "annotation seeds"]
 
 
@@ -269,6 +271,70 @@ def normalize_frame_decision(raw: Mapping, *, source_sha256: str, width: int, he
     return out
 
 
+def normalize_body_pose_records(raw_records: Sequence[Mapping], *, requested_frames: Sequence[int], source_sha256: str, width: int, height: int) -> list[dict]:
+    by_frame = {r["source_frame"]: r for r in raw_records if type(r.get("source_frame")) is int}
+    decisions: list[dict] = []
+    for frame in requested_frames:
+        raw = by_frame.get(int(frame))
+        supported = {}
+        min_score = 1.0
+        if raw and raw.get("source_sha256") == source_sha256:
+            for kp in raw.get("keypoints", []):
+                name = kp.get("name")
+                if name not in BODY_SUPPORTED_KEYPOINTS or type(kp.get("visible")) is not bool or not kp.get("visible"):
+                    continue
+                pt = _point([kp.get("x"), kp.get("y")], width, height)
+                if pt is None:
+                    continue
+                score = _bounded_conf(kp.get("score"))
+                supported[name] = {"x": pt[0], "y": pt[1], "score": score, "visible": True}
+                min_score = min(min_score, score)
+        state = "observed" if len(supported) >= 2 else "unavailable"
+        decisions.append({
+            "source_frame": int(frame),
+            "source_sha256": source_sha256,
+            "state": state,
+            "visible": state == "observed",
+            "keypoints": supported,
+            "confidence": round(min_score if supported else 0.0, 4),
+            "anchor": "torso_hips_legs",
+            "method": "MoveNet SinglePose Lightning, TFLite via ai-edge-litert",
+            "automatic": True,
+            "unsupported_not_rendered": ["wr_l", "wr_r", "el_l", "el_r", "nose", "eye_l", "eye_r", "ear_l", "ear_r"],
+            "pseudo_label": True,
+            "research_only": True,
+            "ground_truth": False,
+            "production_eligible": False,
+        })
+    return decisions
+
+
+def run_body_pose_inference(video: Path, frames: Sequence[int], source_sha256: str, outdir: Path, *, registry=None, timeout_s: float = 300) -> dict:
+    from ghostcaddie.upload.runtimes import RuntimeRegistry
+
+    started = time.perf_counter()
+    outdir.mkdir(parents=True, exist_ok=True)
+    try:
+        reg = registry or RuntimeRegistry.default()
+        spec = reg.require("body")
+        req = {"video": str(video), "source_sha256": source_sha256, "sampling_step": 1, "max_frames": len(frames), "frame_start": min(frames), "frame_end": max(frames), "seed": None}
+        req_path = outdir / "body_request.json"
+        req_path.write_text(json.dumps(req, indent=2, sort_keys=True))
+        proc = _run_bounded_process([spec.interpreter, "-m", "ghostcaddie.upload.worker", "body", str(req_path)], cwd=Path(__file__).resolve().parents[2], timeout_s=timeout_s)
+        (outdir / "body_stdout.log").write_text(proc.stdout or "")
+        (outdir / "body_stderr.log").write_text(proc.stderr or "")
+        try:
+            parsed = json.loads((proc.stdout or "").strip().splitlines()[-1])
+        except Exception as exc:
+            parsed = {"ok": False, "error": f"unparseable worker output: {exc}"}
+        runtime_s = round(time.perf_counter() - started, 3)
+        if proc.returncode != 0 or not parsed.get("ok"):
+            return {"state": "unavailable", "automatic": True, "observations": 0, "blocker": parsed.get("error", f"worker rc={proc.returncode}"), "runtime_seconds": runtime_s, "records": [], "logs": {"stdout": str(outdir / "body_stdout.log"), "stderr": str(outdir / "body_stderr.log")}}
+        return {"state": "observed", "automatic": True, "observations": len(parsed.get("records", [])), "runtime_seconds": runtime_s, "records": parsed.get("records", []), "worker": {"interpreter": spec.interpreter, "returncode": proc.returncode}, "logs": {"stdout": str(outdir / "body_stdout.log"), "stderr": str(outdir / "body_stderr.log")}}
+    except Exception as exc:
+        return {"state": "unavailable", "automatic": True, "observations": 0, "blocker": str(exc), "runtime_seconds": round(time.perf_counter() - started, 3), "records": []}
+
+
 def run_child_inference(query_file: Path, outdir: Path, max_turns: int, *, job_nonce: str | None = None, timeout_s: float = 900) -> tuple[dict, dict]:
     cmd = build_hermes_command(query_file, max_turns=max_turns)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -302,6 +368,14 @@ def render_video(video: Path, decisions: Sequence[Mapping], meta: Mapping, outdi
             if r["visible"] and r.get("bbox_xyxy"):
                 x0, y0, x1, y1 = [int(round(v)) for v in r["bbox_xyxy"]]
                 cv2.rectangle(img, (x0, y0), (x1, y1), color, 2)
+        body = d.get("body") or {}
+        kps = body.get("keypoints") or {}
+        for a, b in (("sh_l", "sh_r"), ("sh_l", "hip_l"), ("sh_r", "hip_r"), ("hip_l", "hip_r"), ("hip_l", "kn_l"), ("hip_r", "kn_r"), ("kn_l", "ank_l"), ("kn_r", "ank_r")):
+            if a in kps and b in kps:
+                pa, pb = kps[a], kps[b]
+                cv2.line(img, (int(round(pa["x"])), int(round(pa["y"]))), (int(round(pb["x"])), int(round(pb["y"]))), (210, 130, 255), 2)
+        for kp in kps.values():
+            cv2.circle(img, (int(round(kp["x"])), int(round(kp["y"]))), 4, (210, 130, 255), 1)
         cv2.rectangle(img, (0, h - 54), (w, h), (16, 14, 14), -1)
         timing = "native-timed contiguous" if all((b - a) == 1 for a, b in zip(frames, frames[1:])) else "sampled non-temporal preview; no speed"
         cv2.putText(img, f"fresh GPT5.5 pseudo-labels | sampled {idx+1}/{len(frames)} source f{f} | {timing}", (16, h - 22), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (220, 220, 220), 1, cv2.LINE_AA)
@@ -338,11 +412,15 @@ def run_smoke_pipeline(video: Path, frames: Sequence[int], outdir: Path, *, rend
         raise RuntimeError(f"child returned frames {returned_frames}, expected {frame_list}")
     by_frame = {r["source_frame"]: r for r in raw.get("frames", [])}
     decisions = [normalize_frame_decision(by_frame[f], source_sha256=source_sha, width=meta["width"], height=meta["height"]) for f in frame_list]
+    body_status = run_body_pose_inference(video, frame_list, source_sha, outdir / "body_pose")
+    body_decisions = normalize_body_pose_records(body_status.get("records", []), requested_frames=frame_list, source_sha256=source_sha, width=meta["width"], height=meta["height"])
+    for decision, body in zip(decisions, body_decisions):
+        decision["body"] = body
     doc = {
         "source": {"path": str(video), "sha256": source_sha, **meta},
         "interval_native_frames": [frame_list[0], frame_list[-1]],
         "requested_frames": frame_list,
-        "inference": {"provenance": {**(raw.get("provenance") or {}), "input_policy": {"withheld": WITHHELD, "images": {str(k): str(v) for k, v in decoded.items()}}, "routing": routing}},
+        "inference": {"provenance": {**(raw.get("provenance") or {}), "input_policy": {"withheld": WITHHELD, "images": {str(k): str(v) for k, v in decoded.items()}}, "routing": routing}, "body_pose": {k: v for k, v in body_status.items() if k != "records"}},
         "decisions": decisions,
         "sampled_frame_preview": {"available": True, "frame_indices": frame_list, "temporal_interpretation": "contiguous native FPS only" if all((b - a) == 1 for a, b in zip(frame_list, frame_list[1:])) else "sampled non-temporal preview; no speed interpretation"},
         "metric_speed": {"available": False, "reason": "no calibration and no capture-action time; image observations only"},
