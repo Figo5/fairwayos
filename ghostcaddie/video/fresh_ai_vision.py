@@ -12,15 +12,21 @@ import hashlib
 import json
 import math
 import os
+import shutil
 import signal
 import subprocess
+import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
 
 TARGETS = ("ball", "clubhead")
+MAX_BATCH_FRAMES = 32
+DEFAULT_MAX_TOTAL_FRAMES = 256
+MAX_CONCURRENCY = 4
 BODY_SUPPORTED_KEYPOINTS = ("sh_l", "sh_r", "hip_l", "hip_r", "kn_l", "kn_r", "ank_l", "ank_r")
 WITHHELD = ["saved demo decisions", "evaluation references", "annotation seeds"]
 
@@ -33,6 +39,29 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+_LIVE_PGIDS: set[int] = set()
+_LIVE_PGID_LOCK = threading.Lock()
+
+
+def terminate_live_children(sig: int = signal.SIGTERM) -> int:
+    """Signal every child process group this module currently has in flight.
+
+    Cancelling futures does not interrupt a thread blocked in Popen.communicate, so aborting a
+    parallel batched run has to reach the OS: without this the executor still waits for the
+    slow siblings of a batch that already failed.
+    """
+    with _LIVE_PGID_LOCK:
+        pgids = sorted(_LIVE_PGIDS)
+    signalled = 0
+    for pgid in pgids:
+        try:
+            os.killpg(pgid, sig)
+            signalled += 1
+        except OSError:
+            pass
+    return signalled
+
+
 def _run_bounded_process(cmd: Sequence[str], *, cwd: Path | None = None, timeout_s: float = 60) -> subprocess.CompletedProcess:
     popen_kwargs = {
         "cwd": str(cwd) if cwd is not None else None,
@@ -43,6 +72,15 @@ def _run_bounded_process(cmd: Sequence[str], *, cwd: Path | None = None, timeout
     if hasattr(os, "setsid"):
         popen_kwargs["preexec_fn"] = os.setsid
     proc = subprocess.Popen(list(cmd), **popen_kwargs)
+    pgid = None
+    if "preexec_fn" in popen_kwargs:  # own session, so its pgid is safe to signal
+        try:
+            pgid = os.getpgid(proc.pid)
+        except OSError:
+            pgid = None
+    if pgid is not None:
+        with _LIVE_PGID_LOCK:
+            _LIVE_PGIDS.add(pgid)
     try:
         stdout, stderr = proc.communicate(timeout=timeout_s)
     except subprocess.TimeoutExpired as exc:
@@ -63,6 +101,10 @@ def _run_bounded_process(cmd: Sequence[str], *, cwd: Path | None = None, timeout
         except Exception:
             pass
         raise exc
+    finally:
+        if pgid is not None:
+            with _LIVE_PGID_LOCK:
+                _LIVE_PGIDS.discard(pgid)
     return subprocess.CompletedProcess(list(cmd), proc.returncode, stdout, stderr)
 
 
@@ -353,6 +395,7 @@ def render_video(video: Path, decisions: Sequence[Mapping], meta: Mapping, outdi
     frames = [int(d["source_frame"]) for d in decisions]
     decoded = decode_frames(video, frames, outdir / "render_frames_clean")
     annotated = outdir / "render_frames_marked"
+    shutil.rmtree(annotated, ignore_errors=True)  # a shorter run must not inherit a longer run's seq_*.jpg
     annotated.mkdir(parents=True, exist_ok=True)
     w, h = int(meta["width"]), int(meta["height"])
     for idx, d in enumerate(decisions):
@@ -389,7 +432,16 @@ def render_video(video: Path, decisions: Sequence[Mapping], meta: Mapping, outdi
     return final
 
 
-def run_smoke_pipeline(video: Path, frames: Sequence[int], outdir: Path, *, render: bool = True, max_turns: int = 8) -> dict:
+def run_smoke_pipeline(video: Path, frames: Sequence[int], outdir: Path, *, render: bool = True, max_turns: int = 8, budget_s: float | None = None) -> dict:
+    """Run one bounded <=32-frame fresh job. budget_s caps this job's child and body timeouts so a
+    job started near a caller's deadline cannot outlive it."""
+    job_started = time.perf_counter()
+
+    def remaining(cap: float) -> float:
+        if budget_s is None:
+            return cap
+        return max(1.0, min(cap, budget_s - (time.perf_counter() - job_started)))
+
     video = video.resolve()
     if not video.exists() or not video.is_file():
         raise FileNotFoundError(video)
@@ -401,7 +453,7 @@ def run_smoke_pipeline(video: Path, frames: Sequence[int], outdir: Path, *, rend
     query_file = outdir / "prompt.md"
     job_nonce = uuid.uuid4().hex
     query_file.write_text(build_prompt(video, source_sha, meta, decoded, job_nonce=job_nonce))
-    raw, routing = run_child_inference(query_file, outdir, max_turns=max_turns, job_nonce=job_nonce)
+    raw, routing = run_child_inference(query_file, outdir, max_turns=max_turns, job_nonce=job_nonce, timeout_s=remaining(900.0))
     returned_frames = []
     for r in raw.get("frames", []):
         source_frame = r.get("source_frame")
@@ -412,7 +464,7 @@ def run_smoke_pipeline(video: Path, frames: Sequence[int], outdir: Path, *, rend
         raise RuntimeError(f"child returned frames {returned_frames}, expected {frame_list}")
     by_frame = {r["source_frame"]: r for r in raw.get("frames", [])}
     decisions = [normalize_frame_decision(by_frame[f], source_sha256=source_sha, width=meta["width"], height=meta["height"]) for f in frame_list]
-    body_status = run_body_pose_inference(video, frame_list, source_sha, outdir / "body_pose")
+    body_status = run_body_pose_inference(video, frame_list, source_sha, outdir / "body_pose", timeout_s=remaining(300.0))
     body_decisions = normalize_body_pose_records(body_status.get("records", []), requested_frames=frame_list, source_sha256=source_sha, width=meta["width"], height=meta["height"])
     for decision, body in zip(decisions, body_decisions):
         decision["body"] = body
@@ -439,18 +491,238 @@ def run_smoke_pipeline(video: Path, frames: Sequence[int], outdir: Path, *, rend
     return {"ok": True, "outputs": outputs, "routing": routing}
 
 
+def parse_interval(text: str) -> tuple[int, int]:
+    """Parse a contiguous native interval "start:end" / "start-end" (both inclusive)."""
+    parts = text.replace("-", ":").split(":")
+    if len(parts) != 2 or not all(part.strip().isdigit() for part in parts):
+        raise ValueError(f"interval must be START:END native indices, got {text!r}")
+    return int(parts[0]), int(parts[1])
+
+
+def partition_interval(start: int, end: int, *, batch_size: int = MAX_BATCH_FRAMES, max_total_frames: int = DEFAULT_MAX_TOTAL_FRAMES) -> list[list[int]]:
+    """Split an inclusive native interval into bounded batches the <=32-frame job accepts."""
+    if type(start) is not int or type(end) is not int:
+        raise ValueError("interval bounds must be strict integer native indices")
+    if start < 0:
+        raise ValueError("interval bounds must be non-negative")
+    if end < start:
+        raise ValueError("interval end must not precede start")
+    if type(batch_size) is not int or not (1 <= batch_size <= MAX_BATCH_FRAMES):
+        raise ValueError(f"batch_size must be 1..{MAX_BATCH_FRAMES}")
+    total = end - start + 1
+    if total > max_total_frames:
+        raise ValueError(f"interval of {total} frames exceeds max_total_frames={max_total_frames}")
+    return [list(range(s, min(s + batch_size, end + 1))) for s in range(start, end + 1, batch_size)]
+
+
+def reusable_batch_document(path: Path, *, frames: Sequence[int], source_sha256: str) -> dict | None:
+    """Return a previously written batch document only if it is bound to this source and interval."""
+    want = [int(f) for f in frames]
+    try:
+        doc = json.loads(Path(path).read_text())
+    except Exception:
+        return None
+    if not isinstance(doc, dict) or (doc.get("source") or {}).get("sha256") != source_sha256:
+        return None
+    if doc.get("requested_frames") != want:
+        return None
+    decisions = doc.get("decisions") or []
+    if [d.get("source_frame") for d in decisions] != want:
+        return None
+    if any(d.get("source_sha256") != source_sha256 for d in decisions):
+        return None
+    return doc
+
+
+def merge_batch_documents(docs: Sequence[Mapping], *, requested_frames: Sequence[int], source_sha256: str) -> list[dict]:
+    """Concatenate per-batch decisions in native order; reject drift, gaps and duplicates."""
+    want = [int(f) for f in requested_frames]
+    seen: dict[int, dict] = {}
+    for doc in docs:
+        if (doc.get("source") or {}).get("sha256") != source_sha256:
+            raise ValueError("batch document was produced from a different source sha256")
+        for decision in doc.get("decisions") or []:
+            frame = decision.get("source_frame")
+            if type(frame) is not int:
+                raise ValueError("batch decision has a non-integer source_frame")
+            if decision.get("source_sha256") != source_sha256:
+                raise ValueError(f"decision for frame {frame} carries a foreign source sha256")
+            if frame in seen:
+                raise ValueError(f"duplicate decision for native frame {frame}")
+            seen[frame] = dict(decision)
+    missing = [f for f in want if f not in seen]
+    if missing:
+        raise ValueError(f"missing decisions for native frames {missing}")
+    extra = sorted(set(seen) - set(want))
+    if extra:
+        raise ValueError(f"unrequested decisions for native frames {extra}")
+    return [seen[f] for f in want]
+
+
+def run_batched_pipeline(video: Path, start: int, end: int, outdir: Path, *, batch_size: int = MAX_BATCH_FRAMES,
+                         max_total_frames: int = DEFAULT_MAX_TOTAL_FRAMES, concurrency: int = 1,
+                         deadline_seconds: float = 3600.0, resume: bool = False, render: bool = True,
+                         max_turns: int = 8) -> dict:
+    """Track a contiguous native interval longer than one job by running bounded <=32-frame jobs.
+
+    Each batch is an ordinary fresh job: its own decode, its own child inference, its own body pass,
+    and its own untouched raw outputs on disk. Batching only partitions and concatenates; it never
+    reinterprets a prediction from a neighbouring batch.
+    """
+    video = Path(video).resolve()
+    if not video.exists() or not video.is_file():
+        raise FileNotFoundError(video)
+    if type(concurrency) is not int or not (1 <= concurrency <= MAX_CONCURRENCY):
+        raise ValueError(f"concurrency must be 1..{MAX_CONCURRENCY}")
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    source_sha = sha256_file(video)
+    meta = ffprobe_video(video)
+    nb_frames = meta.get("nb_frames")
+    if nb_frames is not None and end >= nb_frames:
+        raise ValueError(f"frame {end} outside source frame count {nb_frames}")
+    batches = partition_interval(start, end, batch_size=batch_size, max_total_frames=max_total_frames)
+    requested = list(range(start, end + 1))
+    started = time.perf_counter()
+    records = [{"index": i, "frames": [b[0], b[-1]], "count": len(b), "status": "pending",
+                "outdir": str(outdir / f"batch_{i:03d}_{b[0]}_{b[-1]}")} for i, b in enumerate(batches)]
+    docs: list[dict | None] = [None] * len(batches)
+
+    abort = threading.Event()
+    failures: list[str] = []
+
+    def budget_left() -> float:
+        return deadline_seconds - (time.perf_counter() - started)
+
+    def work(i: int) -> None:
+        if abort.is_set():
+            records[i]["status"] = "cancelled"
+            return
+        remaining = budget_left()
+        if remaining <= 0:
+            raise TimeoutError(f"no time left against deadline_seconds={deadline_seconds} before batch {i}")
+        frames = batches[i]
+        bdir = Path(records[i]["outdir"])
+        result_json = bdir / "fresh_ai_vision_results.json"
+        if resume:
+            doc = reusable_batch_document(result_json, frames=frames, source_sha256=source_sha)
+            if doc is not None:
+                docs[i], records[i]["status"] = doc, "reused"
+                return
+        run_smoke_pipeline(video, frames, bdir, render=False, max_turns=max_turns, budget_s=remaining)
+        docs[i] = json.loads(result_json.read_text())
+        records[i]["status"] = "fresh"
+
+    def record_failure(i: int, exc: BaseException) -> None:
+        records[i]["status"], records[i]["error"] = "failed", str(exc)
+        failures.append(f"batch {i} frames {records[i]['frames']}: {exc}")
+
+    if concurrency == 1:
+        for i in range(len(batches)):
+            try:
+                work(i)
+            except Exception as exc:
+                record_failure(i, exc)
+                break
+    else:
+        pool = ThreadPoolExecutor(max_workers=concurrency)
+        try:
+            futures = {pool.submit(work, i): i for i in range(len(batches))}
+            for future in as_completed(futures):  # completion order, so a fast failure is seen at once
+                try:
+                    future.result()
+                except Exception as exc:
+                    record_failure(futures[future], exc)
+                    abort.set()
+                    for pending in futures:
+                        pending.cancel()
+                    terminate_live_children()  # unblock siblings still waiting on a child process
+                    break
+        finally:
+            # wait=True would re-introduce the very wait the abort just cancelled
+            pool.shutdown(wait=False, cancel_futures=True)
+    for record in records:
+        if record["status"] == "pending":
+            record["status"] = "cancelled" if failures else "skipped"
+
+    elapsed = time.perf_counter() - started
+    runtime_s = round(elapsed, 3)
+    overrun = None
+    if elapsed > deadline_seconds:
+        overrun = TimeoutError(
+            f"batched run exceeded deadline_seconds={deadline_seconds} (elapsed {runtime_s}s); failing closed")
+    status_doc = {"source": {"path": str(video), "sha256": source_sha}, "interval_native_frames": [start, end],
+                  "batch_size": batch_size, "concurrency": concurrency, "resume": resume,
+                  "deadline_seconds": deadline_seconds, "deadline_exceeded": overrun is not None,
+                  "runtime_seconds": runtime_s, "batches": records}
+    (outdir / "batch_status.json").write_text(json.dumps(status_doc, indent=2, sort_keys=True))
+    if failures:
+        raise RuntimeError(
+            "bounded batched run failed closed; no merged document written. "
+            f"Completed batches are preserved under {outdir} and can be reused with resume=True. "
+            f"Status: {outdir / 'batch_status.json'}. Failures: " + "; ".join(failures))
+    if overrun is not None:
+        # every batch succeeded, but a run that ran past its bound must not report success
+        raise overrun
+
+    decisions = merge_batch_documents([d for d in docs if d is not None], requested_frames=requested, source_sha256=source_sha)
+    doc = {
+        "source": {"path": str(video), "sha256": source_sha, **meta},
+        "interval_native_frames": [start, end],
+        "requested_frames": requested,
+        "batching": {"batch_size": batch_size, "batch_count": len(batches), "concurrency": concurrency,
+                     "max_total_frames": max_total_frames, "deadline_seconds": deadline_seconds,
+                     "resume": resume, "runtime_seconds": runtime_s, "batches": records,
+                     "note": "per-batch raw outputs are kept unmodified; merging concatenates decisions only"},
+        "inference": {"per_batch": [{"index": i, "frames": records[i]["frames"], "status": records[i]["status"],
+                                     "inference": (docs[i] or {}).get("inference")} for i in range(len(batches))]},
+        "decisions": decisions,
+        "sampled_frame_preview": {"available": True, "frame_indices": requested,
+                                  "temporal_interpretation": "contiguous native FPS only"},
+        "metric_speed": {"available": False, "reason": "no calibration and no capture-action time; image observations only"},
+        "research_only": True,
+        "pseudo_label": True,
+        "ground_truth": False,
+        "production_eligible": False,
+    }
+    result_json = outdir / "fresh_ai_vision_results.json"
+    result_json.write_text(json.dumps(doc, indent=2, sort_keys=True))
+    outputs = {"decisions_json": str(result_json), "batch_status": str(outdir / "batch_status.json")}
+    if render:
+        final = render_video(video, decisions, meta, outdir)
+        outputs["video"] = str(final)
+        outputs["video_sha256"] = sha256_file(final)
+    return {"ok": True, "outputs": outputs, "batching": status_doc}
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     ap = argparse.ArgumentParser(description="Bounded local video -> fresh Hermes GPT5.5 vision result")
     ap.add_argument("video", type=Path)
-    ap.add_argument("--frames", required=True, help="comma-separated native frame indices, e.g. 3058,3068,3074")
+    sel = ap.add_mutually_exclusive_group(required=True)
+    sel.add_argument("--frames", help="comma-separated native frame indices, e.g. 3058,3068,3074 (max 32)")
+    sel.add_argument("--interval", help="contiguous inclusive native interval START:END, batched into bounded jobs")
     ap.add_argument("--outdir", type=Path, default=Path("/tmp/fairway-reusable-vision-smoke"))
     ap.add_argument("--no-render", action="store_true")
     ap.add_argument("--max-turns", type=int, default=8)
+    ap.add_argument("--batch-size", type=int, default=MAX_BATCH_FRAMES, help=f"frames per job, 1..{MAX_BATCH_FRAMES} (--interval only)")
+    ap.add_argument("--max-total-frames", type=int, default=DEFAULT_MAX_TOTAL_FRAMES, help="hard cap on interval length")
+    ap.add_argument("--concurrency", type=int, default=1, help=f"parallel jobs, 1..{MAX_CONCURRENCY}; sequential by default")
+    ap.add_argument("--deadline-seconds", type=float, default=3600.0, help="wall-clock bound for the whole batched run")
+    ap.add_argument("--resume", action="store_true", help="reuse completed batches whose source sha256 and frames match; fresh inference otherwise")
     return ap.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
+    if args.interval:
+        start, end = parse_interval(args.interval)
+        result = run_batched_pipeline(
+            args.video, start, end, args.outdir, batch_size=args.batch_size,
+            max_total_frames=args.max_total_frames, concurrency=args.concurrency,
+            deadline_seconds=args.deadline_seconds, resume=args.resume,
+            render=not args.no_render, max_turns=args.max_turns)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
     frames = [int(x.strip()) for x in args.frames.split(",") if x.strip()]
     result = run_smoke_pipeline(args.video, frames, args.outdir, render=not args.no_render, max_turns=args.max_turns)
     print(json.dumps(result, indent=2, sort_keys=True))
