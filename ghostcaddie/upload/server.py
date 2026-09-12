@@ -75,6 +75,11 @@ def _run_one_target(store, job_id, video, name, plan, reg, step, seed):
             "operator-supplied seed for this exact source hash. This is "
             "USER-PROVIDED ASSISTANCE: it is not human-verified and not "
             "AI-verified truth, and nothing derived from it is ground truth.")
+        # Record the bounded accepted-seed window before runtime resolution so
+        # unavailable worker infrastructure cannot erase review metadata.
+        lo = max(0, int(seed.frame))
+        hi = min(video.frames - 1, lo + SEEDED_WINDOW_FRAMES - 1)
+        p.seed_window = [lo, hi]
     try:
         spec = reg.require(name)
     except InterpreterUnavailable as e:
@@ -86,14 +91,12 @@ def _run_one_target(store, job_id, video, name, plan, reg, step, seed):
         # Window STARTS at the chosen frame and steps by 1, so the seeded frame
         # is guaranteed to be in the decoded order the worker receives. A
         # sampled/strided window could skip it entirely.
-        lo = max(0, int(seed.frame))
-        hi = min(video.frames - 1, lo + SEEDED_WINDOW_FRAMES - 1)
+        lo, hi = p.seed_window
         req.update({"seed": {"frame": seed.frame, "box_xyxy": seed.box_xyxy,
                              "point_xy": seed.point_xy},
                     "frame_start": lo, "frame_end": hi,
                     "sampling_step": 1,
                     "max_frames": hi - lo + 1})
-        p.seed_window = [lo, hi]
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
         _json.dump(req, fh)
         req_path = fh.name

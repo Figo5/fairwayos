@@ -19,6 +19,7 @@ force and are asserted where they touch the same code.
      must not contradict each other.
 """
 import json, os, tempfile, threading, time, unittest, urllib.error, urllib.parse, urllib.request
+from types import SimpleNamespace
 
 from ghostcaddie.upload.server import build_server
 from ghostcaddie.upload.validation import VideoLimits
@@ -382,6 +383,30 @@ class SeedEndpointBoundsTests(_Base):
 
 
 class SeedFrameFidelityTests(_Base):
+    def test_accepted_seed_window_is_recorded_when_runtime_is_unavailable(self):
+        from ghostcaddie.upload.runtimes import InterpreterUnavailable
+        from ghostcaddie.upload.server import _run_one_target
+        from ghostcaddie.upload.targets import TargetPlan, TargetOutcome
+
+        class MissingRuntime:
+            def require(self, name):
+                raise InterpreterUnavailable(f"{name}: missing test runtime")
+
+        video = SimpleNamespace(path="/tmp/no-media.mp4", sha256="0" * 64, frames=12)
+        seed = SimpleNamespace(frame=4, box_xyxy=[10.0, 10.0, 30.0, 30.0],
+                               point_xy=None,
+                               to_dict=lambda: {"target": "clubhead", "frame": 4})
+        plan = {"clubhead": TargetPlan(
+            "clubhead", TargetOutcome.NOT_RUN,
+            "safe runtime available; awaiting source")}
+
+        _run_one_target(SimpleNamespace(), "job", video, "clubhead", plan,
+                        MissingRuntime(), 1, seed)
+
+        target = plan["clubhead"]
+        self.assertEqual(target.outcome, TargetOutcome.UNAVAILABLE)
+        self.assertEqual(getattr(target, "seed_window", None), [4, 11])
+
     def test_the_worker_window_contains_the_operator_chosen_frame(self):
         """A strided window could skip the seeded frame entirely. The seeded
         rerun must decode a window that starts at the chosen frame."""

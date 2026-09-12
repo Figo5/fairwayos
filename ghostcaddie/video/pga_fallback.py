@@ -58,16 +58,52 @@ def _render_with_cv2(source, destination, *, max_frames=None, pose_by_frame=None
     return index
 
 
+def _runtime_imports(interpreter, modules):
+    """Return True only when the executable imports the requested modules."""
+    interpreter = Path(interpreter)
+    if not interpreter.is_file() or not os.access(interpreter, os.X_OK):
+        return False
+    code = "import importlib,sys; [importlib.import_module(m) for m in sys.argv[1:]]"
+    try:
+        result = subprocess.run([str(interpreter), "-c", code, *modules],
+                                capture_output=True, text=True, timeout=20,
+                                check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
+
+
+def _discover_cv2_runtime():
+    """Find a portable Python that can import cv2/numpy; do not load models."""
+    repo = Path(__file__).resolve().parents[2]
+    candidates = [Path(sys.executable),
+                  repo.parent / "ghostcaddie-tour" / ".venv-video-ai" / "bin" / "python",
+                  repo / ".venv-video-ai" / "bin" / "python"]
+    seen = set()
+    for candidate in candidates:
+        candidate = candidate.expanduser()
+        try:
+            resolved = candidate.resolve(strict=True)
+        except OSError:
+            continue
+        marker = str(candidate)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        if _runtime_imports(candidate, ["cv2", "numpy"]):
+            return candidate
+    return None
+
+
 def render_pga_fallback(source, destination, *, max_frames=None, pose_by_frame=None):
     """Render with cv2 from the existing video environment, never shell=True."""
     if os.environ.get("GHOSTCADDIE_PGA_CV2_RUNTIME") == "1":
         return _render_with_cv2(source, destination, max_frames=max_frames, pose_by_frame=pose_by_frame)
-    repo = Path(__file__).resolve().parents[2]
-    candidates = [repo.parent / "ghostcaddie-tour" / ".venv-video-ai" / "bin" / "python",
-                  repo / ".venv-video-ai" / "bin" / "python"]
-    runtime = next((p for p in candidates if p.is_file() and os.access(p, os.X_OK)), None)
+    runtime = _discover_cv2_runtime()
     if runtime is None:
-        raise OSError("OpenCV runtime unavailable; expected existing .venv-video-ai")
+        raise OSError("OpenCV runtime unavailable; no Python with cv2/numpy found")
+    if runtime == Path(sys.executable).expanduser():
+        return _render_with_cv2(source, destination, max_frames=max_frames, pose_by_frame=pose_by_frame)
     code = ("from ghostcaddie.video.pga_fallback import _render_with_cv2; "
             "import sys; _render_with_cv2(sys.argv[1], sys.argv[2], "
             "max_frames=int(sys.argv[3]) if sys.argv[3] != 'None' else None)")
