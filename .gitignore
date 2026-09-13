@@ -1,4 +1,11 @@
 out/
 __pycache__/
 .pytest_cache/
-.venv-fairway/
+.venv*/
+*.mp4
+*.mov
+*.tflite
+*.onnx
+.env
+.env.*
+CLAUDE.md
