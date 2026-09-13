@@ -43,4 +43,10 @@ This tool compares decoded pixels without reconstructing prediction markers. The
 
 ## Approximate analytics development
 
-See [the measurement assumptions](docs/approximate-analytics.md) and [the Furyk local-scale experiment](docs/furyk-scale-experiment.md). A separate demo-panel implementation is undergoing integration; it is not yet part of the documented tracker command. Pixel motion includes camera motion and detection jitter. Physical estimates require explicit scale and action-time assumptions; a broadcast's playback FPS is not necessarily its capture rate.
+See [the measurement assumptions](docs/approximate-analytics.md) and [the Furyk local-scale experiment](docs/furyk-scale-experiment.md). Add a separate analytics panel to the paired outputs from one tracker run:
+
+```sh
+.venv-tracker/bin/python approx_analytics.py --input OUTPUT/annotated.mp4 --vision OUTPUT/vision_raw.json --output OUTPUT/with-analytics.mp4
+```
+
+Currently supports 1280x720 input at 30000/1001 FPS. Supply video and JSON from the same run: count/FPS checks do not independently establish their identity. By default it reports pixel displacement and pixel speed per display second. Optional `--m-per-px` (or `--ball-diameter-px`, assuming 42.67 mm) plus `--action-time-scale` enable conditional projected m/s. The time multiplier is capture cadence divided by playback cadence for simple slow motion; it is not inferred. These inputs are assumptions, not validated calibration. Pixel motion includes camera motion and detection jitter. Physical estimates require explicit scale and action-time assumptions; a broadcast's playback FPS is not necessarily its capture rate.
