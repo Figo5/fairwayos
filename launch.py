@@ -166,6 +166,55 @@ def intervals(observations: Sequence[Observation]) -> tuple[list[Interval], list
     return usable, rejected
 
 
+SEPARATION_RATIO = 3.0
+
+
+def split_by_motion(observations: Sequence[Observation]) -> dict:
+    """Split intervals into a resting state and a moving state, from the data alone.
+
+    Two-means on the interval displacements, then a check that the two groups are
+    actually far apart. No frame number, no speed prior and no hand-set pixel
+    threshold appears here: a track with one motion state is reported as
+    inseparable rather than being cut somewhere arbitrary. The moving window is the
+    longest CONSECUTIVE run of moving intervals, because a window stitched from
+    separate bursts is not one event.
+    """
+    usable, _ = intervals(observations)
+    if len(usable) < 3:
+        return {"separable": False, "stationary": [], "moving": [],
+                "reason": f"at least 3 usable intervals are needed to separate two "
+                          f"motion states, got {len(usable)}"}
+
+    values = sorted(interval.px for interval in usable)
+    best = None
+    for cut in range(1, len(values)):
+        low, high = values[:cut], values[cut:]
+        spread = (sum((v - sum(low) / len(low)) ** 2 for v in low)
+                  + sum((v - sum(high) / len(high)) ** 2 for v in high))
+        if best is None or spread < best[0]:
+            best = (spread, sum(low) / len(low), sum(high) / len(high), low[-1])
+    _, low_mean, high_mean, boundary = best
+
+    if low_mean <= 0 or high_mean < low_mean * SEPARATION_RATIO:
+        return {"separable": False, "stationary": [], "moving": [],
+                "reason": (f"no clear separation between motion states: the two groups "
+                           f"differ by {high_mean / low_mean:.1f}x, under the "
+                           f"{SEPARATION_RATIO:g}x this requires")}
+
+    moving_flags = [interval.px > boundary for interval in usable]
+    longest: list[Interval] = []
+    current: list[Interval] = []
+    for interval, moving in zip(usable, moving_flags):
+        current = current + [interval] if moving else []
+        if len(current) > len(longest):
+            longest = current
+    return {"separable": True,
+            "stationary": [i for i, m in zip(usable, moving_flags) if not m],
+            "moving": longest,
+            "reason": (f"resting intervals average {low_mean:.2f}px and moving intervals "
+                       f"{high_mean:.2f}px, a {high_mean / low_mean:.1f}x separation")}
+
+
 def scale_mm_per_px(px_low: float, px_high: float,
                     diameter_mm: float = BALL_DIAMETER_MM,
                     evidence: Evidence | None = None) -> ScaleInterval:

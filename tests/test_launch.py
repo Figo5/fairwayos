@@ -408,3 +408,47 @@ def test_scenario_rows_carry_their_own_grade_separate_from_measurement():
     row = result["physical_speed"]["scenarios"][0]
     assert row["grade"] == "conditional scenario, not a measurement"
     assert row["conditional"] is True
+
+
+# --- deriving the moving window from the observations ----------------------
+
+def test_a_stationary_then_moving_track_separates_without_naming_a_frame():
+    # Six frames: three at rest with sub-pixel jitter, three travelling. The split
+    # comes from the displacements themselves; no frame number appears in the code.
+    obs = _obs((100, 10.0, 10.0), (101, 10.3, 10.1), (102, 10.1, 10.4),
+               (103, 22.0, 10.0), (104, 34.0, 10.2), (105, 46.0, 10.1))
+
+    split = launch.split_by_motion(obs)
+
+    assert split["separable"] is True
+    assert [i.frames for i in split["moving"]] == [[102, 103], [103, 104], [104, 105]]
+    assert all(i.px < 1.0 for i in split["stationary"])
+
+
+def test_a_track_with_one_motion_state_is_not_split():
+    # All intervals alike: there is no evidence of two states, so none is invented.
+    obs = _obs((100, 10.0, 10.0), (101, 22.0, 10.0), (102, 34.0, 10.0), (103, 46.0, 10.0))
+
+    split = launch.split_by_motion(obs)
+
+    assert split["separable"] is False
+    assert "no clear separation" in split["reason"]
+    assert split["moving"] == []
+
+
+def test_too_few_intervals_to_separate_says_so():
+    split = launch.split_by_motion(_obs((100, 10.0, 10.0), (101, 22.0, 10.0)))
+
+    assert split["separable"] is False
+    assert "at least" in split["reason"]
+
+
+def test_the_moving_window_must_be_consecutive():
+    # Two bursts of motion separated by rest: only the longest consecutive run is
+    # taken, because a window assembled from separate bursts is not one event.
+    obs = _obs((100, 10.0, 10.0), (101, 10.2, 10.0), (102, 40.0, 10.0),
+               (103, 40.2, 10.0), (104, 70.0, 10.0), (105, 100.0, 10.0))
+
+    split = launch.split_by_motion(obs)
+
+    assert [i.frames for i in split["moving"]] == [[103, 104], [104, 105]]
