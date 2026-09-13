@@ -13,6 +13,7 @@ def _stats(**overrides):
              "ball_unconfirmed": 0, "clubhead_unconfirmed": 0,
              "ball_failed": 0, "clubhead_failed": 0,
              "ball_inconclusive": 0, "clubhead_inconclusive": 0,
+             "ball_semantic": 0, "clubhead_semantic": 0,
              "ball": [], "ball_conf": [], "clubhead": [], "clubhead_conf": []}
     stats.update(overrides)
     return stats
@@ -454,6 +455,9 @@ def test_an_undecidable_rejection_is_recorded_as_undecided_not_as_an_image_refus
     results = [{"golfer": None, "ball": None, "clubhead": (100, 100, 0.9)}]
     monkeypatch.setattr(fairway.vision, "refine",
                         lambda crop, message, target: {"point": (192, 192, 0.9)})
+    monkeypatch.setattr(fairway.vision, "verify_head",
+                        lambda crop, message, x, y: {"supported": False,
+                                                     "verdict": "unsupported"})
 
     record = fairway.refine_targets([frame], [gray], results, 9, tmp_path, 1, "clubhead")[9]
 
@@ -486,3 +490,87 @@ def test_an_undecided_target_is_disclosed_as_neither_present_nor_absent():
     assert "4 coarse proposal(s)" in note and "could not decide" in note
     assert "not evidence that the clubhead was absent" in note
     assert "not evidence that it was present either" in note
+
+
+def _undecided_head(monkeypatch, tmp_path, verify):
+    """One clubhead proposal on uniformly dark pixels, where the gate cannot decide."""
+    import numpy as np
+    frame = np.full((200, 200, 3), 30, dtype=np.uint8)
+    gray = np.full((200, 200), 30, dtype=np.uint8)
+    results = [{"golfer": None, "ball": None, "clubhead": (100, 100, 0.9)}]
+    monkeypatch.setattr(fairway.vision, "refine",
+                        lambda crop, message, target: {"point": (192, 192, 0.9)})
+    monkeypatch.setattr(fairway.vision, "verify_head", verify)
+    return fairway.refine_targets([frame], [gray], results, 9, tmp_path, 1, "clubhead")[9]
+
+
+def test_the_semantic_fallback_confirms_the_point_the_crop_pass_already_returned(
+        monkeypatch, tmp_path):
+    asked = {}
+
+    def verify(crop, message, x, y):
+        asked["point"] = (x, y)
+        return {"supported": True, "verdict": "supported"}
+
+    record = _undecided_head(monkeypatch, tmp_path, verify)
+
+    # It is asked about the refine pass's own candidate, never for a position.
+    assert asked["point"] == tuple(record["attempts"][0]["model_point"])
+    assert record["native_point"] == record["attempts"][0]["native_point"]
+    assert record["semantic_only"] is True
+    # And the frame is still recorded as one the measurement could not decide.
+    assert "inconclusive" in record and "image_support" not in record
+
+
+def test_the_semantic_fallback_fails_closed_on_no_error_and_junk(monkeypatch, tmp_path):
+    for answer in ({"supported": False, "verdict": "unsupported"},
+                   {"supported": False, "verdict": "uncertain"},
+                   {"error": "head verification timed out after 120s"},
+                   {"error": "head verification returned nothing"},
+                   {}):
+        record = _undecided_head(monkeypatch, tmp_path, lambda c, m, x, y, a=answer: a)
+
+        assert "native_point" not in record and "semantic_only" not in record
+        assert record["semantic_check"] == answer
+
+
+def test_the_semantic_fallback_never_runs_where_the_measurement_decided(monkeypatch,
+                                                                       tmp_path):
+    # Bright surroundings: the measurement decided and refused. A fallback here
+    # would be overriding evidence, not filling a gap.
+    import numpy as np
+    frame = np.full((200, 200, 3), 150, dtype=np.uint8)
+    gray = frame[:, :, 0].copy()
+    results = [{"golfer": None, "ball": None, "clubhead": (100, 100, 0.9)}]
+    monkeypatch.setattr(fairway.vision, "refine",
+                        lambda crop, message, target: {"point": (192, 192, 0.9)})
+    monkeypatch.setattr(fairway.vision, "verify_head", _must_not_run)
+
+    record = fairway.refine_targets([frame], [gray], results, 9, tmp_path, 1, "clubhead")[9]
+    assert "rejected" in record and "semantic_check" not in record
+
+
+def test_the_semantic_fallback_never_runs_for_the_ball(monkeypatch, tmp_path):
+    import numpy as np
+    frame = np.full((200, 200, 3), 30, dtype=np.uint8)
+    gray = np.full((200, 200), 30, dtype=np.uint8)
+    results = [{"golfer": None, "ball": (100, 100, 0.9), "clubhead": None}]
+    monkeypatch.setattr(fairway.vision, "refine",
+                        lambda crop, message, target: {"point": (192, 192, 0.9)})
+    monkeypatch.setattr(fairway.vision, "verify_head", _must_not_run)
+
+    record = fairway.refine_targets([frame], [gray], results, 9, tmp_path, 1, "ball")[9]
+    assert "semantic_check" not in record
+
+
+def _must_not_run(*args, **kwargs):
+    raise AssertionError("the semantic fallback ran where it must not")
+
+
+def test_semantically_confirmed_markers_are_disclosed_as_judgement_not_measurement():
+    note = _row(_stats(clubhead_semantic=6, clubhead=[(1, 2, 3)],
+                       clubhead_conf=[0.9]), "clubhead")["note"]
+
+    assert "6 of the marked clubhead positions rest on no image measurement" in note
+    assert "one model's judgement of a crop, not a measurement" in note
+    assert "labelled semantic in the video" in note

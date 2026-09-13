@@ -84,3 +84,66 @@ def test_the_image_path_sent_to_the_cli_is_always_absolute(monkeypatch):
     # The CLI resets its working directory, so a relative path fails there.
     assert Path(seen["cmd"][seen["cmd"].index("--image") + 1]).is_absolute()
     assert "--provider" in seen["cmd"] and "--max-turns" in seen["cmd"]
+
+
+class _Done:
+    def __init__(self, returncode=0, stdout="", stderr=""):
+        self.returncode, self.stdout, self.stderr = returncode, stdout, stderr
+
+
+def _verify(monkeypatch, tmp_path, answer=None, returncode=0, raises=None):
+    """Run verify_head against a canned CLI answer written where the CLI writes it."""
+    message = tmp_path / "verify.txt"
+
+    def fake_run(cmd, **kwargs):
+        if raises is not None:
+            raise raises
+        if answer is not None:
+            Path(cmd[cmd.index("-o") + 1]).write_text(answer)
+        return _Done(returncode=returncode, stderr="boom")
+
+    monkeypatch.setattr(vision.subprocess, "run", fake_run)
+    return vision.verify_head(tmp_path / "crop.png", message, 194, 201)
+
+
+def test_only_a_plain_supported_answer_confirms_a_point(monkeypatch, tmp_path):
+    answer = "supported, the point lies within the dark compact club head."
+    assert _verify(monkeypatch, tmp_path, answer) == {
+        "supported": True, "verdict": "supported", "answer": answer}
+
+
+def test_every_other_answer_leaves_the_point_unsupported(monkeypatch, tmp_path):
+    for answer in ("unsupported, the point is on turf/background, not the club head.",
+                   "uncertain, the crop is too blurred to tell.",
+                   "Supported? I cannot say.",          # not the bare word
+                   "the point looks like the head to me",
+                   "{\"supported\": true}"):            # right sentiment, wrong schema
+        result = _verify(monkeypatch, tmp_path, answer)
+        assert result["supported"] is False, answer
+
+
+def test_a_failed_or_empty_verification_is_an_error_not_a_yes(monkeypatch, tmp_path):
+    assert "error" in _verify(monkeypatch, tmp_path, "supported, sure.", returncode=1)
+    assert "error" in _verify(monkeypatch, tmp_path, "   \n")
+    assert "error" in _verify(monkeypatch, tmp_path,
+                              raises=subprocess.TimeoutExpired(cmd="codex", timeout=120))
+    assert "error" in _verify(monkeypatch, tmp_path, raises=OSError("no codex"))
+
+
+def test_the_verification_prompt_is_the_frozen_one_and_carries_the_candidate(monkeypatch,
+                                                                            tmp_path):
+    seen = {}
+
+    def fake_run(cmd, **kwargs):
+        seen["cmd"], seen["prompt"] = cmd, kwargs["input"]
+        Path(cmd[cmd.index("-o") + 1]).write_text("uncertain, no.")
+        return _Done()
+
+    monkeypatch.setattr(vision.subprocess, "run", fake_run)
+    vision.verify_head(tmp_path / "crop.png", tmp_path / "v.txt", 194.4, 201.6)
+
+    # The bounded review that accepted this fallback used exactly this backend.
+    assert seen["cmd"][:3] == ["codex", "exec", "--skip-git-repo-check"]
+    assert "read-only" in seen["cmd"] and 'model_reasoning_effort="medium"' in seen["cmd"]
+    assert seen["prompt"].endswith("Candidate point: (194, 201)")
+    assert "Do not provide corrected coordinates" in seen["prompt"]

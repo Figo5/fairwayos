@@ -232,3 +232,53 @@ def refine(crop_image: Path, message_file: Path, target: str) -> dict:
         return {"error": "refine CLI claimed visible with an unusable point",
                 "raw": text[-300:]}
     return {"point": point}
+
+
+# --- Semantic fallback for an undecided head -------------------------------
+# Frozen from the bounded five-case verification the parent reviewed
+# (/tmp/fairway-semantic-head-check): same CLI, model, reasoning effort, sandbox
+# and prompt text, so the acceptance that run earned is the acceptance this uses.
+# It answers one yes/no about a candidate point that the refine pass already
+# returned. It is never asked for a position and cannot supply one, so it cannot
+# introduce a location of its own. Anything but a plain "supported" is a no.
+VERIFY_PROMPT = """You are verifying a proposed golf clubhead point in a single image crop. The attached image is a clean unmarked crop. Candidate point coordinates are in this crop's image pixel coordinate system, with origin at top-left. Decide whether the candidate point lies on the physical compact golf club head itself. Do not count shaft, trouser/body, turf, background, shadow, or empty pixels as the club head. Be strict. Return exactly one of these words, then one short reason: supported, unsupported, uncertain. Do not provide corrected coordinates or alternative labels.
+
+Candidate point: ({x}, {y})"""
+
+
+def verify_head(crop_image: Path, message_file: Path, model_x: float,
+                model_y: float) -> dict:
+    """Ask whether a candidate point lies on the physical club head. Fail-closed.
+
+    Returns {"supported": bool, "verdict": str} on a readable answer, or
+    {"error": ...}. Only the exact word "supported" is a yes: an unreadable
+    answer, an unexpected word, a non-zero exit or a timeout all leave the point
+    unsupported, because a fallback that guesses on failure would be inventing
+    exactly what the measurement could not establish.
+    """
+    path = Path(crop_image).resolve()
+    message_file.unlink(missing_ok=True)
+    prompt = VERIFY_PROMPT.format(x=int(model_x), y=int(model_y))
+    try:
+        done = subprocess.run(
+            [REFINE_CLI, "exec", "--skip-git-repo-check", "--sandbox", "read-only",
+             "-m", REFINE_MODEL, "-c", 'model_reasoning_effort="medium"',
+             "--image", str(path), "-o", str(message_file), "-"],
+            input=prompt, capture_output=True, text=True, timeout=TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return {"error": f"head verification timed out after {TIMEOUT_SECONDS}s"}
+    except OSError as exc:
+        return {"error": f"head verification could not run: {exc}"}
+
+    if done.returncode != 0:
+        return {"error": f"head verification exited {done.returncode}",
+                "stderr": done.stderr[-300:]}
+
+    text = message_file.read_text() if message_file.is_file() else done.stdout
+    words = text.strip().lower().replace(",", " ").split()
+    if not words:
+        return {"error": "head verification returned nothing"}
+    verdict = words[0]
+    return {"supported": verdict == "supported", "verdict": verdict,
+            "answer": text.strip()[:200]}

@@ -362,6 +362,17 @@ def summarize(stats: dict) -> tuple[list[dict], dict]:
                 f". {stats[f'{target}_unconfirmed']} coarse proposal(s) were left unmarked "
                 f"on the evidence: the crop pass reported nothing visible, or the point it "
                 f"reported did not pass the measurement above")
+        if stats[f"{target}_semantic"]:
+            row["note"] += (
+                f". {stats[f'{target}_semantic']} of the marked {target} positions rest on "
+                f"no image measurement at all: the measurement could not decide there, so "
+                f"the point the crop pass had already returned was put to a separate "
+                f"{vision.REFINE_CLI}/{vision.REFINE_MODEL} call asking only whether that "
+                f"point lies on the physical {target}, and it answered yes. That is one "
+                f"model's judgement of a crop, not a measurement, and it was accepted on a "
+                f"bounded five-case review; those markers are labelled semantic in the "
+                f"video. The call is never asked where the {target} is and cannot move a "
+                f"point, and anything but a plain yes leaves the frame unmarked")
         if stats[f"{target}_inconclusive"]:
             row["note"] += (
                 f". A further {stats[f'{target}_inconclusive']} coarse proposal(s) were "
@@ -459,6 +470,23 @@ def check_prerequisites(model: Path | None = None):
     return interpreter
 
 
+def semantic_fallback(record: dict, attempt: dict, crop: Path, message_file: Path) -> None:
+    """Last resort where the head measurement could not decide: ask about the point.
+
+    Runs only on an undecided head, only on a point the refine pass already
+    returned, and only as a yes/no -- it is never asked where the head is, so it
+    cannot supply a position. A no, an unreadable answer or a failure all leave the
+    frame unmarked, so this can confirm a candidate but never manufacture one. A
+    point it confirms carries no image measurement behind it and is recorded and
+    reported as semantic, not as measured support.
+    """
+    answer = vision.verify_head(crop, message_file, *attempt["model_point"])
+    record["semantic_check"] = answer
+    if answer.get("supported"):
+        record["native_point"] = attempt["native_point"]
+        record["semantic_only"] = True
+
+
 def refine_targets(frames: list, grays: list, results: list, start: int, crop_dir: Path,
                    workers: int, target: str) -> dict:
     """Run the crop second pass for every frame whose coarse pass proposed this target."""
@@ -521,6 +549,9 @@ def refine_targets(frames: list, grays: list, results: list, start: int, crop_di
                     f"returned, nothing in the neighbourhood was far enough from the "
                     f"background for this measurement to pass, so it cannot tell a "
                     f"{target} that is present from one that is not")
+                if target == "clubhead":
+                    semantic_fallback(record, measured[0], path,
+                                      crop_dir / f"{target}{index:05d}_verify.txt")
             else:
                 record["rejected"] = (
                     f"no refined {target} point was backed by the image "
@@ -585,6 +616,7 @@ def run(video: Path, out_dir: Path, start: int, count: int, workers: int,
              "ball_unconfirmed": 0, "clubhead_unconfirmed": 0,
              "ball_failed": 0, "clubhead_failed": 0,
              "ball_inconclusive": 0, "clubhead_inconclusive": 0,
+             "ball_semantic": 0, "clubhead_semantic": 0,
              "ball": [], "ball_conf": [], "clubhead": [], "clubhead_conf": [],
              "rate": rate, "annotated_dir": annotated_dir}
     for offset, (frame, result) in enumerate(zip(frames, results)):
@@ -608,8 +640,14 @@ def run(video: Path, out_dir: Path, start: int, count: int, workers: int,
                     x, y = int(round(native_x)), int(round(native_y))
                     stats[target].append((index, x, y))
                     stats[f"{target}_conf"].append(conf)
+                    # A semantically confirmed point is labelled as such in the
+                    # video too: the reviewer watching the pixels should be able
+                    # to see which markers no image measurement backs.
+                    semantic = refinement.get("semantic_only")
+                    label = f"{target}{' semantic' if semantic else ''} {conf:.2f}"
+                    stats[f"{target}_semantic"] += bool(semantic)
                     cv2.circle(canvas, (x, y), 16, colour, 2)
-                    cv2.putText(canvas, f"{target} {conf:.2f}", (x - 30, y - 22),
+                    cv2.putText(canvas, label, (x - 30, y - 22),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 2)
                 elif result[target]:
                     # The coarse pass proposed this target and the crop pass
