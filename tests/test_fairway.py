@@ -12,6 +12,7 @@ def _stats(**overrides):
              "image_width": 1280, "image_height": 720,
              "ball_unconfirmed": 0, "clubhead_unconfirmed": 0,
              "ball_failed": 0, "clubhead_failed": 0,
+             "ball_inconclusive": 0, "clubhead_inconclusive": 0,
              "ball": [], "ball_conf": [], "clubhead": [], "clubhead_conf": []}
     stats.update(overrides)
     return stats
@@ -233,17 +234,20 @@ def test_a_point_on_a_compact_dark_head_is_supported():
     gray = _turf_with("head")
 
     assert fairway.is_supported(gray, 100, 100, "clubhead")
-    darkness, fill = fairway.head_support(gray, 100, 100)
+    darkness, fill, background, decides = fairway.head_support(gray, 100, 100)
     assert darkness >= fairway.HEAD_DARK_MARGIN and fill >= fairway.HEAD_FILL_MIN
+    assert decides and background > fairway.HEAD_DARK_MARGIN
 
 
 def test_a_point_on_the_thin_shaft_is_rejected_though_it_is_dark():
     # The shaft is as dark as the head; only its thickness tells them apart.
     gray = _turf_with("shaft")
-    darkness, fill = fairway.head_support(gray, 100, 100)
+    darkness, fill = fairway.head_support(gray, 100, 100)[:2]
 
     assert darkness >= fairway.HEAD_DARK_MARGIN    # dark enough on its own
     assert fill < fairway.HEAD_FILL_MIN            # but nowhere near thick enough
+    # The measurement did decide here: the shaft pixels could have passed it.
+    assert fairway.measurement_decides(gray, 100, 100, "clubhead")
     assert not fairway.is_supported(gray, 100, 100, "clubhead")
 
 
@@ -418,3 +422,67 @@ def test_an_ffmpeg_without_libx264_is_refused_before_the_expensive_pass(monkeypa
     with pytest.raises(SystemExit) as caught:
         fairway.check_prerequisites()
     assert "libx264" in str(caught.value)
+
+
+def test_a_head_against_a_background_as_dark_as_itself_is_undecided_not_refused():
+    # The measurement is relative: where the surround is as dark as the head, no
+    # point could pass it whatever is there, so a failure is not a refusal. This
+    # is the frozen Furyk 267-287 regime, where the head crosses dark trousers.
+    import cv2
+    import numpy as np
+    dark = np.full((200, 200), 30, dtype=np.uint8)      # head on dark clothing
+    cv2.circle(dark, (100, 100), 14, 12, -1)
+    on_turf = _turf_with("head")                        # the same head on turf
+
+    assert not fairway.is_supported(dark, 100, 100, "clubhead")
+    assert not fairway.measurement_decides(dark, 100, 100, "clubhead")
+    # Bare bright turf still decides: nothing dark there is a real negative.
+    assert fairway.measurement_decides(_turf_with(None), 100, 100, "clubhead")
+    # An empty patch of the same dark cloth measures the same, which is the point:
+    # present and absent are indistinguishable there.
+    assert fairway.head_support(dark, 100, 100)[1] == fairway.head_support(dark, 40, 40)[1]
+
+    assert fairway.is_supported(on_turf, 100, 100, "clubhead")
+    assert fairway.measurement_decides(on_turf, 100, 100, "clubhead")
+
+
+def test_an_undecidable_rejection_is_recorded_as_undecided_not_as_an_image_refusal(
+        monkeypatch, tmp_path):
+    import numpy as np
+    frame = np.full((200, 200, 3), 30, dtype=np.uint8)   # uniformly dark surroundings
+    gray = np.full((200, 200), 30, dtype=np.uint8)
+    results = [{"golfer": None, "ball": None, "clubhead": (100, 100, 0.9)}]
+    monkeypatch.setattr(fairway.vision, "refine",
+                        lambda crop, message, target: {"point": (192, 192, 0.9)})
+
+    record = fairway.refine_targets([frame], [gray], results, 9, tmp_path, 1, "clubhead")[9]
+
+    assert "rejected" not in record and "native_point" not in record
+    assert "cannot tell a clubhead that is present from one that is not" \
+        in record["inconclusive"]
+    assert all(attempt["decides"] is False for attempt in record["attempts"])
+
+
+def test_a_decidable_rejection_is_still_an_image_refusal(monkeypatch, tmp_path):
+    # Bright surroundings with nothing dark in them: the measurement could have
+    # passed, and did not. That is a refusal of the point and evidence of absence,
+    # and must not be softened into "undecided".
+    import numpy as np
+    frame = np.full((200, 200, 3), 150, dtype=np.uint8)
+    gray = frame[:, :, 0].copy()
+    results = [{"golfer": None, "ball": None, "clubhead": (100, 100, 0.9)}]
+    monkeypatch.setattr(fairway.vision, "refine",
+                        lambda crop, message, target: {"point": (192, 192, 0.9)})
+
+    record = fairway.refine_targets([frame], [gray], results, 9, tmp_path, 1, "clubhead")[9]
+
+    assert "inconclusive" not in record
+    assert "was backed by the image" in record["rejected"]
+
+
+def test_an_undecided_target_is_disclosed_as_neither_present_nor_absent():
+    note = _row(_stats(clubhead_inconclusive=4), "clubhead")["note"]
+
+    assert "4 coarse proposal(s)" in note and "could not decide" in note
+    assert "not evidence that the clubhead was absent" in note
+    assert "not evidence that it was present either" in note

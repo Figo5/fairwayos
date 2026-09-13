@@ -197,13 +197,21 @@ def local_contrast(gray, x: int, y: int, inner: int = SUPPORT_INNER,
     return float(centre.max()) - float(np.median(surround))
 
 
-def head_support(gray, x: int, y: int) -> tuple[float, float] | None:
-    """How dark the point's neighbourhood gets, and what fraction of it is that dark.
+def head_support(gray, x: int, y: int) -> tuple[float, float, float, bool] | None:
+    """Darkness, dark-fill fraction, background level, and whether the test decides.
 
     The fill fraction is what separates the head from the shaft: a thin dark line
     crossing the window darkens only a sliver of it, a head fills most of it. It
     puts no ceiling on the dark region, so a larger dark mass passes too. None
     when the point is off-frame and nothing was measured.
+
+    The test is relative, so where the background is itself darker than the margin
+    it asks for, no pixel value at all could satisfy it: it then reports the
+    background rather than the head, and its failure is not evidence of absence.
+    That is the last value, and it is arithmetic, not a judgement about the scene --
+    on bright turf with nothing dark in sight the test still decides, and correctly
+    finds no head. It is True for every point that passes, since a passing pixel is
+    HEAD_DARK_MARGIN below the background and pixel values are not negative.
     """
     import numpy as np
 
@@ -213,7 +221,7 @@ def head_support(gray, x: int, y: int) -> tuple[float, float] | None:
     background = float(np.median(surround))
     darkness = background - float(centre.min())
     fill = float((centre < background - HEAD_DARK_MARGIN).mean())
-    return darkness, fill
+    return darkness, fill, background, background > HEAD_DARK_MARGIN
 
 
 def is_supported(gray, x: float, y: float, target: str) -> bool:
@@ -230,13 +238,34 @@ def is_supported(gray, x: float, y: float, target: str) -> bool:
 
 
 def support_value(gray, x: float, y: float, target: str) -> float | list | None:
-    """The support measurement recorded alongside a point; None if unmeasurable."""
+    """The support measurement recorded alongside a point; None if unmeasurable.
+
+    For the head that is [darkness, dark fill fraction, background level]: the
+    background is recorded because it is what decides whether the other two mean
+    anything at this point.
+    """
     ix, iy = int(round(x)), int(round(y))
     if target == "ball":
         contrast = local_contrast(gray, ix, iy)
         return None if contrast is None else round(contrast, 1)
     support = head_support(gray, ix, iy)
-    return None if support is None else [round(support[0], 1), round(support[1], 3)]
+    return None if support is None else [round(support[0], 1), round(support[1], 3),
+                                         round(support[2], 1)]
+
+
+def measurement_decides(gray, x: float, y: float, target: str) -> bool:
+    """Whether this target's test could have passed at this point at all.
+
+    A test that could not have passed has not refused the point: it had nothing to
+    say about it. Only the head test has a known blind spot of this kind, so the
+    ball test counts as deciding wherever it can be measured; claiming a blind spot
+    it has not been shown to have would be invention of the same sort.
+    """
+    ix, iy = int(round(x)), int(round(y))
+    if target == "ball":
+        return local_contrast(gray, ix, iy) is not None
+    support = head_support(gray, ix, iy)
+    return support is not None and support[3]
 
 
 def longest_continuous_run(points: list[tuple[int, int, int]]) -> int:
@@ -314,7 +343,10 @@ def summarize(stats: dict) -> tuple[list[dict], dict]:
                          f"shaft cannot fill that much and is refused; there is no upper "
                          f"bound, so a larger dark mass such as a trouser leg or a shadow "
                          f"edge passes the same measurement, which is therefore local "
-                         f"darkness and not head recognition")):
+                         f"darkness and not head recognition. Being relative, it decides "
+                         f"nothing where the head crosses something as dark as itself: "
+                         f"those frames are counted separately below rather than as "
+                         f"refusals")):
         row = _target_note(target, stats[target], frames, stats[f"{target}_conf"])
         row["note"] += (
             f". {target.capitalize()} positions come from a second pass on a "
@@ -330,6 +362,15 @@ def summarize(stats: dict) -> tuple[list[dict], dict]:
                 f". {stats[f'{target}_unconfirmed']} coarse proposal(s) were left unmarked "
                 f"on the evidence: the crop pass reported nothing visible, or the point it "
                 f"reported did not pass the measurement above")
+        if stats[f"{target}_inconclusive"]:
+            row["note"] += (
+                f". A further {stats[f'{target}_inconclusive']} coarse proposal(s) were "
+                f"left unmarked where this measurement could not decide: at the points the "
+                f"crop pass returned, nothing in the neighbourhood stood far enough from "
+                f"the background for the measurement to pass whatever was there, so it "
+                f"cannot tell a {target} that is present from one that is not. Those "
+                f"frames are not evidence that the {target} was absent, and they are not "
+                f"evidence that it was present either")
         if stats[f"{target}_failed"]:
             row["note"] += (
                 f". A further {stats[f'{target}_failed']} coarse proposal(s) were left "
@@ -453,6 +494,7 @@ def refine_targets(frames: list, grays: list, results: list, start: int, crop_di
                 attempt.update(model_point=[model_x, model_y],
                                native_point=[native_x, native_y, conf],
                                image_support=support_value(gray, native_x, native_y, target),
+                               decides=measurement_decides(gray, native_x, native_y, target),
                                supported=is_supported(gray, native_x, native_y, target))
             record["attempts"].append(attempt)
             if attempt.get("supported"):
@@ -463,11 +505,22 @@ def refine_targets(frames: list, grays: list, results: list, start: int, crop_di
             # Distinguish "the image refused the point" from "the crop pass never
             # produced one to test". Claiming the former for the latter would
             # report a backend outage as image evidence.
+            measured = [attempt for attempt in record["attempts"] if "decides" in attempt]
             if all("error" in attempt for attempt in record["attempts"]):
                 record["failed"] = (
                     f"the {target} crop pass did not run to an answer in "
                     f"{REFINE_ATTEMPTS} attempts, so no image measurement was made: "
                     f"{record['attempts'][-1]['error']}")
+            elif measured and not any(attempt["decides"] for attempt in measured):
+                # The measurement could not have passed at these points whatever was
+                # there, so it did not refuse them: it had nothing to say. This
+                # recovers no position and marks nothing; it only stops a blind spot
+                # being reported as evidence of absence.
+                record["inconclusive"] = (
+                    f"no {target} point could be decided: at every point the crop pass "
+                    f"returned, nothing in the neighbourhood was far enough from the "
+                    f"background for this measurement to pass, so it cannot tell a "
+                    f"{target} that is present from one that is not")
             else:
                 record["rejected"] = (
                     f"no refined {target} point was backed by the image "
@@ -531,6 +584,7 @@ def run(video: Path, out_dir: Path, start: int, count: int, workers: int,
              "image_width": width, "image_height": height,
              "ball_unconfirmed": 0, "clubhead_unconfirmed": 0,
              "ball_failed": 0, "clubhead_failed": 0,
+             "ball_inconclusive": 0, "clubhead_inconclusive": 0,
              "ball": [], "ball_conf": [], "clubhead": [], "clubhead_conf": [],
              "rate": rate, "annotated_dir": annotated_dir}
     for offset, (frame, result) in enumerate(zip(frames, results)):
@@ -562,7 +616,8 @@ def run(video: Path, out_dir: Path, start: int, count: int, workers: int,
                     # did not back it. A proposal alone does not earn a marker.
                     # Which reason applies is recorded separately: a crop pass
                     # that never ran to an answer tested nothing.
-                    key = "failed" if refinement.get("failed") else "unconfirmed"
+                    key = next((name for name in ("failed", "inconclusive")
+                                if refinement.get(name)), "unconfirmed")
                     stats[f"{target}_{key}"] += 1
         cv2.putText(canvas, f"frame {index}", (12, 24),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
