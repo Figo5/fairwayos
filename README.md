@@ -32,3 +32,15 @@ ffmpeg -v error -i OUTPUT/annotated.mp4 -f null -
 ```
 
 Tests and successful encoding do not prove object identity. Review actual overlays against source pixels. No website or upload server.
+
+Generate native-resolution clean/encoded comparison sheets (use a new output directory):
+
+```sh
+.venv-tracker/bin/python tools/compare_video.py VIDEO OUTPUT/annotated.mp4 --start-frame 240 --out-dir REVIEW
+```
+
+This tool compares decoded pixels without reconstructing prediction markers. The start frame is caller-declared; frame-count agreement alone does not verify source alignment.
+
+## Approximate analytics development
+
+See [the measurement assumptions](docs/approximate-analytics.md) and [the Furyk local-scale experiment](docs/furyk-scale-experiment.md). A separate demo-panel implementation is undergoing integration; it is not yet part of the documented tracker command. Pixel motion includes camera motion and detection jitter. Physical estimates require explicit scale and action-time assumptions; a broadcast's playback FPS is not necessarily its capture rate.
