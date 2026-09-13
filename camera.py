@@ -22,9 +22,17 @@ MIN_FEATURES = 12
 MAX_FEATURES = 400
 
 
+STATUSES = ("ok", "insufficient_features", "unstable")
+
+
 @dataclass(frozen=True)
 class Transform:
-    """One frame pair's background motion, with its own failure state."""
+    """One frame pair's background motion, with its own failure state.
+
+    A matrix that is not a finite 2x3 affine is refused at construction: a 3x3
+    homography, a wrong-shaped array or a NaN entry would otherwise surface later
+    as a raw numpy error or as a NaN displacement that looks like a measurement.
+    """
 
     matrix: np.ndarray | None
     tracked: int
@@ -32,6 +40,19 @@ class Transform:
     heldout_residual_px: float | None
     coverage: float
     status: str          # "ok" | "insufficient_features" | "unstable"
+
+    def __post_init__(self) -> None:
+        if self.status not in STATUSES:
+            raise ValueError(f"status must be one of {STATUSES}, got {self.status!r}")
+        if self.matrix is None:
+            if self.status == "ok":
+                raise ValueError("an ok transform must carry a matrix")
+            return
+        matrix = np.asarray(self.matrix)
+        if matrix.shape != (2, 3):
+            raise ValueError(f"affine matrix must be 2x3, got {matrix.shape}")
+        if not np.isfinite(matrix).all():
+            raise ValueError("affine matrix must be finite")
 
 
 def _failed(status: str, tracked: int = 0) -> Transform:

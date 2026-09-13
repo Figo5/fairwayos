@@ -37,17 +37,27 @@ def _finite(value: Any, name: str) -> float:
     return number
 
 
+# Identity token. Only this module's validator functions hold it, and they hand it
+# out only after checking an artifact. A caller can write Evidence("measured",
+# "trust me"), and that record will say measured -- but it will not be validated,
+# because a provenance string is a claim about evidence, not evidence.
+_VALIDATED = object()
+
+
 @dataclass(frozen=True)
 class Evidence:
-    """How a claim came to be believed. A caller's assertion is not evidence.
+    """How a claim came to be believed, and whether anything here checked it.
 
-    `measured` means something in the world established it and `source` says what.
-    `assumed` means it was supplied as a condition. Only a real Evidence record can
-    lift a grade, so no bool or string from a caller can promote a claim.
+    `measured` means the caller says the world established it and `source` says
+    what. `assumed` means it was supplied as a condition. `validated` is separate
+    and stronger: this module checked a concrete artifact and the check passed.
+    Grades treat an unvalidated `measured` record as the caller assertion it is.
     """
 
     status: str
     source: str
+    check: str = ""
+    token: object | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if self.status not in EVIDENCE_STATUS:
@@ -58,6 +68,85 @@ class Evidence:
     @property
     def is_measured(self) -> bool:
         return self.status == "measured"
+
+    @property
+    def validated(self) -> bool:
+        return self.token is _VALIDATED and self.status == "measured"
+
+
+def _validated(source: str, check: str) -> Evidence:
+    return Evidence("measured", source, check=check, token=_VALIDATED)
+
+
+def camera_evidence(transform: Any, max_residual_px: float = 1.0,
+                    min_coverage: float = 0.5) -> Evidence:
+    """Validate a background transform before it may support a physical speed.
+
+    Checks the artifact rather than a description of it: the fit must have
+    succeeded, carry a finite 2x3 matrix, generalise to points it was not fitted
+    to, and cover enough of the frame not to be extrapolating across it.
+    """
+    status = getattr(transform, "status", None)
+    matrix = getattr(transform, "matrix", None)
+    residual = getattr(transform, "heldout_residual_px", None)
+    coverage = getattr(transform, "coverage", None)
+    if status != "ok" or matrix is None:
+        raise ValueError(f"camera transform did not succeed (status {status!r})")
+    shape = getattr(matrix, "shape", None)
+    if shape != (2, 3):
+        raise ValueError(f"camera transform matrix must be 2x3, got {shape}")
+    if not all(math.isfinite(float(v)) for row in matrix for v in row):
+        raise ValueError("camera transform matrix must be finite")
+    if residual is None or _finite(residual, "held-out residual") > max_residual_px:
+        raise ValueError(f"camera transform held-out residual {residual} exceeds "
+                         f"{max_residual_px}px, so the fit does not generalise")
+    if coverage is None or _finite(coverage, "coverage") < min_coverage:
+        raise ValueError(f"camera transform covers {coverage} of the frame, under "
+                         f"{min_coverage}")
+    return _validated(f"affine background transform, held-out residual "
+                      f"{float(residual):.2f}px over {float(coverage):.0%} of the frame",
+                      check="camera_evidence")
+
+
+def scale_evidence(reference_mm: float, reference_px: float, source: str) -> Evidence:
+    """Validate a scale taken from a reference object actually measured in frame."""
+    millimetres = _finite(reference_mm, "reference_mm")
+    pixels = _finite(reference_px, "reference_px")
+    if millimetres <= 0 or pixels <= 0:
+        raise ValueError("reference size in mm and px must both be > 0")
+    if not str(source).strip():
+        raise ValueError("scale evidence must name the reference object")
+    return _validated(f"{source}: {millimetres:g}mm measured as {pixels:g}px",
+                      check="scale_evidence")
+
+
+def timing_evidence(capture_fps: float, probe: dict, key: str = "capture_fps") -> Evidence:
+    """Validate a capture rate against a probe of the recording, not against prose."""
+    claimed = _finite(capture_fps, "capture_fps")
+    if not isinstance(probe, dict) or key not in probe:
+        raise ValueError(f"timing evidence needs a probe carrying {key!r}")
+    probed = _finite(probe[key], f"probe[{key!r}]")
+    if probed <= 0:
+        raise ValueError("probed capture rate must be > 0")
+    if abs(probed - claimed) > 1e-6:
+        raise ValueError(f"claimed capture rate {claimed} does not match the probed "
+                         f"{probed}")
+    return _validated(f"capture rate {probed:g} fps read from the recording",
+                      check="timing_evidence")
+
+
+def identity_evidence(adjudication: dict, frames: Sequence[int]) -> Evidence:
+    """Validate that every frame relied on was actually adjudicated as the target."""
+    if not isinstance(adjudication, dict):
+        raise ValueError("identity evidence needs a per-frame adjudication mapping")
+    missing = [f for f in frames if f not in adjudication]
+    if missing:
+        raise ValueError(f"frames {missing} were not adjudicated")
+    disputed = [f for f in frames if adjudication[f] is not True]
+    if disputed:
+        raise ValueError(f"frames {disputed} were not adjudicated as the same target")
+    return _validated(f"{len(frames)} frames individually adjudicated",
+                      check="identity_evidence")
 
 
 ASSUMED_TIMING = Evidence("assumed", "caller-supplied timing scenario")
@@ -289,26 +378,39 @@ def _speed_reliability(motion: dict, scale: ScaleInterval | None,
         blockers.append("capture frame rate is not established")
     elif any(not scenario.established for scenario in scenarios):
         blockers.append("capture frame rate is assumed, not established")
+    # Camera correction is a blocker, not a discount: without it the displacement
+    # may be the camera's travel rather than the target's, so there is no measured
+    # quantity to put a number on, conditional or otherwise.
+    if camera is None:
+        blockers.append("camera motion has not been removed from the displacement, so "
+                        "the measured travel may be the camera's")
+    elif not camera.validated:
+        blockers.append("camera correction is asserted but not validated here, so the "
+                        "displacement is not established as the target's travel")
     if blockers:
         return {"level": "Unsupported", "reasons": blockers}
 
     reasons: list[str] = []
-    if not scale.evidence.is_measured:
-        reasons.append("image scale is conditional on an assumed ball diameter measured "
-                       "from a highlight, not a calibrated silhouette")
-    if camera is None or not camera.is_measured:
-        reasons.append("camera motion is not removed from the displacement, so part of "
-                       "the measured travel may be the camera's")
-    if identity is None or not identity.is_measured:
-        reasons.append("target identity across frames is not verified")
+    for link, evidence in (("image scale", scale.evidence), ("capture timing",
+                           scenarios[0].evidence), ("camera correction", camera),
+                           ("target identity", identity)):
+        if evidence is None or not evidence.is_measured:
+            reasons.append(f"{link} is not measured")
+        elif not evidence.validated:
+            # The record says measured, but nothing here checked an artifact.
+            reasons.append(f"{link} rests on a caller-supplied provenance string, which "
+                           f"is a claim about evidence rather than evidence")
     reasons.extend(r for r in motion["reasons"] if r not in reasons)
 
-    if not reasons or reasons == ["consecutive measured intervals agree within "
-                                  f"{SPREAD_LIMIT:.0%}"]:
-        return {"level": "High", "reasons": reasons or ["every link in the chain is measured"]}
-    weak = [r for r in reasons if "conditional" in r or "not removed" in r
-            or "not verified" in r]
-    return {"level": "Low" if weak else "Moderate", "reasons": reasons}
+    weak = [r for r in reasons if "not measured" in r or "provenance string" in r
+            or "conditional" in r or "not verified" in r or "spread" in r
+            or "semantic" in r or "single interval" in r]
+    if weak:
+        return {"level": "Low", "reasons": reasons}
+    if motion["level"] != "High":
+        return {"level": "Moderate", "reasons": reasons or ["every link is validated; the "
+                                                            "measurement itself is not High"]}
+    return {"level": "High", "reasons": reasons or ["every link in the chain is validated"]}
 
 
 def estimate(observations: Sequence[Observation], scale: ScaleInterval | None = None,
@@ -340,7 +442,10 @@ def estimate(observations: Sequence[Observation], scale: ScaleInterval | None = 
                                            camera, identity)
 
     rows: list[dict] = []
-    if usable and scale is not None:
+    # Numbers are emitted only when the displacement itself is established, which
+    # needs the camera link validated. Conditional timing makes a row conditional;
+    # an unestablished displacement means there is nothing to condition.
+    if usable and scale is not None and camera is not None and camera.validated:
         for scenario in scenarios:
             low = px_low * scale.low_mm_per_px / 1000.0 * scenario.capture_fps
             high = px_high * scale.high_mm_per_px / 1000.0 * scenario.capture_fps

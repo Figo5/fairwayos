@@ -14,6 +14,27 @@ def _obs(*frames_xy, kind="measured"):
     return [launch.Observation(f, x, y, kind) for f, x, y in frames_xy]
 
 
+class _Fit:
+    """A background transform artifact, as camera.estimate_transform returns one."""
+
+    def __init__(self, residual=0.4, coverage=1.0, status="ok",
+                 matrix=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0))):
+        self.status = status
+        self.matrix = None if matrix is None else _Matrix(matrix)
+        self.heldout_residual_px = residual
+        self.coverage = coverage
+
+
+class _Matrix(tuple):
+    @property
+    def shape(self):
+        return (len(self), len(self[0]))
+
+
+def _camera(**kwargs):
+    return launch.camera_evidence(_Fit(**kwargs))
+
+
 # --- evidence selection ----------------------------------------------------
 
 def test_only_consecutive_frames_form_an_interval():
@@ -131,7 +152,7 @@ def test_without_scale_no_physical_speed_is_produced():
 
 def test_a_scenario_range_spans_both_the_scale_and_the_measured_spread():
     scale = launch.scale_mm_per_px(9.0, 11.0)
-    result = launch.estimate(_rising_ball(), scale=scale,
+    result = launch.estimate(_rising_ball(), scale=scale, camera=_camera(),
                              scenarios=[launch.TimingScenario("if 240 fps", 240.0)])
 
     scenario = result["physical_speed"]["scenarios"][0]
@@ -168,6 +189,7 @@ def test_an_assumed_capture_rate_leaves_physical_speed_unsupported():
     # frames are, it can never lift the physical speed above Unsupported, and it
     # must never be labelled Moderate.
     result = launch.estimate(_rising_ball(), scale=launch.scale_mm_per_px(9.0, 11.0),
+                             camera=_camera(),
                              scenarios=[launch.TimingScenario("if 240 fps", 240.0)])
 
     physical = result["physical_speed"]
@@ -185,10 +207,10 @@ def test_an_established_capture_rate_is_the_only_route_to_a_supported_speed():
         evidence=launch.Evidence("measured", "declared by the capture device"))
 
     result = launch.estimate(_rising_ball(), scale=launch.scale_mm_per_px(9.0, 11.0),
-                             scenarios=[established])
+                             camera=_camera(), scenarios=[established])
 
     assert result["physical_speed"]["reliability"]["level"] == "Low"
-    assert any("scale is conditional" in r
+    assert any("image scale is not measured" in r
                for r in result["physical_speed"]["reliability"]["reasons"])
 
 
@@ -238,6 +260,7 @@ def test_identity_is_unverified_so_image_motion_stops_at_moderate():
 def test_the_report_carries_inputs_formula_and_every_rejection():
     obs = _rising_ball() + _obs((565, 751.0, 520.0))
     result = launch.estimate(obs, scale=launch.scale_mm_per_px(9.0, 11.0),
+                             camera=_camera(),
                              scenarios=[launch.TimingScenario("if 240 fps", 240.0)])
     document, text = launch.report(result, target="ball")
 
@@ -261,6 +284,7 @@ def test_the_report_states_the_blocker_when_timing_is_missing():
 
 def test_the_panel_shows_no_coordinates_or_confidences():
     result = launch.estimate(_rising_ball(), scale=launch.scale_mm_per_px(9.0, 11.0),
+                             camera=_camera(),
                              scenarios=[launch.TimingScenario("if 240 fps", 240.0)])
 
     lines = launch.panel_lines({"ball": result})
@@ -357,27 +381,62 @@ def test_measured_timing_with_an_assumed_scale_is_low_not_high():
         evidence=launch.Evidence("measured", "declared by the capture device"))
 
     result = launch.estimate(_parent_repro(), scale=launch.scale_mm_per_px(9.0, 11.0),
-                             scenarios=[measured_timing])
+                             camera=_camera(), scenarios=[measured_timing])
 
     reliability = result["physical_speed"]["reliability"]
     assert reliability["level"] == "Low"
-    assert any("scale" in r for r in reliability["reasons"])
-    assert any("camera motion" in r for r in reliability["reasons"])
+    assert any("image scale is not measured" in r for r in reliability["reasons"])
+
+    # And with no camera link at all it is not merely lower, it is blocked.
+    blocked = launch.estimate(_parent_repro(), scale=launch.scale_mm_per_px(9.0, 11.0),
+                              scenarios=[measured_timing])
+    assert blocked["physical_speed"]["reliability"]["level"] == "Unsupported"
+    assert blocked["physical_speed"]["scenarios"] == []
+    assert any("camera motion has not been removed" in r
+               for r in blocked["physical_speed"]["reliability"]["reasons"])
 
 
 def test_a_fully_evidenced_chain_can_still_reach_high():
     # The grades must not be permanently pinned down: real calibration, real timing,
     # real camera support and verified identity together do reach High.
-    scale = launch.scale_mm_per_px(9.0, 11.0,
-                                   evidence=launch.Evidence("measured", "surveyed target"))
-    result = launch.estimate(
-        _parent_repro(), scale=scale,
-        scenarios=[launch.TimingScenario("measured", 300.0,
-                                         evidence=launch.Evidence("measured", "device"))],
-        camera=launch.Evidence("measured", "affine background transform, held-out 0.4px"),
-        identity=launch.Evidence("measured", "per-frame identity adjudication"))
+    scale = launch.scale_mm_per_px(
+        9.0, 11.0, evidence=launch.scale_evidence(300.0, 64.0, "surveyed tee marker"))
+    timing = launch.TimingScenario(
+        "measured", 300.0, evidence=launch.timing_evidence(300.0, {"capture_fps": 300.0}))
+    identity = launch.identity_evidence({0: True, 1: True, 2: True}, [0, 1, 2])
+
+    result = launch.estimate(_parent_repro(), scale=scale, scenarios=[timing],
+                             camera=_camera(), identity=identity)
 
     assert result["physical_speed"]["reliability"]["level"] == "High"
+
+
+def test_a_caller_provenance_string_is_not_a_validated_chain():
+    # The frozen review's case: every link asserted, nothing checked.
+    asserted = launch.Evidence("measured", "trust me")
+    result = launch.estimate(
+        _parent_repro(),
+        scale=launch.scale_mm_per_px(9.0, 11.0, evidence=asserted),
+        scenarios=[launch.TimingScenario("fps", 300.0, evidence=asserted)],
+        camera=asserted, identity=asserted)
+
+    assert result["physical_speed"]["reliability"]["level"] == "Unsupported"
+    assert result["physical_speed"]["scenarios"] == []
+    assert any("not validated here" in r
+               for r in result["physical_speed"]["reliability"]["reasons"])
+
+
+@pytest.mark.parametrize("broken", [
+    {"status": "insufficient_features", "matrix": None},
+    {"matrix": ((1.0, 0.0), (0.0, 1.0))},                        # wrong shape
+    {"matrix": ((1.0, 0.0, float("nan")), (0.0, 1.0, 0.0))},     # non-finite
+    {"residual": 4.0},                                           # does not generalise
+    {"coverage": 0.25},                                          # one corner of the frame
+    {"residual": None},
+])
+def test_a_malformed_or_weak_camera_fit_cannot_become_evidence(broken):
+    with pytest.raises(ValueError):
+        launch.camera_evidence(_Fit(**broken))
 
 
 def test_uncorrected_displacement_is_never_described_as_corrected():
@@ -392,7 +451,7 @@ def test_uncorrected_displacement_is_never_described_as_corrected():
 
 def test_the_formula_states_the_unit_conversion_it_actually_performs():
     scale = launch.scale_mm_per_px(9.0, 11.0)
-    result = launch.estimate(_parent_repro(), scale=scale,
+    result = launch.estimate(_parent_repro(), scale=scale, camera=_camera(),
                              scenarios=[launch.TimingScenario("if 300 fps", 300.0)])
     row = result["physical_speed"]["scenarios"][0]
 
@@ -403,6 +462,7 @@ def test_the_formula_states_the_unit_conversion_it_actually_performs():
 
 def test_scenario_rows_carry_their_own_grade_separate_from_measurement():
     result = launch.estimate(_parent_repro(), scale=launch.scale_mm_per_px(9.0, 11.0),
+                             camera=_camera(),
                              scenarios=[launch.TimingScenario("if 300 fps", 300.0)])
 
     row = result["physical_speed"]["scenarios"][0]
