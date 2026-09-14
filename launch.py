@@ -116,8 +116,14 @@ def bind_to_source(evidence: Evidence, path: Any, sha256: str) -> Evidence:
     digest = hashlib.sha256(file.read_bytes()).hexdigest()
     if digest != sha256:
         raise ValueError(f"{file} hashes to {digest}, not the stated {sha256}")
+    # Deliberately still "checked". Hashing proves this evidence refers to that
+    # file; it says nothing about whether the claim is true of it. A capture rate
+    # asserted alongside a matching hash is still an assertion. Only a factory that
+    # DERIVES its value from the artifact can grant "verified", and none of the
+    # current ones can derive a capture rate, because the recording does not carry
+    # it.
     return Evidence("measured", f"{evidence.source}; bound to {file.name} ({digest[:12]})",
-                    check=evidence.check, token=_VERIFIED)
+                    check=evidence.check, token=_CHECKED)
 
 
 def camera_evidence(transform: Any, max_residual_px: float = 1.0,
@@ -403,7 +409,7 @@ def _motion_reliability(usable: list[Interval], spread: float | None,
 
 def _speed_reliability(motion: dict, scale: ScaleInterval | None,
                        scenarios: Sequence[TimingScenario], camera: Evidence | None,
-                       identity: Evidence | None) -> dict:
+                       identity: Evidence | None, applied: bool = False) -> dict:
     """What a physical speed is worth.
 
     Missing or assumed timing is an obstruction, not a discount: it makes the speed
@@ -423,6 +429,9 @@ def _speed_reliability(motion: dict, scale: ScaleInterval | None,
     # Camera correction is a blocker, not a discount: without it the displacement
     # may be the camera's travel rather than the target's, so there is no measured
     # quantity to put a number on, conditional or otherwise.
+    if applied is not True:
+        blockers.append("camera correction was not applied to these displacements, so "
+                        "they are raw image motion")
     if camera is None:
         blockers.append("camera motion has not been removed from the displacement, so "
                         "the measured travel may be the camera's")
@@ -488,6 +497,11 @@ def estimate(observations: Sequence[Observation], scale: ScaleInterval | None = 
 
     usable, rejected = intervals(observations)
     if corrections is not None:
+        for key, value in corrections.items():
+            distance = _finite(value, f"correction {key}")
+            if distance < 0:
+                raise ValueError(f"correction {key} must be a non-negative distance, "
+                                 f"got {value!r}")
         missing = [tuple(i.frames) for i in usable
                    if tuple(i.frames) not in corrections]
         if missing:
@@ -501,13 +515,14 @@ def estimate(observations: Sequence[Observation], scale: ScaleInterval | None = 
 
     motion_reliability = _motion_reliability(usable, spread, identity)
     speed_reliability = _speed_reliability(motion_reliability, scale, scenarios,
-                                           camera, identity)
+                                           camera, identity, corrections is not None)
 
     rows: list[dict] = []
     # Numbers are emitted only when the displacement itself is established, which
     # needs the camera link validated. Conditional timing makes a row conditional;
     # an unestablished displacement means there is nothing to condition.
-    if usable and scale is not None and camera is not None and camera.validated:
+    if (usable and scale is not None and camera is not None and camera.validated
+            and corrections is not None):
         for scenario in scenarios:
             low = px_low * scale.low_mm_per_px / 1000.0 * scenario.capture_fps
             high = px_high * scale.high_mm_per_px / 1000.0 * scenario.capture_fps
@@ -635,7 +650,9 @@ def panel_lines(estimates: dict[str, dict], phase: str | None = None) -> list[st
     """Golfer-facing panel text: no coordinates, no confidences, no decimals of either."""
     lines: list[str] = []
     if phase:
-        lines.append(f"Phase: {phase}")
+        # Clip-wide, and worded as such: this panel is repeated on every frame,
+        # including address frames, so "Phase:" would assert something false there.
+        lines.append(f"Shot summary: {phase}")
     for target, result in estimates.items():
         label = f"{target.capitalize()} speed"
         physical = result["physical_speed"]

@@ -35,6 +35,16 @@ def _camera(**kwargs):
     return launch.camera_evidence(_Fit(**kwargs))
 
 
+def _applied(observations):
+    """Corrections for every usable interval, here equal to the raw displacement.
+
+    A static camera corrects to the same numbers; what matters for these tests is
+    that the correction was actually applied rather than merely cited.
+    """
+    usable, _ = launch.intervals(observations)
+    return {tuple(i.frames): i.px for i in usable}
+
+
 # --- evidence selection ----------------------------------------------------
 
 def test_only_consecutive_frames_form_an_interval():
@@ -153,6 +163,7 @@ def test_without_scale_no_physical_speed_is_produced():
 def test_a_scenario_range_spans_both_the_scale_and_the_measured_spread():
     scale = launch.scale_mm_per_px(9.0, 11.0)
     result = launch.estimate(_rising_ball(), scale=scale, camera=_camera(),
+                             corrections=_applied(_rising_ball()),
                              scenarios=[launch.TimingScenario("if 240 fps", 240.0)])
 
     scenario = result["physical_speed"]["scenarios"][0]
@@ -189,7 +200,7 @@ def test_an_assumed_capture_rate_leaves_physical_speed_unsupported():
     # frames are, it can never lift the physical speed above Unsupported, and it
     # must never be labelled Moderate.
     result = launch.estimate(_rising_ball(), scale=launch.scale_mm_per_px(9.0, 11.0),
-                             camera=_camera(),
+                             camera=_camera(), corrections=_applied(_rising_ball()),
                              scenarios=[launch.TimingScenario("if 240 fps", 240.0)])
 
     physical = result["physical_speed"]
@@ -207,7 +218,8 @@ def test_an_established_capture_rate_is_the_only_route_to_a_supported_speed():
         evidence=launch.Evidence("measured", "declared by the capture device"))
 
     result = launch.estimate(_rising_ball(), scale=launch.scale_mm_per_px(9.0, 11.0),
-                             camera=_camera(), scenarios=[established])
+                             camera=_camera(), corrections=_applied(_rising_ball()),
+                             scenarios=[established])
 
     assert result["physical_speed"]["reliability"]["level"] == "Low"
     assert any("image scale is not measured" in r
@@ -260,7 +272,7 @@ def test_identity_is_unverified_so_image_motion_stops_at_moderate():
 def test_the_report_carries_inputs_formula_and_every_rejection():
     obs = _rising_ball() + _obs((565, 751.0, 520.0))
     result = launch.estimate(obs, scale=launch.scale_mm_per_px(9.0, 11.0),
-                             camera=_camera(),
+                             camera=_camera(), corrections=_applied(obs),
                              scenarios=[launch.TimingScenario("if 240 fps", 240.0)])
     document, text = launch.report(result, target="ball")
 
@@ -284,7 +296,7 @@ def test_the_report_states_the_blocker_when_timing_is_missing():
 
 def test_the_panel_shows_no_coordinates_or_confidences():
     result = launch.estimate(_rising_ball(), scale=launch.scale_mm_per_px(9.0, 11.0),
-                             camera=_camera(),
+                             camera=_camera(), corrections=_applied(_rising_ball()),
                              scenarios=[launch.TimingScenario("if 240 fps", 240.0)])
 
     lines = launch.panel_lines({"ball": result})
@@ -328,10 +340,12 @@ def test_the_panel_shows_a_phase_only_when_evidence_supplies_one():
     result = launch.estimate(_rising_ball(), scale=launch.scale_mm_per_px(9.0, 11.0),
                              scenarios=[launch.TimingScenario("if 240 fps", 240.0)])
 
-    assert not any("Phase" in line for line in launch.panel_lines({"ball": result}))
-    assert any("Phase: ball departure" in line
-               for line in launch.panel_lines({"ball": result},
-                                              phase="ball departure (frames 556-559)"))
+    assert not any("Shot summary" in line for line in launch.panel_lines({"ball": result}))
+    # Worded as a clip-wide summary: the same panel is drawn on address frames too,
+    # where "Phase: ball departure" would be a false claim about that frame.
+    lines = launch.panel_lines({"ball": result}, phase="ball departure (frames 556-559)")
+    assert any("Shot summary: ball departure" in line for line in lines)
+    assert not any(line.startswith("Phase:") for line in lines)
 
 
 # --- regressions from parent review ----------------------------------------
@@ -381,7 +395,8 @@ def test_measured_timing_with_an_assumed_scale_is_low_not_high():
         evidence=launch.Evidence("measured", "declared by the capture device"))
 
     result = launch.estimate(_parent_repro(), scale=launch.scale_mm_per_px(9.0, 11.0),
-                             camera=_camera(), scenarios=[measured_timing])
+                             camera=_camera(), corrections=_applied(_parent_repro()),
+                             scenarios=[measured_timing])
 
     reliability = result["physical_speed"]["reliability"]
     assert reliability["level"] == "Low"
@@ -407,14 +422,15 @@ def test_structural_checks_alone_cap_at_moderate_not_high():
     identity = launch.identity_evidence({0: True, 1: True, 2: True}, [0, 1, 2])
 
     result = launch.estimate(_parent_repro(), scale=scale, scenarios=[timing],
-                             camera=_camera(), identity=identity)
+                             camera=_camera(), corrections=_applied(_parent_repro()),
+                             identity=identity)
 
     reliability = result["physical_speed"]["reliability"]
     assert reliability["level"] == "Moderate"
     assert any("structural check only" in r for r in reliability["reasons"])
 
 
-def test_only_binding_to_the_hashed_recording_reaches_high(tmp_path):
+def test_a_hash_binding_does_not_verify_the_claim_it_carries(tmp_path):
     recording = tmp_path / "clip.mp4"
     recording.write_bytes(b"pretend encoded video")
     digest = __import__("hashlib").sha256(recording.read_bytes()).hexdigest()
@@ -428,10 +444,14 @@ def test_only_binding_to_the_hashed_recording_reaches_high(tmp_path):
 
     result = launch.estimate(
         _parent_repro(), scale=scale, scenarios=[timing],
-        camera=bind(_camera()),
+        camera=bind(_camera()), corrections={(0, 1): 5.0, (1, 2): 5.0},
         identity=bind(launch.identity_evidence({0: True, 1: True, 2: True}, [0, 1, 2])))
 
-    assert result["physical_speed"]["reliability"]["level"] == "High"
+    # Hashing proves the evidence refers to that file. It does not make an asserted
+    # capture rate true of it, so the chain stays Moderate, not High.
+    assert result["physical_speed"]["reliability"]["level"] == "Moderate"
+    assert any("structural check only" in r
+               for r in result["physical_speed"]["reliability"]["reasons"])
 
 
 def test_binding_refuses_a_wrong_hash_a_missing_file_and_unchecked_evidence(tmp_path):
@@ -494,6 +514,7 @@ def test_uncorrected_displacement_is_never_described_as_corrected():
 def test_the_formula_states_the_unit_conversion_it_actually_performs():
     scale = launch.scale_mm_per_px(9.0, 11.0)
     result = launch.estimate(_parent_repro(), scale=scale, camera=_camera(),
+                             corrections=_applied(_parent_repro()),
                              scenarios=[launch.TimingScenario("if 300 fps", 300.0)])
     row = result["physical_speed"]["scenarios"][0]
 
@@ -504,7 +525,7 @@ def test_the_formula_states_the_unit_conversion_it_actually_performs():
 
 def test_scenario_rows_carry_their_own_grade_separate_from_measurement():
     result = launch.estimate(_parent_repro(), scale=launch.scale_mm_per_px(9.0, 11.0),
-                             camera=_camera(),
+                             camera=_camera(), corrections=_applied(_parent_repro()),
                              scenarios=[launch.TimingScenario("if 300 fps", 300.0)])
 
     row = result["physical_speed"]["scenarios"][0]
@@ -603,3 +624,23 @@ def test_the_report_does_not_say_uncorrected_when_a_correction_was_applied():
     assert "camera motion removed" in corrected_text
     assert "camera motion is not removed" not in corrected_text
     assert "camera motion is not removed" in raw_text
+
+
+def test_citing_camera_evidence_without_applying_it_emits_no_numbers():
+    # The parent's case: evidence present, corrections absent, mph printed anyway.
+    result = launch.estimate(_rising_ball(), scale=launch.scale_mm_per_px(9.0, 11.0),
+                             camera=_camera(),
+                             scenarios=[launch.TimingScenario("if 240 fps", 240.0)])
+
+    assert result["physical_speed"]["scenarios"] == []
+    assert any("not applied" in r for r in result["physical_speed"]["reliability"]["reasons"])
+    body = " ".join(launch.panel_lines({"ball": result}))
+    assert "mph" not in body and "m/s" not in body
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), -1.0, True, "5", None])
+def test_a_correction_that_is_not_a_real_distance_is_refused(bad):
+    with pytest.raises(ValueError):
+        launch.estimate(_rising_ball(), scale=launch.scale_mm_per_px(9.0, 11.0),
+                        camera=_camera(),
+                        corrections={(556, 557): bad, (557, 558): 9.0, (558, 559): 9.0})
