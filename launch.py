@@ -37,11 +37,20 @@ def _finite(value: Any, name: str) -> float:
     return number
 
 
-# Identity token. Only this module's validator functions hold it, and they hand it
-# out only after checking an artifact. A caller can write Evidence("measured",
-# "trust me"), and that record will say measured -- but it will not be validated,
-# because a provenance string is a claim about evidence, not evidence.
-_VALIDATED = object()
+# Tokens. Only this module hands them out. `_CHECKED` means a factory checked the
+# STRUCTURE of what it was given -- shapes, ranges, internal consistency. That is
+# not the same as checking the world: a probe dict saying 300 fps is structurally
+# fine and still tells us nothing about the recording. `_VERIFIED` is the stronger
+# one and is granted only when the evidence is bound to a file whose hash this code
+# computed itself. Four grades, weakest first:
+#
+#   assumed   - supplied as a condition
+#   asserted  - the caller says it was measured; nothing here looked
+#   checked   - a factory validated the structure of an artifact
+#   verified  - additionally bound to a source file this code hashed
+_CHECKED = object()
+_VERIFIED = object()
+GRADES = ("assumed", "asserted", "checked", "verified")
 
 
 @dataclass(frozen=True)
@@ -70,12 +79,45 @@ class Evidence:
         return self.status == "measured"
 
     @property
+    def grade(self) -> str:
+        if not self.is_measured:
+            return "assumed"
+        if self.token is _VERIFIED:
+            return "verified"
+        if self.token is _CHECKED:
+            return "checked"
+        return "asserted"
+
+    @property
     def validated(self) -> bool:
-        return self.token is _VALIDATED and self.status == "measured"
+        """Structure was checked. NOT a claim that the fact itself was verified."""
+        return self.grade in ("checked", "verified")
 
 
-def _validated(source: str, check: str) -> Evidence:
-    return Evidence("measured", source, check=check, token=_VALIDATED)
+def _checked(source: str, check: str) -> Evidence:
+    return Evidence("measured", source, check=check, token=_CHECKED)
+
+
+def bind_to_source(evidence: Evidence, path: Any, sha256: str) -> Evidence:
+    """Bind checked evidence to a file whose hash this code computes for itself.
+
+    This is the only step that turns a structural check into a verified one, and it
+    is deliberately narrow: it proves the evidence refers to a specific artifact,
+    nothing more. It does not make an uploader's claim about that artifact true.
+    """
+    import hashlib
+    from pathlib import Path as _Path
+
+    if not isinstance(evidence, Evidence) or evidence.grade not in ("checked", "verified"):
+        raise ValueError("only checked evidence can be bound to a source")
+    file = _Path(path)
+    if not file.is_file():
+        raise ValueError(f"no such source file: {file}")
+    digest = hashlib.sha256(file.read_bytes()).hexdigest()
+    if digest != sha256:
+        raise ValueError(f"{file} hashes to {digest}, not the stated {sha256}")
+    return Evidence("measured", f"{evidence.source}; bound to {file.name} ({digest[:12]})",
+                    check=evidence.check, token=_VERIFIED)
 
 
 def camera_evidence(transform: Any, max_residual_px: float = 1.0,
@@ -103,7 +145,7 @@ def camera_evidence(transform: Any, max_residual_px: float = 1.0,
     if coverage is None or _finite(coverage, "coverage") < min_coverage:
         raise ValueError(f"camera transform covers {coverage} of the frame, under "
                          f"{min_coverage}")
-    return _validated(f"affine background transform, held-out residual "
+    return _checked(f"affine background transform, held-out residual "
                       f"{float(residual):.2f}px over {float(coverage):.0%} of the frame",
                       check="camera_evidence")
 
@@ -116,7 +158,7 @@ def scale_evidence(reference_mm: float, reference_px: float, source: str) -> Evi
         raise ValueError("reference size in mm and px must both be > 0")
     if not str(source).strip():
         raise ValueError("scale evidence must name the reference object")
-    return _validated(f"{source}: {millimetres:g}mm measured as {pixels:g}px",
+    return _checked(f"{source}: {millimetres:g}mm measured as {pixels:g}px",
                       check="scale_evidence")
 
 
@@ -131,7 +173,7 @@ def timing_evidence(capture_fps: float, probe: dict, key: str = "capture_fps") -
     if abs(probed - claimed) > 1e-6:
         raise ValueError(f"claimed capture rate {claimed} does not match the probed "
                          f"{probed}")
-    return _validated(f"capture rate {probed:g} fps read from the recording",
+    return _checked(f"capture rate {probed:g} fps read from the recording",
                       check="timing_evidence")
 
 
@@ -145,7 +187,7 @@ def identity_evidence(adjudication: dict, frames: Sequence[int]) -> Evidence:
     disputed = [f for f in frames if adjudication[f] is not True]
     if disputed:
         raise ValueError(f"frames {disputed} were not adjudicated as the same target")
-    return _validated(f"{len(frames)} frames individually adjudicated",
+    return _checked(f"{len(frames)} frames individually adjudicated",
                       check="identity_evidence")
 
 
@@ -402,21 +444,32 @@ def _speed_reliability(motion: dict, scale: ScaleInterval | None,
                            f"is a claim about evidence rather than evidence")
     reasons.extend(r for r in motion["reasons"] if r not in reasons)
 
+    links = {"image scale": scale.evidence, "capture timing": scenarios[0].evidence,
+             "camera correction": camera, "target identity": identity}
+    unbound = [name for name, evidence in links.items()
+               if evidence is not None and evidence.grade == "checked"]
+    if unbound:
+        reasons.append(f"{', '.join(sorted(unbound))} passed a structural check only: "
+                       f"nothing here bound it to the recording it describes")
+
     weak = [r for r in reasons if "not measured" in r or "provenance string" in r
             or "conditional" in r or "not verified" in r or "spread" in r
             or "semantic" in r or "single interval" in r]
     if weak:
         return {"level": "Low", "reasons": reasons}
-    if motion["level"] != "High":
-        return {"level": "Moderate", "reasons": reasons or ["every link is validated; the "
-                                                            "measurement itself is not High"]}
-    return {"level": "High", "reasons": reasons or ["every link in the chain is validated"]}
+    if unbound or motion["level"] != "High":
+        return {"level": "Moderate",
+                "reasons": reasons or ["every link is checked but the measurement itself "
+                                       "is not High"]}
+    return {"level": "High", "reasons": reasons or ["every link is verified against the "
+                                                    "recording"]}
 
 
 def estimate(observations: Sequence[Observation], scale: ScaleInterval | None = None,
              scenarios: Sequence[TimingScenario] = (),
              camera: Evidence | None = None,
-             identity: Evidence | None = None) -> dict:
+             identity: Evidence | None = None,
+             corrections: dict[tuple[int, int], float] | None = None) -> dict:
     """Everything the evidence supports about one target's speed, and nothing else.
 
     Measured image motion and physical speed are reported separately, because they
@@ -430,9 +483,18 @@ def estimate(observations: Sequence[Observation], scale: ScaleInterval | None = 
             raise ValueError(f"scenario must be a TimingScenario, got {scenario!r}")
     camera = _evidence(camera, "camera evidence")
     identity = _evidence(identity, "identity evidence")
+    if corrections is not None and (camera is None or not camera.validated):
+        raise ValueError("camera-corrected displacements need validated camera evidence")
 
     usable, rejected = intervals(observations)
-    px_values = [interval.px for interval in usable]
+    if corrections is not None:
+        missing = [tuple(i.frames) for i in usable
+                   if tuple(i.frames) not in corrections]
+        if missing:
+            raise ValueError(f"camera correction is missing for intervals {missing}; a "
+                             f"partly corrected track mixes two different measurements")
+    px_values = [corrections[tuple(i.frames)] if corrections is not None else i.px
+                 for i in usable]
     px_low = min(px_values) if px_values else None
     px_high = max(px_values) if px_values else None
     spread = None if not px_values or px_high == 0 else (px_high - px_low) / px_high
@@ -469,8 +531,11 @@ def estimate(observations: Sequence[Observation], scale: ScaleInterval | None = 
         "image_motion": {
             "low": px_low, "high": px_high, "spread": spread,
             "unit": "px per frame",
-            "note": "image-projected 2D displacement; motion along the camera axis is "
-                    "not measured, and camera motion is not removed here",
+            "note": ("image-projected 2D displacement, camera motion removed by an affine "
+                     "background transform; motion along the camera axis is still not "
+                     "measured") if corrections is not None else
+                    ("image-projected 2D displacement; motion along the camera axis is "
+                     "not measured, and camera motion is not removed here"),
             "reliability": motion_reliability,
         },
         "scale": None if scale is None else {
@@ -480,9 +545,13 @@ def estimate(observations: Sequence[Observation], scale: ScaleInterval | None = 
         },
         "physical_speed": {"scenarios": rows, "reliability": speed_reliability},
         "camera_support": {
-            "status": "applied" if camera is not None and camera.is_measured else "absent",
+            "status": ("applied" if corrections is not None else
+                       "evidence only, not applied to the displacement"
+                       if camera is not None and camera.validated else "absent"),
             "source": None if camera is None else camera.source,
-            "note": "displacement is raw image motion; camera motion is not removed",
+            "note": ("displacement has camera motion removed by an affine background "
+                     "transform" if corrections is not None else
+                     "displacement is raw image motion; camera motion is not removed"),
         },
         "identity_support": {
             "status": "verified" if identity is not None and identity.is_measured

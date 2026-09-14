@@ -16,7 +16,7 @@ from typing import Any
 
 FPS_NUM = 30000
 FPS_DEN = 1001
-FPS = FPS_NUM / FPS_DEN
+FPS = FPS_NUM / FPS_DEN          # the first source's rate; no longer assumed
 PANEL_WIDTH = 520
 GOLF_BALL_DIAMETER_M = 0.04267
 
@@ -174,7 +174,50 @@ def _fmt_conf(v: float | None) -> str:
     return "UNAVAILABLE" if v is None else f"{v:.2f}"
 
 
-def render_video(input_mp4: Path, vision_json: Path, output_mp4: Path, *, m_per_px: float | None = None, action_time_scale: float | None = None, ball_diameter_px: float | None = None) -> dict[str, Any]:
+def source_rate(video: Path) -> tuple[str, float]:
+    """The source's exact rational rate and its float value.
+
+    Read from the file rather than assumed: this renders 30000/1001 and 60000/1001
+    sources alike, and the output carries the source's own rational back out.
+    """
+    import fairway
+
+    rational = fairway.source_frame_rate(video)
+    numerator, _, denominator = rational.partition("/")
+    return rational, int(numerator) / int(denominator)
+
+
+def golfer_panel_text(tracks: list[dict[str, Any]], *, scale=None, scenarios=(),
+                      camera=None, corrections=None) -> tuple[list[str], dict[str, Any]]:
+    """Golfer-facing panel lines plus the estimates behind them.
+
+    The window each speed is drawn from is derived from the observations by
+    launch.split_by_motion, so no frame number is written into this code.
+    """
+    import launch
+
+    estimates: dict[str, Any] = {}
+    phase = None
+    for name, key in (("ball", "ball"), ("club", "head")):
+        points = [launch.Observation(row["source_frame"], row[key].x, row[key].y,
+                                     "semantic" if row[key].semantic else "measured")
+                  for row in tracks if row[key] is not None]
+        split = launch.split_by_motion(points)
+        window = split["moving"]
+        if window:
+            frames = {i.first.frame for i in window} | {i.second.frame for i in window}
+            selected = [o for o in points if o.frame in frames]
+            if name == "ball":
+                phase = f"ball departure (frames {min(frames)}-{max(frames)}, derived)"
+        else:
+            selected = []
+        estimates[name] = launch.estimate(
+            selected, scale=scale, scenarios=scenarios, camera=camera,
+            corrections=None if not corrections else corrections.get(name))
+    return launch.panel_lines(estimates, phase=phase), estimates
+
+
+def render_video(input_mp4: Path, vision_json: Path, output_mp4: Path, *, m_per_px: float | None = None, action_time_scale: float | None = None, ball_diameter_px: float | None = None, golfer_facing: bool = False, camera_evidence=None, corrections=None, scale=None) -> dict[str, Any]:
     import cv2
     import numpy as np
 
@@ -192,32 +235,66 @@ def render_video(input_mp4: Path, vision_json: Path, output_mp4: Path, *, m_per_
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    source_fps = float(cap.get(cv2.CAP_PROP_FPS))
-    if width != 1280 or height != 720:
-        raise ValueError(f"expected 1280x720 source, got {width}x{height}")
-    if not math.isclose(source_fps, FPS, rel_tol=0, abs_tol=0.01):
-        raise ValueError(f"expected source FPS 30000/1001 ({FPS:.3f}), got {source_fps:.3f}")
+    # Native dimensions and the source's own rational rate, both carried through
+    # unchanged. Nothing is resized to fit the panel.
+    rational, fps = source_rate(input_mp4)
+    if width <= 0 or height <= 0:
+        raise ValueError(f"source reports unusable dimensions {width}x{height}")
     if len(metrics) != frames:
         raise ValueError(f"vision frames ({len(metrics)}) do not match video frames ({frames})")
 
     output_mp4.parent.mkdir(parents=True, exist_ok=True)
     tmp = output_mp4.with_suffix(".raw.mp4")
-    writer = cv2.VideoWriter(str(tmp), cv2.VideoWriter_fourcc(*"mp4v"), FPS, (width + PANEL_WIDTH, height))
+    panel_width = max(PANEL_WIDTH, width // 3)
+    writer = cv2.VideoWriter(str(tmp), cv2.VideoWriter_fourcc(*"mp4v"), fps,
+                             (width + panel_width, height))
     if not writer.isOpened():
         raise RuntimeError("cannot open video writer")
+
+    golfer_lines: list[str] = []
+    estimates: dict[str, Any] = {}
+    if golfer_facing:
+        if scale is None and ball_diameter_px is not None:
+            scale = __import__("launch").scale_mm_per_px(ball_diameter_px, ball_diameter_px)
+        scenarios = ()
+        if action_time_scale is not None:
+            launch_mod = __import__("launch")
+            scenarios = (launch_mod.TimingScenario(
+                f"if each frame is 1/{fps * action_time_scale:.0f}s of real action",
+                fps * action_time_scale),)
+        golfer_lines, estimates = golfer_panel_text(
+            load_tracks(vision_json), scale=scale, scenarios=scenarios,
+            camera=camera_evidence, corrections=corrections)
 
     for idx in range(frames):
         ok, frame = cap.read()
         if not ok:
             raise RuntimeError(f"decode failed at frame {idx}")
         row = metrics[idx]
-        panel = np.zeros((height, PANEL_WIDTH, 3), dtype=np.uint8)
+        panel = np.zeros((height, panel_width, 3), dtype=np.uint8)
         panel[:] = (24, 24, 24)
         y = 34
         def text(s, color=(235,235,235), scale=0.58, thick=1):
             nonlocal y
             cv2.putText(panel, s, (18, y), cv2.FONT_HERSHEY_SIMPLEX, scale, color, thick, cv2.LINE_AA)
             y += 28
+        if golfer_facing:
+            # No coordinates, no confidences: what a golfer can act on, plus what
+            # the evidence does not support.
+            text("SHOT REVIEW", (120, 220, 255), 0.62, 2)
+            tracked = [name for name, point in (("Ball", row["ball"]), ("Club", row["head"]))
+                       if point is not None]
+            text(f"This frame: {', '.join(tracked) + ' tracked' if tracked else 'no target tracked'}",
+                 (200, 200, 200), 0.5)
+            y += 8
+            for line in golfer_lines:
+                indent = line.startswith(" ")
+                text(line.strip(), (235, 235, 235) if not indent else (170, 170, 170),
+                     0.5 if not indent else 0.44)
+            cv2.putText(panel, f"source rate {rational}", (18, height - 24),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.42, (150, 150, 150), 1, cv2.LINE_AA)
+            writer.write(np.concatenate([frame, panel], axis=1))
+            continue
         text("RESEARCH ESTIMATE - PIXEL SPACE", (120, 220, 255), 0.62, 2)
         text("Not calibrated mph / no carry", (180, 180, 180))
         text(f"Display frame {row['display_frame']:02d} / source {row['source_frame']}")
@@ -259,11 +336,15 @@ def render_video(input_mp4: Path, vision_json: Path, output_mp4: Path, *, m_per_
     # Normalize final encoding and exact rate.
     cmd = [
         "ffmpeg", "-y", "-v", "error", "-i", str(tmp),
-        "-r", "30000/1001", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(output_mp4),
+        "-r", rational, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(output_mp4),
     ]
     subprocess.run(cmd, check=True)
     tmp.unlink(missing_ok=True)
-    return {"frames": frames, "width": width + PANEL_WIDTH, "height": height, "fps": "30000/1001", "metrics": metrics}
+    written, _ = source_rate(output_mp4)
+    if written != rational:
+        raise ValueError(f"output rate {written} does not match source rate {rational}")
+    return {"frames": frames, "width": width + panel_width, "height": height,
+            "fps": rational, "metrics": metrics, "estimates": estimates}
 
 
 def main() -> int:
@@ -274,9 +355,12 @@ def main() -> int:
     p.add_argument("--m-per-px", type=float)
     p.add_argument("--action-time-scale", type=float)
     p.add_argument("--ball-diameter-px", type=float)
+    p.add_argument("--golfer-facing", action="store_true",
+                   help="golfer-facing panel: no coordinates or confidences")
     args = p.parse_args()
-    info = render_video(args.input, args.vision, args.output, m_per_px=args.m_per_px, action_time_scale=args.action_time_scale, ball_diameter_px=args.ball_diameter_px)
-    print(json.dumps({k: v for k, v in info.items() if k != "metrics"}, indent=2))
+    info = render_video(args.input, args.vision, args.output, m_per_px=args.m_per_px, action_time_scale=args.action_time_scale, ball_diameter_px=args.ball_diameter_px, golfer_facing=args.golfer_facing)
+    print(json.dumps({k: v for k, v in info.items() if k not in ("metrics", "estimates")},
+                     indent=2))
     return 0
 
 if __name__ == "__main__":

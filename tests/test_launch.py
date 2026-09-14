@@ -396,9 +396,10 @@ def test_measured_timing_with_an_assumed_scale_is_low_not_high():
                for r in blocked["physical_speed"]["reliability"]["reasons"])
 
 
-def test_a_fully_evidenced_chain_can_still_reach_high():
-    # The grades must not be permanently pinned down: real calibration, real timing,
-    # real camera support and verified identity together do reach High.
+def test_structural_checks_alone_cap_at_moderate_not_high():
+    # The factories check shapes, ranges and internal consistency. That is not the
+    # same as checking the world: a probe dict saying 300 fps is structurally fine
+    # and still says nothing about the recording it claims to describe.
     scale = launch.scale_mm_per_px(
         9.0, 11.0, evidence=launch.scale_evidence(300.0, 64.0, "surveyed tee marker"))
     timing = launch.TimingScenario(
@@ -408,7 +409,48 @@ def test_a_fully_evidenced_chain_can_still_reach_high():
     result = launch.estimate(_parent_repro(), scale=scale, scenarios=[timing],
                              camera=_camera(), identity=identity)
 
+    reliability = result["physical_speed"]["reliability"]
+    assert reliability["level"] == "Moderate"
+    assert any("structural check only" in r for r in reliability["reasons"])
+
+
+def test_only_binding_to_the_hashed_recording_reaches_high(tmp_path):
+    recording = tmp_path / "clip.mp4"
+    recording.write_bytes(b"pretend encoded video")
+    digest = __import__("hashlib").sha256(recording.read_bytes()).hexdigest()
+
+    bind = lambda e: launch.bind_to_source(e, recording, digest)
+    scale = launch.scale_mm_per_px(
+        9.0, 11.0, evidence=bind(launch.scale_evidence(300.0, 64.0, "tee marker")))
+    timing = launch.TimingScenario(
+        "measured", 300.0,
+        evidence=bind(launch.timing_evidence(300.0, {"capture_fps": 300.0})))
+
+    result = launch.estimate(
+        _parent_repro(), scale=scale, scenarios=[timing],
+        camera=bind(_camera()),
+        identity=bind(launch.identity_evidence({0: True, 1: True, 2: True}, [0, 1, 2])))
+
     assert result["physical_speed"]["reliability"]["level"] == "High"
+
+
+def test_binding_refuses_a_wrong_hash_a_missing_file_and_unchecked_evidence(tmp_path):
+    recording = tmp_path / "clip.mp4"
+    recording.write_bytes(b"pretend encoded video")
+    checked = launch.timing_evidence(300.0, {"capture_fps": 300.0})
+
+    with pytest.raises(ValueError, match="hashes to"):
+        launch.bind_to_source(checked, recording, "0" * 64)
+    with pytest.raises(ValueError, match="no such source file"):
+        launch.bind_to_source(checked, tmp_path / "absent.mp4", "0" * 64)
+    with pytest.raises(ValueError, match="only checked evidence"):
+        launch.bind_to_source(launch.Evidence("measured", "trust me"), recording, "0" * 64)
+
+
+def test_the_grades_are_ordered_and_an_assertion_is_not_a_check():
+    assert launch.Evidence("assumed", "scenario").grade == "assumed"
+    assert launch.Evidence("measured", "trust me").grade == "asserted"
+    assert launch.timing_evidence(300.0, {"capture_fps": 300.0}).grade == "checked"
 
 
 def test_a_caller_provenance_string_is_not_a_validated_chain():
@@ -512,3 +554,52 @@ def test_the_moving_window_must_be_consecutive():
     split = launch.split_by_motion(obs)
 
     assert [i.frames for i in split["moving"]] == [[103, 104], [104, 105]]
+
+
+# --- camera-corrected displacement ------------------------------------------
+
+def test_corrections_replace_the_raw_displacement_and_say_so():
+    obs = _rising_ball()
+    corrections = {(556, 557): 9.0, (557, 558): 9.0, (558, 559): 9.0}
+
+    result = launch.estimate(obs, scale=launch.scale_mm_per_px(9.0, 11.0),
+                             camera=_camera(), corrections=corrections)
+
+    assert result["image_motion"]["low"] == pytest.approx(9.0)
+    assert "camera motion removed" in result["image_motion"]["note"]
+    assert result["camera_support"]["status"] == "applied"
+
+
+def test_a_partly_corrected_track_is_refused():
+    # Mixing corrected and raw displacements in one range would be two different
+    # measurements presented as one.
+    with pytest.raises(ValueError, match="missing for intervals"):
+        launch.estimate(_rising_ball(), scale=launch.scale_mm_per_px(9.0, 11.0),
+                        camera=_camera(), corrections={(556, 557): 9.0})
+
+
+def test_corrections_without_validated_camera_evidence_are_refused():
+    with pytest.raises(ValueError, match="validated camera evidence"):
+        launch.estimate(_rising_ball(), scale=launch.scale_mm_per_px(9.0, 11.0),
+                        corrections={(556, 557): 9.0})
+
+
+def test_evidence_alone_does_not_claim_the_correction_was_applied():
+    result = launch.estimate(_rising_ball(), scale=launch.scale_mm_per_px(9.0, 11.0),
+                             camera=_camera())
+
+    assert result["camera_support"]["status"] == "evidence only, not applied to the displacement"
+
+
+def test_the_report_does_not_say_uncorrected_when_a_correction_was_applied():
+    corrections = {(556, 557): 9.0, (557, 558): 9.0, (558, 559): 9.0}
+    corrected = launch.estimate(_rising_ball(), scale=launch.scale_mm_per_px(9.0, 11.0),
+                                camera=_camera(), corrections=corrections)
+    raw = launch.estimate(_rising_ball(), scale=launch.scale_mm_per_px(9.0, 11.0))
+
+    _, corrected_text = launch.report(corrected, target="ball")
+    _, raw_text = launch.report(raw, target="ball")
+
+    assert "camera motion removed" in corrected_text
+    assert "camera motion is not removed" not in corrected_text
+    assert "camera motion is not removed" in raw_text
