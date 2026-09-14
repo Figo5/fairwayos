@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import signal
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -38,6 +40,36 @@ Rules:
 - "clubhead" is the center of the metal head at the far end of the golf club shaft, away from the hands.
 - If you cannot clearly see an object in THIS image, return null for it. Do not guess a plausible location.
 """
+
+
+def run_cli(command: list[str], *, input: str | None = None,
+            timeout: float = TIMEOUT_SECONDS) -> subprocess.CompletedProcess:
+    """Run a CLI and, on timeout, kill everything it started.
+
+    subprocess.run kills only the direct child. These CLIs are reached through a
+    shim that execs a wrapper which spawns the real binary, so the process that
+    matters is a grandchild: it survives, keeps the pipes it inherited, fills them
+    and blocks forever. Each timeout then leaks a process that no longer answers to
+    anyone. Putting the call in its own session and signalling the whole group on
+    timeout is what makes the timeout mean what it says.
+
+    Raises subprocess.TimeoutExpired carrying whatever the process managed to write
+    before it was killed, so a timeout can be diagnosed instead of being silent.
+    """
+    process = subprocess.Popen(
+        command, stdin=subprocess.PIPE if input is not None else None,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        start_new_session=True)
+    try:
+        stdout, stderr = process.communicate(input, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            process.kill()
+        stdout, stderr = process.communicate()
+        raise subprocess.TimeoutExpired(command, timeout, output=stdout, stderr=stderr)
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
 
 
 def _number(value: Any) -> float | None:
@@ -96,14 +128,16 @@ def _box(value: Any, width: int, height: int) -> tuple[int, int, int, int, float
 def _run_cli(path: Path, prompt: str) -> dict:
     """Run the vision CLI on one image. Never raises."""
     try:
-        done = subprocess.run(
+        done = run_cli(
             [CLI, "chat", "--image", str(path), "--query-file", "-",
              "--oneshot", "-Q", "-m", MODEL, "--provider", PROVIDER,
              "--reasoning", REASONING, "--max-turns", str(MAX_TURNS)],
-            input=prompt, capture_output=True, text=True, timeout=TIMEOUT_SECONDS,
+            input=prompt, timeout=TIMEOUT_SECONDS,
         )
-    except subprocess.TimeoutExpired:
-        return {"error": f"vision CLI timed out after {TIMEOUT_SECONDS}s"}
+    except subprocess.TimeoutExpired as expired:
+        return {"error": f"vision CLI timed out after {TIMEOUT_SECONDS}s",
+                "stderr": (expired.stderr or "")[-300:],
+                "raw": (expired.output or "")[-300:]}
     except OSError as exc:
         return {"error": f"vision CLI could not run: {exc}"}
 
@@ -205,14 +239,16 @@ def refine(crop_image: Path, message_file: Path, target: str) -> dict:
     # pipeline refuses, so it goes before the call rather than after.
     message_file.unlink(missing_ok=True)
     try:
-        done = subprocess.run(
+        done = run_cli(
             [REFINE_CLI, "exec", "--skip-git-repo-check", "-m", REFINE_MODEL,
              "--image", str(path), "--output-last-message", str(message_file),
              refine_schema(target)],
-            capture_output=True, text=True, timeout=TIMEOUT_SECONDS,
+            timeout=TIMEOUT_SECONDS,
         )
-    except subprocess.TimeoutExpired:
-        return {"error": f"refine CLI timed out after {TIMEOUT_SECONDS}s"}
+    except subprocess.TimeoutExpired as expired:
+        return {"error": f"refine CLI timed out after {TIMEOUT_SECONDS}s",
+                "stderr": (expired.stderr or "")[-300:],
+                "raw": (expired.output or "")[-300:]}
     except OSError as exc:
         return {"error": f"refine CLI could not run: {exc}"}
 
@@ -260,14 +296,15 @@ def verify_head(crop_image: Path, message_file: Path, model_x: float,
     message_file.unlink(missing_ok=True)
     prompt = VERIFY_PROMPT.format(x=int(model_x), y=int(model_y))
     try:
-        done = subprocess.run(
+        done = run_cli(
             [REFINE_CLI, "exec", "--skip-git-repo-check", "--sandbox", "read-only",
              "-m", REFINE_MODEL, "-c", 'model_reasoning_effort="medium"',
              "--image", str(path), "-o", str(message_file), "-"],
-            input=prompt, capture_output=True, text=True, timeout=TIMEOUT_SECONDS,
+            input=prompt, timeout=TIMEOUT_SECONDS,
         )
-    except subprocess.TimeoutExpired:
-        return {"error": f"head verification timed out after {TIMEOUT_SECONDS}s"}
+    except subprocess.TimeoutExpired as expired:
+        return {"error": f"head verification timed out after {TIMEOUT_SECONDS}s",
+                "stderr": (expired.stderr or "")[-300:]}
     except OSError as exc:
         return {"error": f"head verification could not run: {exc}"}
 

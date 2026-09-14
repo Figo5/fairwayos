@@ -55,7 +55,7 @@ def test_boxes_must_be_ordered_and_inside_the_frame():
 
 
 def test_a_missing_cli_is_reported_not_raised(monkeypatch):
-    monkeypatch.setattr(vision.subprocess, "run",
+    monkeypatch.setattr(vision, "run_cli",
                         lambda *a, **k: (_ for _ in ()).throw(OSError("no hermes")))
     result = vision.read_frame(Path("frame.png"), 1280, 720)
 
@@ -64,7 +64,7 @@ def test_a_missing_cli_is_reported_not_raised(monkeypatch):
 
 
 def test_an_unreadable_image_is_reported_before_any_cli_call(monkeypatch):
-    monkeypatch.setattr(vision.subprocess, "run",
+    monkeypatch.setattr(vision, "run_cli",
                         lambda *a, **k: pytest.fail("CLI must not run without an image"))
     result = vision.read_frame(Path("does-not-exist.png"))
 
@@ -78,7 +78,7 @@ def test_the_image_path_sent_to_the_cli_is_always_absolute(monkeypatch):
         seen["cmd"] = cmd
         return subprocess.CompletedProcess(cmd, 0, '{"golfer":null,"ball":null,"clubhead":null}', "")
 
-    monkeypatch.setattr(vision.subprocess, "run", fake_run)
+    monkeypatch.setattr(vision, "run_cli", fake_run)
     vision.read_frame(Path("relative/frame.png"), 1280, 720)
 
     # The CLI resets its working directory, so a relative path fails there.
@@ -102,7 +102,7 @@ def _verify(monkeypatch, tmp_path, answer=None, returncode=0, raises=None):
             Path(cmd[cmd.index("-o") + 1]).write_text(answer)
         return _Done(returncode=returncode, stderr="boom")
 
-    monkeypatch.setattr(vision.subprocess, "run", fake_run)
+    monkeypatch.setattr(vision, "run_cli", fake_run)
     return vision.verify_head(tmp_path / "crop.png", message, 194, 201)
 
 
@@ -139,7 +139,7 @@ def test_the_verification_prompt_is_the_frozen_one_and_carries_the_candidate(mon
         Path(cmd[cmd.index("-o") + 1]).write_text("uncertain, no.")
         return _Done()
 
-    monkeypatch.setattr(vision.subprocess, "run", fake_run)
+    monkeypatch.setattr(vision, "run_cli", fake_run)
     vision.verify_head(tmp_path / "crop.png", tmp_path / "v.txt", 194.4, 201.6)
 
     # The bounded review that accepted this fallback used exactly this backend.
