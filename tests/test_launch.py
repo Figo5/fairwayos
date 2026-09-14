@@ -299,9 +299,8 @@ def test_the_panel_shows_no_coordinates_or_confidences():
                              camera=_camera(), corrections=_applied(_rising_ball()),
                              scenarios=[launch.TimingScenario("if 240 fps", 240.0)])
 
-    lines = launch.panel_lines({"ball": result})
+    body = " ".join(launch.panel_lines({"ball": result}, technical=True))
 
-    body = " ".join(lines)
     assert "749" not in body and "612" not in body      # no native coordinates
     assert "conf" not in body.lower()
     assert "Ball speed" in body and "if 240 fps" in body
@@ -326,7 +325,7 @@ def test_the_panel_reports_each_target_independently():
                          scenarios=[launch.TimingScenario("if 240 fps", 240.0)])
     none = launch.estimate([], scale=None, scenarios=[])
 
-    lines = launch.panel_lines({"ball": ok, "club": none})
+    lines = launch.panel_lines({"ball": ok, "club": none}, technical=True)
     ball = lines[lines.index("Ball speed: Unsupported"):lines.index("Club speed: Unsupported")]
     club = lines[lines.index("Club speed: Unsupported"):]
 
@@ -644,3 +643,19 @@ def test_a_correction_that_is_not_a_real_distance_is_refused(bad):
         launch.estimate(_rising_ball(), scale=launch.scale_mm_per_px(9.0, 11.0),
                         camera=_camera(),
                         corrections={(556, 557): bad, (557, 558): 9.0, (558, 559): 9.0})
+
+
+def test_the_golfer_panel_carries_no_pixel_measurements_by_default():
+    # px per frame is a developer number: a golfer cannot act on it, and showing it
+    # reads as precision this estimate does not have. It lives in the report.
+    result = launch.estimate(_rising_ball(), scale=launch.scale_mm_per_px(9.0, 11.0),
+                             camera=_camera(), corrections=_applied(_rising_ball()))
+
+    golfer = " ".join(launch.panel_lines({"ball": result}))
+    technical = " ".join(launch.panel_lines({"ball": result}, technical=True))
+
+    assert "px" not in golfer and "measured movement" not in golfer
+    assert "px per frame" in technical
+    # The report keeps the measurement either way.
+    document, _ = launch.report(result, target="ball")
+    assert document["image_motion"]["low"] is not None

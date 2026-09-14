@@ -208,7 +208,8 @@ def golfer_panel_text(tracks: list[dict[str, Any]], *, scale=None, scenarios=(),
             frames = {i.first.frame for i in window} | {i.second.frame for i in window}
             selected = [o for o in points if o.frame in frames]
             if name == "ball":
-                phase = f"ball departure (frames {min(frames)}-{max(frames)}, derived)"
+                # Frame numbers are technical; they are in the companion report.
+                phase = "ball departure detected"
         else:
             selected = []
         estimates[name] = launch.estimate(
@@ -277,22 +278,38 @@ def render_video(input_mp4: Path, vision_json: Path, output_mp4: Path, *, m_per_
         def text(s, color=(235,235,235), scale=0.58, thick=1):
             nonlocal y
             cv2.putText(panel, s, (18, y), cv2.FONT_HERSHEY_SIMPLEX, scale, color, thick, cv2.LINE_AA)
-            y += 28
+            y += int(28 * max(1.0, scale / 0.58))
         if golfer_facing:
-            # No coordinates, no confidences: what a golfer can act on, plus what
-            # the evidence does not support.
-            text("SHOT REVIEW", (120, 220, 255), 0.62, 2)
+            # The golfer view draws its own markers: a ring around each tracked
+            # target, no number beside it. The ring is unfilled and offset-free, so
+            # it circles the pixels rather than covering them.
+            frame = frame.copy()
+            for point, colour in ((row["ball"], (0, 215, 255)), (row["head"], (0, 0, 255))):
+                if point is not None:
+                    cv2.circle(frame, (int(round(point.x)), int(round(point.y))),
+                               max(14, width // 90), colour, 2, cv2.LINE_AA)
+            y = 46
+            text("SHOT REVIEW", (120, 220, 255), 0.86, 2)
             tracked = [name for name, point in (("Ball", row["ball"]), ("Club", row["head"]))
                        if point is not None]
             text(f"This frame: {', '.join(tracked) + ' tracked' if tracked else 'no target tracked'}",
-                 (200, 200, 200), 0.5)
-            y += 8
+                 (200, 200, 200), 0.62)
+            y += 12
             for line in golfer_lines:
                 indent = line.startswith(" ")
-                text(line.strip(), (235, 235, 235) if not indent else (170, 170, 170),
-                     0.5 if not indent else 0.44)
-            cv2.putText(panel, f"source rate {rational}", (18, height - 24),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.42, (150, 150, 150), 1, cv2.LINE_AA)
+                scale = 0.70 if not indent else 0.58
+                colour = (235, 235, 235) if not indent else (185, 185, 185)
+                # Wrap to the panel rather than running off its edge.
+                budget = max(12, int((panel_width - 36) / (scale * 19)))
+                words, current = line.strip().split(), ""
+                for word in words:
+                    if current and len(current) + 1 + len(word) > budget:
+                        text(current, colour, scale, 2 if not indent else 1)
+                        current = word
+                    else:
+                        current = f"{current} {word}".strip()
+                if current:
+                    text(current, colour, scale, 2 if not indent else 1)
             writer.write(np.concatenate([frame, panel], axis=1))
             continue
         text("RESEARCH ESTIMATE - PIXEL SPACE", (120, 220, 255), 0.62, 2)

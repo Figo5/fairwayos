@@ -646,8 +646,14 @@ def _range_text(row: dict) -> str:
             f"({row['low_mph']:.0f}-{row['high_mph']:.0f} mph)")
 
 
-def panel_lines(estimates: dict[str, dict], phase: str | None = None) -> list[str]:
-    """Golfer-facing panel text: no coordinates, no confidences, no decimals of either."""
+def panel_lines(estimates: dict[str, dict], phase: str | None = None,
+                technical: bool = False) -> list[str]:
+    """Panel text. Golfer-facing by default: nothing internal, nothing numeric-debug.
+
+    `technical` adds the pixel measurements, which belong in the companion report
+    rather than on screen: a golfer cannot act on px per frame, and a number they
+    cannot act on reads as precision the estimate does not have.
+    """
     lines: list[str] = []
     if phase:
         # Clip-wide, and worded as such: this panel is repeated on every frame,
@@ -659,7 +665,7 @@ def panel_lines(estimates: dict[str, dict], phase: str | None = None) -> list[st
         motion = result["image_motion"]
         lines.append(f"{label}: {physical['reliability']['level']}")
         lines.append(f"  why: {physical['reliability']['reasons'][0]}")
-        if motion["low"] is not None:
+        if technical and motion["low"] is not None:
             lines.append(f"  measured movement: {motion['low']:.0f}-{motion['high']:.0f} "
                          f"px per frame ({motion['reliability']['level']})")
         for row in physical["scenarios"]:
