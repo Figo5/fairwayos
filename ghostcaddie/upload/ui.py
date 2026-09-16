@@ -35,6 +35,7 @@ td{padding:6px 4px;border-top:1px solid var(--line);vertical-align:top}
 .reason{color:var(--dim);font-size:12px}
 pre{white-space:pre-wrap;word-break:break-all;color:var(--dim);font-size:11px;max-height:220px;overflow:auto}
 .note{color:var(--warn);font-size:12px}
+  button.research{border-color:#7a5c1f;color:#d9b45e}
 </style>
 <header>
   <h1>FairwayOS &mdash; upload &amp; review</h1>
@@ -48,13 +49,22 @@ pre{white-space:pre-wrap;word-break:break-all;color:var(--dim);font-size:11px;ma
     <h2>1 &middot; source</h2>
     <div class=row>
       <input type=file id=file accept="video/*">
-      <button id=up>Upload &amp; analyse</button>
-      <button id=upFresh>Analyze with AI (fresh, no seed)</button>
+      <button id=upCanon>Analyse (canonical)</button>
+      <button id=up>Legacy seeded run</button>
+      <button id=upFresh class=research>Research: fresh AI (no seed)</button>
     </div>
     <div class=row style="margin-top:8px">
       <input type=text id=path placeholder="or a filename inside the import directory">
-      <button id=upPath>Analyse import file</button>
-      <button id=upPathFresh>Analyze import with AI</button>
+      <button id=upPathCanon>Analyse import (canonical)</button>
+      <button id=upPath>Legacy seeded</button>
+      <button id=upPathFresh class=research>Research: fresh AI</button>
+    </div>
+    <div class=sub style="margin-top:8px">
+      <b>Canonical</b> is the supported local workflow: body pose where the golfer
+      can be identified, explicit unavailable states for ball and clubhead, an
+      annotated video and a report. It runs entirely on this machine.
+      The <b>research</b> modes are experimental, are not part of the canonical
+      workflow, and the canonical mode never falls back to them.
     </div>
     <div class=row style="margin-top:8px">
       Fresh AI native interval <input type=text id=freshStart value=0 style="width:72px">
@@ -189,6 +199,13 @@ async function startJob(body,isForm){
 }
 
 function freshFields(){return {analysis:'fresh_ai',frame_start:$('#freshStart').value.trim(),frame_end:$('#freshEnd').value.trim()}}
+
+// Canonical mode posts analysis=canonical and nothing else: the server runs the
+// same ghostcaddie.video.canonical entry point the CLI runs.
+$('#upCanon').onclick=()=>{const f=$('#file').files[0];if(!f){$('#jobErr').textContent='choose a file';return}
+  const fd=new FormData();fd.append('video',f);fd.append('analysis','canonical');startJob(fd,true)};
+$('#upPathCanon').onclick=()=>{const p=$('#path').value.trim();if(!p){$('#jobErr').textContent='enter a filename from the import directory';return}
+  startJob({name:p,analysis:'canonical'},false)};
 
 $('#up').onclick=()=>{const f=$('#file').files[0];if(!f){$('#jobErr').textContent='choose a file';return}
   const fd=new FormData();fd.append('video',f);startJob(fd,true)};

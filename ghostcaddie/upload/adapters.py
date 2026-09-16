@@ -19,6 +19,8 @@ import os
 from dataclasses import dataclass
 from typing import List, Optional, Sequence
 
+from ghostcaddie.video import model_paths
+
 
 class AdapterUnavailable(RuntimeError):
     """Raised when an adapter is asked to run without real capability."""
@@ -58,9 +60,19 @@ class _Adapter:
     target = "unset"
     runtime_module = ""
 
+    model_key = ""
+
     def __init__(self, model_path: Optional[str] = None,
                  _force_runtime_missing: bool = False):
-        self.model_path = model_path or self.default_model
+        # Model files are resolved explicitly (argument -> env var -> documented
+        # local model directory) and never from a volatile /tmp literal.
+        self.resolved_model = (model_paths.resolve(self.model_key, model_path)
+                               if self.model_key else None)
+        self.model_path = (self.resolved_model.path if self.resolved_model
+                           and self.resolved_model.found else (model_path or ""))
+        self._unresolved_reason = ("" if self.resolved_model is None
+                                   or self.resolved_model.found
+                                   else self.resolved_model.reason)
         self._force_runtime_missing = _force_runtime_missing
 
     def _probe(self, safe: bool, safe_reason: str, demonstrated: str = "") -> Capability:
@@ -69,7 +81,8 @@ class _Adapter:
         model_ok = bool(self.model_path) and os.path.isfile(self.model_path)
         sha = _sha256(self.model_path) if model_ok else ""
         if not model_ok:
-            reason = f"model file not found: {self.model_path}"
+            reason = (self._unresolved_reason
+                      or f"model file not found: {self.model_path}")
         elif not runtime_ok:
             reason = (f"runtime module {self.runtime_module!r} is not importable "
                       f"in this interpreter; install it in an isolated env")
@@ -104,7 +117,7 @@ class BodyMoveNetAdapter(_Adapter):
     """MoveNet SinglePose Lightning, TFLite flatbuffer. No pickle surface."""
     target = "body"
     runtime_module = "ai_edge_litert"
-    default_model = "/tmp/fairway-safe-body-runtime/movenet-singlepose-lightning-v3.tflite"
+    model_key = "body"
     KP = ["nose","eye_l","eye_r","ear_l","ear_r","sh_l","sh_r","el_l","el_r",
           "wr_l","wr_r","hip_l","hip_r","kn_l","kn_r","ank_l","ank_r"]
 
@@ -173,7 +186,9 @@ class UltralyticsBodyAdapter(_Adapter):
     """Legacy body route. Permanently unsafe; retained so the reason is visible."""
     target = "body_legacy_ultralytics"
     runtime_module = "ultralytics"
-    default_model = "/Users/giofiore/ghostcaddie-tour/yolo11n-pose.pt"
+    # No model key: this route is permanently blocked on loader-safety grounds,
+    # so it resolves nothing and reaches into no other repository's working tree.
+    model_key = ""
 
     def capability(self) -> Capability:
         c = self._probe(safe=False, safe_reason="")
@@ -186,7 +201,7 @@ class UltralyticsBodyAdapter(_Adapter):
 class ClubheadSam2Adapter(_Adapter):
     target = "clubhead"
     runtime_module = "torch"
-    default_model = "/tmp/fairway-sam-head/checkpoints/sam2.1_hiera_tiny.pt"
+    model_key = "clubhead_sam2"
 
     def capability(self) -> Capability:
         return self._probe(
@@ -211,8 +226,13 @@ class ClubheadSam2Adapter(_Adapter):
         import os, sys, tempfile
         import numpy as np
         import cv2
-        sys.path.insert(0, "/tmp/fairway-sam-head/pkgs")
-        sys.path.insert(0, "/tmp/fairway-sam-head/sam2-src")
+        # RESEARCH ONLY. The canonical pipeline never reaches this route, so the
+        # historical /tmp checkout stays a documented default here instead of
+        # being promoted into canonical model resolution. Override with
+        # $FAIRWAY_SAM2_SRC.
+        _sam_src = os.environ.get("FAIRWAY_SAM2_SRC", "/tmp/fairway-sam-head")
+        sys.path.insert(0, os.path.join(_sam_src, "pkgs"))
+        sys.path.insert(0, os.path.join(_sam_src, "sam2-src"))
         import torch
         import sam2.modeling.backbones.hieradet as hd
         _orig = hd.Hiera.__init__
@@ -413,8 +433,13 @@ def _sam2_propagate(frames, model_path, seed_box, seed_frame):
     import os, sys, tempfile
     import numpy as np
     import cv2
-    sys.path.insert(0, "/tmp/fairway-sam-head/pkgs")
-    sys.path.insert(0, "/tmp/fairway-sam-head/sam2-src")
+    # RESEARCH ONLY. The canonical pipeline never reaches this route, so the
+    # historical /tmp checkout stays a documented default here instead of
+    # being promoted into canonical model resolution. Override with
+    # $FAIRWAY_SAM2_SRC.
+    _sam_src = os.environ.get("FAIRWAY_SAM2_SRC", "/tmp/fairway-sam-head")
+    sys.path.insert(0, os.path.join(_sam_src, "pkgs"))
+    sys.path.insert(0, os.path.join(_sam_src, "sam2-src"))
     import torch
     import sam2.modeling.backbones.hieradet as hd
     _orig = hd.Hiera.__init__
@@ -458,7 +483,7 @@ class BallSam2Adapter(_Adapter):
     """
     target = "ball_sam2"
     runtime_module = "torch"
-    default_model = "/tmp/fairway-sam-head/checkpoints/sam2.1_hiera_tiny.pt"
+    model_key = "ball_sam2"
 
     def capability(self) -> Capability:
         return self._probe(
@@ -487,7 +512,7 @@ class BallSam2Adapter(_Adapter):
 class BallTapirAdapter(_Adapter):
     target = "ball"
     runtime_module = "torch"
-    default_model = "/tmp/fairway-learned/tracker/weights/bootstapir_checkpoint_v2.pt"
+    model_key = "ball_tapir"
 
     def capability(self) -> Capability:
         return self._probe(
@@ -509,10 +534,13 @@ class BallTapirAdapter(_Adapter):
         if seed is None or not seed.get("point_xy"):
             raise AdapterUnavailable(
                 "ball requires a reviewed seed point bound to this source hash")
-        import sys
+        import os, sys
         import numpy as np
         import cv2
-        sys.path.insert(0, "/tmp/fairway-learned/tracker")
+        # RESEARCH ONLY, and falsified for transfer; see the audit. Override
+        # with $FAIRWAY_TAPNET_ROOT.
+        sys.path.insert(0, os.environ.get("FAIRWAY_TAPNET_ROOT",
+                                          "/tmp/fairway-learned/tracker"))
         import inspect
         import torch
         from tapnet.torch import tapir_model

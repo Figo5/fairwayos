@@ -27,7 +27,7 @@ class RuntimeSafetyTests(unittest.TestCase):
                 self.assertTrue(len(r.reason) > 20, f"{name} reason too vague")
                 self.assertTrue(
                     any(k in r.reason.lower() for k in
-                        ("not importable", "model file not found", "unsafe", "seed")),
+                        ("not importable", "not found", "unsafe", "seed")),
                     f"{name}: {r.reason}")
 
     def test_unsafe_or_absent_runtime_never_becomes_runnable_implicitly(self):

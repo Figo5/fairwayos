@@ -298,6 +298,38 @@ def _plan_from_isolated_interpreters():
     return plan
 
 
+# --- CANONICAL: analysis=canonical
+# The upload service is a wrapper around ghostcaddie.video.canonical, not a second
+# implementation of it. Everything about layer states, metric sufficiency, the
+# output contract and the report comes from that module, so the UI and the CLI
+# cannot drift apart. There is no fallback from here into fresh_ai or into the
+# seeded research targets: an unavailable layer stays unavailable.
+def _run_canonical_job(store: JobStore, job_id: str, video):
+    try:
+        store.start(job_id)
+        store.progress(job_id, 0.1)
+        from ghostcaddie.video import canonical
+        outdir = os.path.join(store.workdir(job_id), "canonical")
+        result = canonical.analyze_video(video.path, outdir,
+                                         expected_sha256=video.sha256)
+        if store.cancelled(job_id):
+            return
+        doc = result.to_dict()
+        doc["analysis"] = "canonical"
+        doc["three_target_success"] = False
+        doc["note"] = ("Canonical local analysis. Body is reported only where the "
+                       "golfer could be identified; ball and clubhead are "
+                       "unavailable by design and no configuration turns them on.")
+        doc["media_retention"] = store.media_state(job_id)
+        store.attach_result_video(
+            job_id, result.outputs.get("annotated_video")
+            if result.outputs.get("annotated_video_written") else None)
+        store.finish(job_id, doc)
+    except Exception as e:
+        traceback.print_exc()
+        store.fail(job_id, f"{type(e).__name__}: {e}")
+
+
 def _run_job(store: JobStore, job_id: str, video):
     """Phase 1: everything that needs no assistance. Then HOLD for seeds.
 
@@ -752,14 +784,19 @@ class Handler(BaseHTTPRequestHandler):
                     raise UploadRejected("fresh interval requires frame_start and frame_end")
                 fresh_frames = _fresh_frames_from_interval(frame_start, frame_end,
                                                           source_frames=video.frames)
-            elif analysis != "legacy_seeded":
-                raise UploadRejected("unknown analysis mode")
+            elif analysis not in ("legacy_seeded", "canonical"):
+                raise UploadRejected(
+                    "unknown analysis mode; expected 'canonical' (the canonical "
+                    "local workflow), 'legacy_seeded', or 'fresh_ai' (research)")
         except UploadRejected as e:
             self.store.fail(job.id, str(e)); self.store.cleanup(job.id)
             return self._send(400, {"error": str(e), "job": job.to_dict()})
 
         self.store.attach_source(job.id, video)
-        if analysis == "fresh_ai":
+        if analysis == "canonical":
+            threading.Thread(target=_run_canonical_job,
+                             args=(self.store, job.id, video), daemon=True).start()
+        elif analysis == "fresh_ai":
             threading.Thread(target=_run_fresh_job,
                              args=(self.store, job.id, video, fresh_frames),
                              daemon=True).start()

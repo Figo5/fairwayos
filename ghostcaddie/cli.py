@@ -43,6 +43,7 @@ from .video.fairwayos_research import sidecar_from_mapping, write_fairwayos_side
 from .video.ai_demo import DemoAcceptanceError, build_visual_review, run_local_demo
 from .video.pga_fallback import render_pga_fallback
 from .video.research_split import serialize_split_manifest
+from .video.source_binding import SourceBindingError
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -254,7 +255,106 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="Native ROI box in source pixels.")
     find_p.add_argument("--min-persistent-frames", type=int, default=3,
                         help="Minimum consecutive frames the round ball must persist (default 3).")
+    # --- THE CANONICAL LOCAL VIDEO WORKFLOW -------------------------------
+    # One command, one output contract. Local input only; no network, no
+    # external AI service, no seeded fallback, no experimental tracker cascade.
+    canon_p = sub.add_parser(
+        "analyze-video",
+        help="Canonical local video analysis: body where defensible, explicit "
+             "unavailable states for ball and clubhead, annotated video + report.")
+    canon_p.add_argument("video", type=Path, help="Local video file. Never uploaded.")
+    canon_p.add_argument("--out", required=True, type=Path,
+                         help="Output directory for the fixed output contract.")
+    canon_p.add_argument("--sample-fps", type=float, default=None,
+                         help="Frames analysed per second of source (default 6).")
+    canon_p.add_argument("--max-frames", type=int, default=None,
+                         help="Hard bound on analysed frames (default 180).")
+    canon_p.add_argument("--start", type=float, default=0.0,
+                         help="Start of the processed interval, in seconds.")
+    canon_p.add_argument("--end", type=float, default=None,
+                         help="End of the processed interval, in seconds.")
+    canon_p.add_argument("--roi", default=None, metavar="X,Y,W,H",
+                         help="OPTIONAL operator-supplied golfer region. This is "
+                              "user input, not automatic perception; it is recorded "
+                              "as such in provenance and is never used as a seed.")
+    canon_p.add_argument("--body-model", default=None,
+                         help="Explicit path to the MoveNet TFLite file. Overrides "
+                              "$FAIRWAY_BODY_MODEL and the model search path.")
+    canon_p.add_argument("--body-python", default=None,
+                         help="Interpreter with ai_edge_litert + cv2 + numpy.")
+    canon_p.add_argument("--expected-sha256", default=None,
+                         help="Fail closed unless the media bytes hash to this.")
+    canon_p.add_argument("--no-render", action="store_true",
+                         help="Skip the annotated video.")
+    canon_p.add_argument("--redact-path", action="store_true",
+                         help="Record only the file name, not the full path.")
+    canon_p.add_argument("--json", action="store_true",
+                         help="Print analysis.json to stdout instead of a summary.")
+    models_p = sub.add_parser(
+        "models", help="Show where model files are looked for and which are present.")
+    models_p.add_argument("--json", action="store_true")
     return parser
+
+
+def _parse_roi(text):
+    if not text:
+        return None
+    parts = [p.strip() for p in str(text).split(",")]
+    if len(parts) != 4:
+        raise SystemExit("--roi must be X,Y,W,H in native pixels")
+    try:
+        roi = [int(p) for p in parts]
+    except ValueError:
+        raise SystemExit("--roi values must be integers")
+    if roi[2] <= 0 or roi[3] <= 0:
+        raise SystemExit("--roi width and height must be positive")
+    return roi
+
+
+def _run_canonical_video_command(args) -> None:
+    """The canonical workflow. Failures are reported, never rendered as success."""
+    from .video import canonical
+
+    kwargs = {}
+    if args.sample_fps is not None:
+        kwargs["sample_fps"] = args.sample_fps
+    if args.max_frames is not None:
+        kwargs["max_frames"] = args.max_frames
+    try:
+        result = canonical.analyze_video(
+            str(args.video), str(args.out),
+            start_seconds=args.start, end_seconds=args.end,
+            roi=_parse_roi(args.roi), body_model=args.body_model,
+            body_interpreter=args.body_python, render=not args.no_render,
+            expected_sha256=args.expected_sha256, redact_path=args.redact_path,
+            **kwargs)
+    except (canonical.AnalysisError, SourceBindingError) as exc:
+        raise SystemExit(f"analyze-video failed: {exc}")
+
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+        return
+    body = result.layers["body"]
+    print(f"source      {result.source.display_name}  sha256={result.source.sha256[:16]}...")
+    print(f"processed   native frames {result.source.frame_range[0]}-"
+          f"{result.source.frame_range[1]} at {result.source.sample_fps:g} fps "
+          f"({result.source.sampled_frame_count} frames)")
+    print(f"body        {body.state.upper()}  "
+          f"({body.coverage['frames_attributed_to_golfer']}/"
+          f"{body.coverage['frames_processed']} frames, "
+          f"identity={body.provenance['identity_method']})")
+    print(f"ball        UNAVAILABLE")
+    print(f"clubhead    UNAVAILABLE")
+    sup = result.metrics["body_2d"]["supported"]
+    print(f"metrics     {len(sup)} supported 2D image-space, "
+          f"{len(result.metrics['body_2d']['unavailable'])} unavailable; "
+          f"physical metrics unavailable (no validated calibration)")
+    for m in sup:
+        print(f"              {m.name}: median {m.median} {m.unit} "
+              f"({m.frames_used}/{m.frames_possible} frames)")
+    out = result.outputs
+    print(f"annotated   {'annotated.mp4' if out['annotated_video_written'] else 'NOT PRODUCED: ' + out['annotated_video_reason']}")
+    print(f"outputs     {args.out}")
 
 
 def main(argv=None) -> None:
@@ -263,6 +363,30 @@ def main(argv=None) -> None:
     if args.command is None:
         parser.print_help()
         raise SystemExit(1)
+
+    if args.command == "analyze-video":
+        _run_canonical_video_command(args)
+        return
+
+    if args.command == "models":
+        from .video import model_paths
+        d = model_paths.describe()
+        if args.json:
+            print(json.dumps(d, indent=2, sort_keys=True))
+        else:
+            print(f"model search path (in order):")
+            print(f"  ${d['model_root_env']}/<filename>  (if set)")
+            for r in d["search_path"]:
+                print(f"  {r}/<filename>")
+            print(f"downloads: {d['downloads']}\n")
+            for k, m in d["models"].items():
+                mark = "present" if m["found"] else "MISSING"
+                tag = "canonical" if m["canonical"] else "research-only"
+                print(f"[{mark:7}] {k} ({tag}) -> {m['filename']}")
+                print(f"           env: ${m['env_var']}   {m['path'] or m['reason']}")
+                if m["note"]:
+                    print(f"           note: {m['note']}")
+        return
 
     if args.command == "provider-session":
         _run_provider_session_command(args)

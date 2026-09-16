@@ -43,7 +43,11 @@ class ProbeResult:
 def probe_interpreter(interpreter: str, modules: List[str],
                       timeout: float = 60.0) -> ProbeResult:
     """Import `modules` INSIDE `interpreter`, out of process."""
-    if not interpreter or not os.path.isfile(interpreter) or not os.access(interpreter, os.X_OK):
+    if not interpreter:
+        return ProbeResult(False, "interpreter is not configured for this target; "
+                                  "set the documented environment variable to point "
+                                  "at one. Nothing is guessed and nothing is installed.")
+    if not os.path.isfile(interpreter) or not os.access(interpreter, os.X_OK):
         return ProbeResult(False, f"interpreter not executable: {interpreter}")
     code = (
         "import importlib,json,sys\n"
@@ -89,8 +93,12 @@ class RuntimeRegistry:
                 "clubhead", os.path.join(REPO, ".venv-video-ai", "bin", "python3"),
                 ["torch", "cv2", "numpy"],
                 "SAM2.1 tiny, weights_only=True with the unused Hiera path guarded"),
+            # RESEARCH ONLY. There is no default interpreter for this target:
+            # the previous /tmp literal made the registry depend on a purgeable
+            # directory. Absent $FAIRWAY_TAPIR_PYTHON the probe reports that the
+            # interpreter is not configured, which is the truth.
             "ball": RuntimeSpec(
-                "ball", "/tmp/fairway-learned/tracker/.venv/bin/python",
+                "ball", os.environ.get("FAIRWAY_TAPIR_PYTHON", ""),
                 ["torch", "cv2", "numpy"],
                 "BootsTAPIR via the tracker runtime that provides tapnet"),
             "ball_sam2": RuntimeSpec(
@@ -114,6 +122,17 @@ class RuntimeRegistry:
         could produce a result. Interpreter readiness, model-file presence and
         actual executability are now reported separately, and executability is
         false whenever the adapter cannot run unattended.
+
+        ``availability`` names WHICH of those is the case, so that an absent
+        optional model asset -- an expected state on a fresh machine, and on CI --
+        is distinguishable from a misconfiguration and from real readiness:
+
+          * ``ready``               interpreter and model present
+          * ``model_absent``        optional local model file has not been placed
+          * ``misconfigured``       a path WAS configured and is wrong
+          * ``interpreter_missing`` the interpreter cannot import what it needs
+
+        None of these ever fakes readiness; they only say why it is absent.
         """
         from ghostcaddie.upload.adapters import all_adapters
         ads = all_adapters()
@@ -125,14 +144,30 @@ class RuntimeRegistry:
             model_sha = (cap.model_sha256 if cap else "") or ""
             needs_seed = t in ("clubhead", "ball", "ball_sam2")
             can_exec = bool(r.ok and model_present and not needs_seed)
-            reason = r.reason if not r.ok else (
-                f"model file not found: {cap.model_path}" if not model_present else
-                ("interpreter and model are present, but this target never runs "
-                 "unattended: it requires a reviewed seed bound to the uploaded "
-                 "source hash. POST one to /jobs/<id>/seeds and this target runs "
-                 "on a bounded window starting at the frame you chose" if needs_seed
-                 else "interpreter and model present; target can execute"))
+            seed_note = ("interpreter and model are present, but this target never "
+                         "runs unattended: it requires a reviewed seed bound to the "
+                         "uploaded source hash. POST one to /jobs/<id>/seeds and this "
+                         "target runs on a bounded window starting at the frame you "
+                         "chose")
+            resolved = getattr(ads.get(t), "resolved_model", None)
+            configured = bool(resolved and resolved.source)
+            if not r.ok:
+                availability = "interpreter_missing"
+                reason = r.reason
+            elif not model_present:
+                availability = "misconfigured" if configured else "model_absent"
+                # the adapter's own reason names the file and every place it looked
+                reason = cap.reason if cap else "model file not found"
+                if needs_seed:
+                    reason = (f"{reason} This target would also need a reviewed seed: "
+                              f"POST one to /jobs/<id>/seeds.")
+            else:
+                availability = "ready"
+                reason = seed_note if needs_seed else ("interpreter and model present; "
+                                                       "target can execute")
             out[t] = {
+                "availability": availability,
+                "optional_model_asset_absent": availability == "model_absent",
                 "interpreter_ready": r.ok,
                 "model_file_present": model_present,
                 "model_sha256": model_sha[:16],

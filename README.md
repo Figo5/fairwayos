@@ -26,11 +26,59 @@ python3 -m ghostcaddie run --shot data/sample_shot.json --course data/sample_hol
 Writes `out/recommendation.json` and `out/overlay.svg`, and prints a terminal
 summary.
 
-## Test
+## Canonical local video analysis
+
+One command, one output contract, entirely on this machine:
 
 ```bash
-python3 -m unittest discover -s tests -v
+.venv/bin/python3 -m ghostcaddie analyze-video CLIP.mp4 --out OUTPUT_DIR
 ```
+
+```
+OUTPUT_DIR/
+  annotated.mp4   report.md   analysis.json   provenance.json   diagnostics.json
+```
+
+No network calls, no external AI service, no seeded fallback, no experimental
+tracker cascade. The source is hashed and bound before any model is loaded, and
+processing is bounded in frames and wall time.
+
+**What it reports**
+
+| Layer | Today |
+|---|---|
+| **body** | 2D image-space pose, **only where the golfer can be identified** — otherwise `ambiguous` or `unavailable` |
+| **ball** | `UNAVAILABLE` — every route is withdrawn or falsified |
+| **clubhead** | `UNAVAILABLE` — blocked at the data layer, not the code layer |
+| **physical metrics** (speed, launch, carry, apex) | `UNAVAILABLE` — no validated calibration |
+
+MoveNet is a single-pose model, so a whole-frame result is not evidence about *who*
+was detected. The workflow proposes a body, challenges it by re-running with that
+body blanked out, and declines rather than guess. An operator may supply `--roi`;
+that is recorded as user input, never as automatic perception.
+
+Model files are never downloaded. `python3 -m ghostcaddie models` prints where they
+are looked for and which are present.
+
+Full operator guide: [`docs/video-analysis-user-guide.md`](docs/video-analysis-user-guide.md).
+Evidence: [`docs/canonical-video-pipeline-audit.md`](docs/canonical-video-pipeline-audit.md).
+Measured behaviour on the local corpus:
+[`docs/canonical-validation-sweep.md`](docs/canonical-validation-sweep.md).
+
+## Test
+
+The analytics core is standard library only, but the full suite needs `cv2`. Use an
+interpreter that has it:
+
+```bash
+.venv-video-ai/bin/python3 -m pytest tests -q
+```
+
+`requires-python` is `>=3.11`. On 3.9 roughly a hundred tests error at collection on
+`ModuleNotFoundError: cv2`; that is an environment artifact, not a regression.
+
+Optional research checkpoints (SAM2, BootsTAPIR) are **not** required. Their absence
+is an expected, reported state (`availability: model_absent`), never a test failure.
 
 ## Architecture
 
@@ -383,7 +431,9 @@ This remains heuristic pixel-space research evidence. Clubhead, validated impact
 
 ## Dependencies
 
-Pure Python 3.9 standard library only for the analytics core and default workflow (dataclasses, json, math, random,
+Pure Python standard library only for the analytics core, the default workflow, and
+the canonical video orchestrator (which imports no cv2, no numpy, no model runtime
+and opens no socket — decode, pose and rendering run in a separate worker process) (dataclasses, json, math, random,
 statistics, argparse, unittest, pathlib, enum, typing). Optional video/research environments may use third-party
 packages such as numpy, OpenCV, PyTorch, and Ultralytics; those dependencies and downloaded weights remain outside
 this public source tree. They are documented as future/optional upgrades in `requirements.txt` (commented out).

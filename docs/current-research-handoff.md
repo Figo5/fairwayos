@@ -1,6 +1,33 @@
 # FairwayOS current research handoff
 
-Status date: 2026-09-11. This document is an index and safety boundary for local golf-perception research artifacts. It is not an acceptance report and does not make production claims.
+Status date: 2026-09-16 (previously 2026-09-11). This document is an index and safety boundary for local golf-perception research artifacts. It is not an acceptance report and does not make production claims.
+
+## There is now a canonical path, and this is not it
+
+Everything below this section is **research**. It is retained as evidence and as a record of what was falsified. None of it is reachable from the canonical workflow.
+
+The canonical local video workflow is:
+
+```bash
+.venv/bin/python3 -m ghostcaddie analyze-video CLIP.mp4 --out OUTPUT_DIR
+```
+
+- **Operator guide:** [`video-analysis-user-guide.md`](video-analysis-user-guide.md)
+- **Evidence:** [`canonical-video-pipeline-audit.md`](canonical-video-pipeline-audit.md) (preserved unchanged)
+- **Measured behaviour on the local corpus:** [`canonical-validation-sweep.md`](canonical-validation-sweep.md)
+
+What changed on 2026-09-16:
+
+1. **Model paths no longer touch `/tmp`.** Resolution is explicit argument → env var → `$FAIRWAY_MODEL_ROOT` → `<repo>/models/` → `~/.fairwayos/models/` → *unavailable*. Nothing is downloaded. `python3 -m ghostcaddie models` prints the search path and what is present. The surviving MoveNet flatbuffer was moved out of `/tmp` into the gitignored `models/` directory (sha256 `0491b130b2dd622d71a180936e957212341daca78e9f6a04e0d9c2045eff2ecb`). The `ball` interpreter no longer defaults into a `/tmp` venv; absent `$FAIRWAY_TAPIR_PYTHON` the probe reports that it is not configured.
+2. **`body_legacy_ultralytics` no longer hardcodes a path into the other repository's working tree.** It resolves nothing; it remains permanently blocked on loader-safety grounds, which is the point of keeping it.
+3. **`/ready` gained an `availability` tri-state** — `ready` / `model_absent` / `misconfigured` / `interpreter_missing`. An absent optional checkpoint is an expected state, distinguishable from a misconfiguration. Readiness honesty was not weakened: `can_execute_now` is still false for everything that cannot run.
+4. **The portable suite passes with no SAM2 or BootsTAPIR checkpoint present.** The one test that was hard-bound to a `/tmp` checkpoint now conditions its assertion on the target actually being ready, and asserts the absent-asset case as well.
+5. **Body is conditional.** Whole-frame single-pose output is never called "the golfer". See the guide, §6.
+6. **Ball and clubhead are `unavailable` by construction on the canonical path**, with the falsification as the reason. No configuration turns them back on.
+
+### On restoring the falsified checkpoints
+
+Not done, and not recommended yet. SAM2 and BootsTAPIR would revive code whose claims are already withdrawn. Restore an optional asset only when the canonical path actually needs it, the audit evidence supports the method, the environment can load it safely, and there is a concrete validation plan. Until then they stay `model_absent`, documented, and out of the canonical path.
 
 ## Hard research flags
 
