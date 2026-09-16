@@ -362,6 +362,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._serve_frame()
         if self.route == "/video":
             return self._serve_video()
+        if self.route == "/result-video":
+            return self._serve_result_video()
         if self.route.startswith("/jobs/"):
             jid = self.route.split("/")[2]
             try:
@@ -452,6 +454,31 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Accept-Ranges", "none")
         self.end_headers()
         with open(src.path, "rb") as fh:
+            while True:
+                b = fh.read(1 << 20)
+                if not b: break
+                self.wfile.write(b)
+
+    def _serve_result_video(self):
+        q = self._qs()
+        try:
+            job = self.store.get(q.get("job", ""))
+        except KeyError:
+            return self._send(404, {"error": "unknown job"})
+        st = self.store.enforce_retention(job.id)
+        if not st["retained"]:
+            return self._send(410, {"error": "media is no longer available",
+                                    "media_retention": st})
+        path = self.store.result_video(job.id)
+        if not path or not os.path.isfile(path):
+            return self._send(404, {"error": "no rendered result video for this job"})
+        size = os.path.getsize(path)
+        self.send_response(200)
+        self.send_header("Content-Type", "video/mp4")
+        self.send_header("Content-Length", str(size))
+        self.send_header("Accept-Ranges", "none")
+        self.end_headers()
+        with open(path, "rb") as fh:
             while True:
                 b = fh.read(1 << 20)
                 if not b: break

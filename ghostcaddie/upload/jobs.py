@@ -59,6 +59,7 @@ class JobStore:
         self._sources: Dict[str, object] = {}
         self._seeds: Dict[str, object] = {}
         self._procs: Dict[str, object] = {}
+        self._result_videos: Dict[str, str] = {}
         self._media_deadline: Dict[str, float] = {}
         self._media_dropped: Dict[str, str] = {}
         self._media_revoked: Dict[str, bool] = {}
@@ -146,9 +147,9 @@ class JobStore:
             return self._seeds.get(job_id)
 
     # --- finding 4: track the active child so cancel can actually stop it
-    def set_proc(self, job_id: str, proc):
+    def set_proc(self, job_id: str, proc, *, process_group: bool = False):
         with self._lock:
-            self._procs[job_id] = proc
+            self._procs[job_id] = (proc, bool(process_group))
 
     def clear_proc(self, job_id: str):
         with self._lock:
@@ -156,11 +157,18 @@ class JobStore:
 
     def kill_proc(self, job_id: str):
         with self._lock:
-            p = self._procs.get(job_id)
-        if p is None:
+            entry = self._procs.get(job_id)
+        if entry is None:
             return False
+        p, process_group = entry
         try:
-            p.terminate()
+            if process_group and hasattr(os, "killpg"):
+                try:
+                    os.killpg(os.getpgid(p.pid), 15)
+                except Exception:
+                    p.terminate()
+            else:
+                p.terminate()
             try:
                 p.wait(timeout=5)
             except Exception:
@@ -168,6 +176,16 @@ class JobStore:
             return True
         except Exception:
             return False
+
+    def attach_result_video(self, job_id: str, path: str | None):
+        if not path:
+            return
+        with self._lock:
+            self._result_videos[job_id] = path
+
+    def result_video(self, job_id: str):
+        with self._lock:
+            return self._result_videos.get(job_id)
 
     # --- finding 5: explicit, bounded media retention
     def media_state(self, job_id: str) -> dict:

@@ -82,6 +82,8 @@ pre{white-space:pre-wrap;word-break:break-all;color:var(--dim);font-size:11px;ma
   <div class=card style="margin-top:12px">
     <h2>3 &middot; source playback</h2>
     <video id=vid controls style="width:100%;max-height:40vh;background:#000"></video>
+    <h2 style="margin-top:12px">rendered result playback</h2>
+    <video id=resultVid controls style="width:100%;max-height:40vh;background:#000"></video>
   </div>
 </div>
 
@@ -161,6 +163,7 @@ async function poll(){
     renderTargets(j.result);
     $('#raw').textContent=j.result?JSON.stringify(j.result,null,1):'';
     $('#dl').disabled=!j.result;
+    $('#resultVid').src=(j.result&&j.result.outputs&&j.result.outputs.video)?'/result-video?job='+JOB:'';
     $('#delMedia').disabled=!JOB;
     if(['done','failed','cancelled'].includes(j.state)){clearInterval(POLL);POLL=null;$('#cancel').disabled=true}
   }catch(e){$('#jobErr').textContent=e.message}
