@@ -49,10 +49,17 @@ pre{white-space:pre-wrap;word-break:break-all;color:var(--dim);font-size:11px;ma
     <div class=row>
       <input type=file id=file accept="video/*">
       <button id=up>Upload &amp; analyse</button>
+      <button id=upFresh>Analyze with AI (fresh, no seed)</button>
     </div>
     <div class=row style="margin-top:8px">
       <input type=text id=path placeholder="or a filename inside the import directory">
       <button id=upPath>Analyse import file</button>
+      <button id=upPathFresh>Analyze import with AI</button>
+    </div>
+    <div class=row style="margin-top:8px">
+      Fresh AI native interval <input type=text id=freshStart value=0 style="width:72px">
+      to <input type=text id=freshEnd value=2 style="width:72px">
+      <span class=reason>experimental research-only mode; max 32 frames; time/frame selection is not target-coordinate assistance.</span>
     </div>
     <div id=srcInfo class=reason style="margin-top:8px"></div>
   </div>
@@ -181,10 +188,16 @@ async function startJob(body,isForm){
   if(POLL)clearInterval(POLL);POLL=setInterval(poll,900);poll();
 }
 
+function freshFields(){return {analysis:'fresh_ai',frame_start:$('#freshStart').value.trim(),frame_end:$('#freshEnd').value.trim()}}
+
 $('#up').onclick=()=>{const f=$('#file').files[0];if(!f){$('#jobErr').textContent='choose a file';return}
   const fd=new FormData();fd.append('video',f);startJob(fd,true)};
+$('#upFresh').onclick=()=>{const f=$('#file').files[0];if(!f){$('#jobErr').textContent='choose a file';return}
+  const fd=new FormData();fd.append('video',f);const ff=freshFields();Object.entries(ff).forEach(([k,v])=>fd.append(k,v));startJob(fd,true)};
 $('#upPath').onclick=()=>{const p=$('#path').value.trim();if(!p){$('#jobErr').textContent='enter a filename from the import directory';return}
   startJob({name:p},false)};
+$('#upPathFresh').onclick=()=>{const p=$('#path').value.trim();if(!p){$('#jobErr').textContent='enter a filename from the import directory';return}
+  startJob(Object.assign({name:p},freshFields()),false)};
 $('#cancel').onclick=async()=>{await fetch('/jobs/'+JOB+'/cancel',{method:'POST',headers:H});poll()};
 $('#refresh').onclick=poll;
 // Results download needs no new endpoint: the job JSON is already fetched.

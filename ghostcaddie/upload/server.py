@@ -13,7 +13,7 @@ Run:  python -m ghostcaddie.upload.server --root /tmp/fairwayos-uploads
 """
 from __future__ import annotations
 
-import argparse, cgi, json, os, threading, traceback
+import argparse, cgi, json, os, signal, subprocess, sys, threading, traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from ghostcaddie.upload.validation import (UploadRejected, VideoLimits,
@@ -34,6 +34,113 @@ MAX_SEED_BODY_BYTES = 64 * 1024          # a seed bundle is small; bound it sepa
 SEEDED_WINDOW_FRAMES = 24
 RETAIN_UPLOADED_MEDIA = False   # finding 5: delete uploaded media at terminal state
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+FRESH_WORKER_TIMEOUT_SECONDS = 1800
+
+
+# --- EXPERIMENTAL: fresh AI analysis mode (analysis=fresh_ai)
+# Research-only. This path shells out to an external AI-vision service, so it is
+# network-dependent and non-deterministic: its outputs are image-space
+# pseudo-labels, never ground truth or production-eligible measurements. It is
+# excluded from the canonical local-first analyze-video workflow and from
+# portable CI, whose tests mock the runner rather than calling the service. The
+# canonical path must never reach this mode implicitly or as a fallback.
+def _fresh_frames_from_interval(start, end, *, source_frames: int) -> list[int]:
+    try:
+        lo, hi = int(start), int(end)
+    except (TypeError, ValueError):
+        raise UploadRejected("fresh interval frame_start and frame_end must be integers")
+    if lo < 0 or hi < lo:
+        raise UploadRejected("fresh interval must be ordered non-negative native frames")
+    if hi >= source_frames:
+        raise UploadRejected(f"fresh interval outside source frames 0..{source_frames - 1}")
+    frames = list(range(lo, hi + 1))
+    if len(frames) > 32:
+        raise UploadRejected("fresh interval is too large: max 32 native frames")
+    return frames
+
+
+def _run_fresh_cli(video, frames: list[int], outdir: str, *, max_turns: int = 8,
+                   store: JobStore | None = None, job_id: str | None = None):
+    """Run the verified fresh three-layer CLI as a bounded subprocess."""
+    os.makedirs(outdir, exist_ok=True)
+    cmd = [sys.executable, os.path.join(REPO_ROOT, "tools", "demo", "fresh_ai_vision_cli.py"),
+           video.path, "--frames", ",".join(str(f) for f in frames), "--outdir", outdir,
+           "--max-turns", str(max_turns)]
+    popen_kwargs = dict(stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=REPO_ROOT)
+    if hasattr(os, "setsid"):
+        popen_kwargs["preexec_fn"] = os.setsid
+    proc = subprocess.Popen(cmd, **popen_kwargs)
+    if store is not None and job_id is not None:
+        store.set_proc(job_id, proc, process_group=True)
+    try:
+        stdout, stderr = proc.communicate(timeout=FRESH_WORKER_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        if hasattr(os, "killpg"):
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+        else:
+            proc.terminate()
+        raise
+    finally:
+        if store is not None and job_id is not None:
+            store.clear_proc(job_id)
+    with open(os.path.join(outdir, "fresh_cli_stdout.log"), "w") as fh:
+        fh.write(stdout or "")
+    with open(os.path.join(outdir, "fresh_cli_stderr.log"), "w") as fh:
+        fh.write(stderr or "")
+    if proc.returncode != 0:
+        raise RuntimeError(f"fresh CLI failed rc={proc.returncode}: {(stderr or '')[-500:]}")
+    text = (stdout or "").strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        decoder = json.JSONDecoder()
+        for i, ch in enumerate(text):
+            if ch != "{":
+                continue
+            try:
+                obj, end = decoder.raw_decode(text, i)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(obj, dict) and obj.get("ok") is True:
+                return obj
+        raise
+
+
+def _run_fresh_job(store: JobStore, job_id: str, video, frames: list[int]):
+    try:
+        store.start(job_id)
+        store.progress(job_id, 0.1)
+        outdir = os.path.join(store.workdir(job_id), "fresh_ai_vision")
+        result = _run_fresh_cli(video, frames, outdir, store=store, job_id=job_id)
+        if store.cancelled(job_id):
+            return
+        outputs = result.get("outputs") or {}
+        doc = {
+            "analysis": "fresh_ai_vision",
+            "source": {"path": video.path, "sha256": video.sha256,
+                       "width": video.width, "height": video.height,
+                       "frames": video.frames, "fps": round(video.fps, 4),
+                       "duration_seconds": round(video.duration_seconds, 3)},
+            "requested_frames": frames,
+            "automatic_no_seed": True,
+            "outputs": outputs,
+            "routing": result.get("routing"),
+            "media_retention": store.media_state(job_id),
+            "disclosure": "Fresh Hermes GPT5.5 AI-vision over clean decoded native frames; max 32 frames; image-space pseudo-labels only; no physical mph/carry/3D/outcome probabilities.",
+            "limitations": {"isolation": "fresh CLI uses an isolated cwd and prompt-only withholding; this is not a sandbox",
+                            "target_loss": None,
+                            "full_video_claim": False},
+            "research_only": True, "pseudo_label": True,
+            "ground_truth": False, "production_eligible": False,
+        }
+        store.attach_result_video(job_id, outputs.get("video"))
+        store.finish(job_id, doc)
+    except Exception as e:
+        traceback.print_exc()
+        store.fail(job_id, f"{type(e).__name__}: {e}")
 
 INDEX = """<!doctype html><meta charset=utf-8><title>FairwayOS upload (research)</title>
 <style>body{font:14px system-ui;margin:2rem;max-width:46rem}
@@ -584,6 +691,9 @@ class Handler(BaseHTTPRequestHandler):
 
         path = None
         job = None
+        analysis = "legacy_seeded"
+        frame_start = None
+        frame_end = None
         try:
             if ctype.startswith("multipart/form-data"):
                 fs = cgi.FieldStorage(fp=self.rfile, headers=self.headers,
@@ -593,6 +703,9 @@ class Handler(BaseHTTPRequestHandler):
                 item = fs["video"] if "video" in fs else None
                 if item is None or not getattr(item, "filename", ""):
                     return self._send(400, {"error": "no video field"})
+                analysis = fs.getfirst("analysis", analysis)
+                frame_start = fs.getfirst("frame_start")
+                frame_end = fs.getfirst("frame_end")
                 job = self.store.create(item.filename)
                 wd = self.store.workdir(job.id); os.makedirs(wd, exist_ok=True)
                 path = safe_join(wd, os.path.basename(item.filename))
@@ -616,6 +729,9 @@ class Handler(BaseHTTPRequestHandler):
                 import urllib.parse as up
                 form = up.parse_qs(raw)
                 name = (form.get("name") or form.get("path") or [""])[0]
+                analysis = (form.get("analysis") or [analysis])[0]
+                frame_start = (form.get("frame_start") or [None])[0]
+                frame_end = (form.get("frame_end") or [None])[0]
                 if not name:
                     return self._send(400, {"error": "name is required"})
                 # finding 1: only files inside the import directory, never an
@@ -631,13 +747,25 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             video = validate_upload(path, self.limits, workdir=self.store.root)
+            if analysis == "fresh_ai":
+                if frame_start is None or frame_end is None:
+                    raise UploadRejected("fresh interval requires frame_start and frame_end")
+                fresh_frames = _fresh_frames_from_interval(frame_start, frame_end,
+                                                          source_frames=video.frames)
+            elif analysis != "legacy_seeded":
+                raise UploadRejected("unknown analysis mode")
         except UploadRejected as e:
             self.store.fail(job.id, str(e)); self.store.cleanup(job.id)
             return self._send(400, {"error": str(e), "job": job.to_dict()})
 
         self.store.attach_source(job.id, video)
-        threading.Thread(target=_run_job, args=(self.store, job.id, video),
-                         daemon=True).start()
+        if analysis == "fresh_ai":
+            threading.Thread(target=_run_fresh_job,
+                             args=(self.store, job.id, video, fresh_frames),
+                             daemon=True).start()
+        else:
+            threading.Thread(target=_run_job, args=(self.store, job.id, video),
+                             daemon=True).start()
         return self._send(202, job.to_dict())
 
 
