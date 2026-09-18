@@ -20,7 +20,7 @@ independent sources were built, and no one of them is trusted alone:
 | source | origin tag | what it is | size |
 |---|---|---|---|
 | synthetic insertions on real backgrounds | `SYNTHETIC_GROUND_TRUTH` | a ball inserted into real train footage, so its position is known because the generator put it there | 9,870 crops (3,366 positive, 6,504 negative) |
-| multi-method consensus | `MODEL_CONSENSUS` | five independent candidate generators agreeing, with temporal and plausibility checks | **0 HIGH, 0 MEDIUM** (see §5) |
+| multi-method consensus | `MODEL_CONSENSUS` | five independent candidate generators agreeing, with temporal and plausibility checks | **1 HIGH, 0 MEDIUM** out of 288 frames across 24 clips (see §5) |
 | hard-negative mining | `MODEL_CONSENSUS` | strong candidates that consensus refused | 1,440 crops from 24 train clips |
 
 401 insertions (11%) were **discarded rather than used**: the label said the ball was
@@ -74,8 +74,16 @@ decisions made downstream by agreement, temporal verification and the detector.
 
 ## 5. Real-video pseudo-labels: the consensus channel came back empty
 
-Running consensus over real train footage produced **0 HIGH and 0 MEDIUM labels**
-across the clips measured. The funnel, measured rather than assumed:
+Running consensus over real train footage produced **1 HIGH label and 0 MEDIUM
+labels** in total: one frame, on one clip (`pexels_31077806`), where three methods
+agreed and the temporal and plausibility checks passed. Across 24 train clips × 12
+frames (288 frames) that is the entire yield of this supervision channel. An earlier
+12-clip pass produced none at all, which is where the first count came from; the
+corrected figure is one, and it does not change the conclusion, because one label
+cannot supervise a training round. It was not used: round 2 was trained with
+`--hard-negatives` and without `--use-pseudo`.
+
+The funnel, measured rather than assumed:
 
 - 45–50 candidates per frame across five methods on cluttered footage;
 - clusters mostly with 1–3 methods agreeing;
@@ -84,11 +92,11 @@ across the clips measured. The funnel, measured rather than assumed:
 
 Two defects found while measuring this were fixed (native-vs-working coordinate
 spaces in the temporal check; a per-frame tie rule that made every frame ambiguous),
-and the channel was still empty afterwards. **The honest reading: classical
-candidates alone cannot produce high-confidence ball labels on this footage.** That
-is precisely the gap the detector exists to fill, so the design is not wrong — but
-as a standalone supervision source this channel contributes nothing, and it must not
-be described as if it did.
+and the channel stayed effectively empty afterwards: one label from 288 frames.
+**The honest reading: classical candidates alone cannot produce high-confidence ball
+labels on this footage.** That is precisely the gap the detector exists to fill, so
+the design is not wrong — but as a standalone supervision source this channel
+contributes one label, and it must not be described as if it contributed supervision.
 
 ## 6. Hard-negative mining (source C)
 
@@ -249,8 +257,8 @@ the work it cannot tell the two apart.
 1. **Presence saturation** (§7). The detector is a good ball detector and a poor
    ball-vs-ball-like-clutter discriminator at 64×64. Ranking hypotheses by presence
    probability cannot work while many candidates sit at 0.95–1.00.
-2. **The consensus channel is empty** (§5). No real-footage pseudo-labels were
-   produced, so round 2's real-data supervision came only from mined negatives.
+2. **The consensus channel is effectively empty** (§5). One HIGH pseudo-label from
+   288 frames, so round 2's real-data supervision came only from mined negatives.
 3. **Track-level tie-breaks are under-powered.** Temporal verification (cycle
    consistency, plausibility) correctly refuses to accept clutter, but it also
    refuses the true ball: on these clips the ball is inserted and then found at 0.98,
