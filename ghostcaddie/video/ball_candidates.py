@@ -109,6 +109,35 @@ def _normalise(value: float, half: float, full: float) -> float:
 # 1. radial symmetry
 # ---------------------------------------------------------------------------
 
+def _radial_symmetry_response(gx: np.ndarray, gy: np.ndarray, magnitude: np.ndarray,
+                              strong: np.ndarray, radius: int) -> np.ndarray:
+    """Fast radial symmetry transform, in both polarities.
+
+    Each strong-gradient pixel votes for the centre it would imply at ``radius``,
+    in both directions, weighted by its gradient strength. This is the real
+    transform; the first version accumulated shifted copies with ``np.roll`` on a
+    coarse lattice, which localised a 4 px disc about 20 px off -- useless as a
+    candidate generator, and it still scored 1.0, so the error was invisible.
+    """
+    height, width = gx.shape[:2]
+    response = np.zeros((height, width), dtype=np.float32)
+    ys, xs = np.nonzero(strong)
+    if len(xs) == 0:
+        return response
+    denominator = magnitude[ys, xs] + 1e-6
+    unit_x = gx[ys, xs] / denominator
+    unit_y = gy[ys, xs] / denominator
+    mean_magnitude = float(magnitude[ys, xs].mean()) or 1.0
+    strength = np.clip(magnitude[ys, xs] / mean_magnitude, 0.0, 3.0)
+    for sign in (-1.0, 1.0):
+        vote_x = np.rint(xs + sign * radius * unit_x).astype(np.int64)
+        vote_y = np.rint(ys + sign * radius * unit_y).astype(np.int64)
+        inside = ((vote_x >= 0) & (vote_x < width)
+                  & (vote_y >= 0) & (vote_y < height))
+        np.add.at(response, (vote_y[inside], vote_x[inside]), strength[inside])
+    return cv2.GaussianBlur(response, (0, 0), max(1.0, radius * 0.5))
+
+
 def candidates_radial_symmetry(context: FrameContext, *, scales: Sequence[float] = DEFAULT_SCALES,
                                peaks_per_scale: int = 24, limit: int = 16
                                ) -> list[Candidate2]:
@@ -135,26 +164,14 @@ def candidates_radial_symmetry(context: FrameContext, *, scales: Sequence[float]
         radius = max(1, int(round(fraction * min_side)))
         if radius < 1 or radius > min_side // 3:
             continue
-        accumulator = np.zeros_like(gray, dtype=np.float32)
-        # sample the gradient direction at the circle for each pixel: cheap
-        # approximation of the fast radial symmetry transform
-        angles = np.linspace(0, 2 * math.pi, 24, endpoint=False)
-        offsets = [(int(round(math.cos(a) * radius)), int(round(math.sin(a) * radius)))
-                   for a in angles]
-        for dx, dy in offsets:
-            shifted = np.roll(np.roll(strong.astype(np.float32), -dy, axis=0), -dx, axis=1)
-            accumulator += shifted
-        accumulator /= len(offsets)
-        for x, y, value in _peaks(accumulator, max(1, radius // 2), peaks_per_scale):
+        response = _radial_symmetry_response(gx, gy, magnitude, strong, radius)
+        for x, y, value in _peaks(response, max(1, radius), peaks_per_scale):
             if not (radius <= x < width - radius and radius <= y < height - radius):
-                continue
-            if not strong[max(0, y - radius):y + radius + 1,
-                          max(0, x - radius):x + radius + 1].any():
                 continue
             found.append(Candidate2(context.index,
                                     (x + 0.5) * context.scale, (y + 0.5) * context.scale,
                                     radius * context.scale,
-                                    _normalise(value, 0.15, 0.55),
+                                    _normalise(value, 2.5, 9.0),
                                     "radial_symmetry",
                                     {"accumulator": round(value, 4),
                                      "radius_working_px": radius}))
@@ -191,7 +208,7 @@ def candidates_local_contrast(context: FrameContext, *,
             found.append(Candidate2(context.index,
                                     (x + 0.5) * context.scale, (y + 0.5) * context.scale,
                                     sigma * math.sqrt(2.0) * context.scale,
-                                    _normalise(value, 0.5, 1.6),
+                                    _normalise(value, 18.0, 40.0),
                                     "local_contrast",
                                     {"dog_response": round(float(response[y, x]), 3),
                                      "polarity": polarity,
@@ -219,12 +236,19 @@ def candidates_frame_difference(context: FrameContext, *, limit: int = 16
     """
     if context.previous_gray is None:
         return []
-    previous = _shift_image(context.previous_gray, -context.motion[0],
-                            -context.motion[1])
+    # phaseCorrelate reports how far the *scene* moved between the frames, so the
+    # previous frame is shifted by +motion to line up with the current one.
+    previous = _shift_image(context.previous_gray, context.motion[0],
+                            context.motion[1])
     difference = np.abs(context.gray - previous)
     blurred = cv2.GaussianBlur(difference, (0, 0), 1.0)
-    deviation = float(np.median(np.abs(blurred))) or 1e-3
-    normalised = blurred / (8.0 * deviation)
+    deviation = float(np.median(np.abs(blurred)))
+    # The scale has an absolute floor. Without it, a perfectly static pair of
+    # frames divides near-zero noise by near-zero deviation and manufactures
+    # confident candidates out of sensor grain -- which is how a tracker ends up
+    # "detecting" a ball in an empty frame.
+    scale = max(8.0 * deviation, 1.5)
+    normalised = blurred / scale
     height, width = blurred.shape[:2]
     found = []
     for x, y, value in _peaks(normalised, 2, 24):
@@ -267,8 +291,11 @@ def candidates_flow_residual(context: FrameContext, *, limit: int = 16
     residual_y = flow[..., 1] - context.motion[1]
     magnitude = np.sqrt(residual_x ** 2 + residual_y ** 2)
     magnitude = cv2.GaussianBlur(magnitude, (0, 0), 1.2)
-    deviation = float(np.median(np.abs(magnitude))) or 1e-3
-    normalised = magnitude / (5.0 * deviation)
+    deviation = float(np.median(np.abs(magnitude)))
+    # same absolute floor as frame differencing: sub-pixel flow noise on a static
+    # scene must not become a candidate
+    scale = max(5.0 * deviation, 0.35)
+    normalised = magnitude / scale
     height, width = magnitude.shape[:2]
     found = []
     for x, y, value in _peaks(normalised, 3, 20):
@@ -323,7 +350,7 @@ def candidates_brightness_cue(context: FrameContext, *,
             found.append(Candidate2(context.index,
                                     (x + 0.5) * context.scale, (y + 0.5) * context.scale,
                                     radius * context.scale,
-                                    _normalise(value, 0.5, 1.5), "brightness_cue",
+                                    _normalise(value, 10.0, 24.0), "brightness_cue",
                                     {"brightness_delta": round(float(difference[y, x]), 2),
                                      "chroma_delta": round(float(chroma_delta[y, x]), 2)}))
     found.sort(key=lambda candidate: candidate.score, reverse=True)
@@ -415,5 +442,9 @@ def ensemble_candidates(contexts: Sequence[FrameContext], *,
             for candidate in generator(context, limit=per_method_limit):
                 per_frame[context.index].append(candidate)
     for index, candidates in per_frame.items():
-        candidates.sort(key=lambda candidate: candidate.score, reverse=True)
+        # A candidate that did not clear its own method's floor is not a
+        # candidate; passing it on would let noise accumulate agreement.
+        per_frame[index] = [candidate for candidate in candidates
+                            if candidate.score > 0.01]
+        per_frame[index].sort(key=lambda candidate: candidate.score, reverse=True)
     return per_frame
