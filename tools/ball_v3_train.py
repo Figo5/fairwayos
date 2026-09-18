@@ -39,6 +39,7 @@ from ghostcaddie.video import ball_v3_body as bbody              # noqa: E402
 from ghostcaddie.video import ball_v3_dataset as bdata           # noqa: E402
 from ghostcaddie.video import ball_v3_proposals as bp            # noqa: E402
 from ghostcaddie.video import ball_v3_ranker as brank            # noqa: E402
+from ghostcaddie.video import ball_v3_tracklets as btrk          # noqa: E402
 
 WORK = ROOT / "out" / "ball_tracker_v3"
 BODY_CACHE = WORK / "body_cache"
@@ -284,6 +285,232 @@ def evaluate_lists(model, reader, records, device) -> dict:
     }
 
 
+def positions_from(record: dict) -> list[tuple[float, float, float]]:
+    """Recover native-pixel geometry from the stored numeric features.
+
+    ``ball_v3_context.geometry_features`` writes x/width, y/height and
+    radius/short_side as its first three entries, so the inverse is exact up to
+    float rounding and nothing has to be stored twice.
+    """
+    width, height = record["width"], record["height"]
+    short_side = max(1, min(width, height))
+    out = []
+    for row in record["numeric"]:
+        out.append((float(row[0]) * width, float(row[1]) * height,
+                    max(1.0, float(row[2]) * short_side)))
+    return out
+
+
+def camera_shifts_for(clip_media: dict, needed: dict[str, set[int]]) -> dict:
+    """Phase-correlate only the frames the stored lists actually use.
+
+    Far cheaper than re-running the proposal stage: this is two decoded frames and
+    one FFT per index, and the motion features are meaningless without it.
+    """
+    shifts: dict[str, dict[int, tuple[float, float]]] = {}
+    for clip_id, indices in needed.items():
+        media = clip_media.get(clip_id)
+        if media is None:
+            continue
+        per_clip: dict[int, tuple[float, float]] = {}
+        capture = cv2.VideoCapture(str(media))
+        for index in sorted(indices):
+            capture.set(cv2.CAP_PROP_POS_FRAMES, max(0, index - 1))
+            ok_previous, previous = capture.read()
+            ok_current, current = capture.read()
+            if not (ok_previous and ok_current):
+                per_clip[index] = (0.0, 0.0)
+                continue
+            a = cv2.cvtColor(previous, cv2.COLOR_BGR2GRAY).astype(np.float32)
+            b = cv2.cvtColor(current, cv2.COLOR_BGR2GRAY).astype(np.float32)
+            window = cv2.createHanningWindow((a.shape[1], a.shape[0]), cv2.CV_32F)
+            (dx, dy), _response = cv2.phaseCorrelate(a, b, window)
+            per_clip[index] = (float(dx), float(dy))
+        capture.release()
+        shifts[clip_id] = per_clip
+        print(f"  shifts {clip_id}: {len(per_clip)} frames", flush=True)
+    return shifts
+
+
+def cmd_gen_tracklets(args) -> int:
+    """Build labelled tracklets from the stored listwise data and a trained ranker.
+
+    A tracklet is positive when it sits on the true ball for most of the frames it
+    holds. Everything else is a negative, and the negatives are the point: they
+    are real distractors that the ranker already scored highly enough to be in the
+    top-K, linked over time from the same footage.
+    """
+    import torch
+
+    reader = bdata.ExampleReader(args.data)
+    ranker = brank.load_ranker(args.ranker)
+    device = brank.device()
+
+    by_clip: dict[str, list[dict]] = {}
+    for record in reader.records:
+        by_clip.setdefault(record["clip_id"], []).append(record)
+    media = {c["clip_id"]: c["media"] for c in train_clips()}
+    needed = {clip: {r["frame_index"] for r in records}
+              for clip, records in by_clip.items()}
+    print("computing camera shifts", flush=True)
+    shifts = camera_shifts_for(media, needed)
+
+    rows = []
+    for clip_id, records in sorted(by_clip.items()):
+        records.sort(key=lambda r: r["frame_index"])
+        # group into runs of consecutive frames: a tracklet cannot span a cut
+        runs: list[list[dict]] = []
+        for record in records:
+            if runs and record["frame_index"] == runs[-1][-1]["frame_index"] + 1:
+                runs[-1].append(record)
+            else:
+                runs.append([record])
+        clip_shifts = shifts.get(clip_id, {})
+        for run in runs:
+            if len(run) < 3:
+                continue
+            nodes_by_frame: dict[int, list[btrk.Node]] = {}
+            truth: dict[int, tuple] = {}
+            for record in run:
+                stacks = reader.stacks_for(record)
+                numeric = reader.numeric_for(record)
+                result = brank.rank_frame(ranker, stacks, numeric, device=device)
+                geometry = positions_from(record)
+                order = np.argsort(-result["probabilities"])
+                nodes = []
+                for rank, slot in enumerate(order[:args.top_k]):
+                    x, y, radius = geometry[int(slot)]
+                    row = record["numeric"][int(slot)]
+                    nodes.append(btrk.Node(
+                        frame_index=record["frame_index"], x=x, y=y, radius=radius,
+                        probability=float(result["probabilities"][int(slot)]),
+                        margin=result["margin"] if rank == 0 else 0.0,
+                        is_top1=rank == 0,
+                        inside_torso=float(row[4 + 1]),
+                        distance_to_hands=float(row[4 + 3]) * 200.0))
+                nodes_by_frame[record["frame_index"]] = nodes
+                if record["truth"]:
+                    truth[record["frame_index"]] = tuple(record["truth"])
+            tracks = btrk.build_tracklets(nodes_by_frame, clip_shifts,
+                                          top_k=args.top_k, min_length=3)
+            for track in tracks:
+                hits = 0
+                scored = 0
+                for node in track.nodes:
+                    target = truth.get(node.frame_index)
+                    if target is None:
+                        continue
+                    scored += 1
+                    if math.hypot(node.x - target[0],
+                                  node.y - target[1]) <= max(6.0, target[2]):
+                        hits += 1
+                if scored == 0:
+                    continue
+                label = 1 if hits / scored >= args.positive_fraction else 0
+                rows.append({
+                    "clip_id": clip_id,
+                    "first_frame": track.nodes[0].frame_index,
+                    "label": label,
+                    "on_ball_fraction": round(hits / scored, 3),
+                    "features": btrk.tracklet_features(
+                        track, window=len(run), camera_shift=clip_shifts),
+                })
+        print(f"{clip_id}: {len(rows)} tracklets so far", flush=True)
+
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    positives = sum(r["label"] for r in rows)
+    payload = {"tracklets": rows, "positives": positives,
+               "negatives": len(rows) - positives,
+               "feature_names": list(btrk.FEATURE_NAMES),
+               "ranker": str(args.ranker),
+               "positive_fraction": args.positive_fraction,
+               "origin": "SYNTHETIC_GROUND_TRUTH on real TRAIN backgrounds"}
+    args.out.write_text(json.dumps(payload, indent=1) + "\n")
+    print(f"{len(rows)} tracklets, {positives} positive; wrote {args.out}")
+    return 0
+
+
+def cmd_train_tracklet(args) -> int:
+    import torch
+
+    payload = json.loads(args.data.read_text("utf-8"))
+    rows = payload["tracklets"]
+    if not rows:
+        print("no tracklets; run gen-tracklets first", file=sys.stderr)
+        return 2
+
+    clips = sorted({r["clip_id"] for r in rows})
+    rng = random.Random(args.seed)
+    rng.shuffle(clips)
+    holdout = set(clips[:max(1, len(clips) // 5)])
+    train = [r for r in rows if r["clip_id"] not in holdout]
+    validation = [r for r in rows if r["clip_id"] in holdout]
+
+    mask = btrk.mask_for_ablation(args.drop.split(",") if args.drop else [])
+    device = brank.device()
+
+    def tensors(records):
+        features = np.asarray([r["features"] for r in records], dtype=np.float32) * mask
+        labels = np.asarray([r["label"] for r in records], dtype=np.float32)
+        return (torch.from_numpy(features).to(device),
+                torch.from_numpy(labels).to(device))
+
+    train_x, train_y = tensors(train)
+    validation_x, validation_y = tensors(validation)
+    model = btrk.TrackletDiscriminator().to(device)
+    optimiser = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
+    # the classes are lopsided -- most tracklets are clutter -- so the positive
+    # term is weighted rather than letting the model win by always saying no
+    positive = max(1.0, float(train_y.sum()))
+    weight = torch.tensor(
+        (len(train_y) - positive) / positive, device=device).clamp(1.0, 20.0)
+    history = []
+    best_auc, best_state = -1.0, None
+    for epoch in range(args.epochs):
+        model.train()
+        optimiser.zero_grad()
+        loss = torch.nn.functional.binary_cross_entropy_with_logits(
+            model(train_x), train_y, pos_weight=weight)
+        loss.backward()
+        optimiser.step()
+        model.eval()
+        with torch.no_grad():
+            scores = torch.sigmoid(model(validation_x)).cpu().numpy()
+        auc = _auc(scores, validation_y.cpu().numpy())
+        history.append({"epoch": epoch + 1, "loss": round(float(loss), 4),
+                        "validation_auc": None if auc is None else round(auc, 4)})
+        if auc is not None and auc >= best_auc:
+            best_auc = auc
+            best_state = {k: v.detach().cpu().clone()
+                          for k, v in model.state_dict().items()}
+    if best_state is not None:
+        model.load_state_dict(best_state)
+    digest = btrk.save_discriminator(model, args.out)
+    report = {"parameters": int(sum(p.numel() for p in model.parameters())),
+              "train": len(train), "validation": len(validation),
+              "positives": sum(r["label"] for r in rows),
+              "best_validation_auc": best_auc,
+              "dropped_features": args.drop or None,
+              "weights_sha256": digest, "history": history,
+              "held_out_clips": sorted(holdout)}
+    (args.out.parent / f"tracklet_report{('_' + args.drop.replace(',', '_')) if args.drop else ''}.json"
+     ).write_text(json.dumps(report, indent=1) + "\n")
+    print(json.dumps({k: v for k, v in report.items() if k != "history"}, indent=1))
+    return 0
+
+
+def _auc(scores: np.ndarray, labels: np.ndarray):
+    positives = scores[labels > 0.5]
+    negatives = scores[labels <= 0.5]
+    if len(positives) == 0 or len(negatives) == 0:
+        return None
+    order = np.argsort(np.r_[positives, negatives])
+    ranks = np.empty(len(order), dtype=np.float64)
+    ranks[order] = np.arange(1, len(order) + 1)
+    n1, n0 = len(positives), len(negatives)
+    return float((ranks[:n1].sum() - n1 * (n1 + 1) / 2) / (n1 * n0))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -312,6 +539,27 @@ def main(argv: list[str] | None = None) -> int:
                        help="lists per optimiser step; one list is one softmax")
     train.add_argument("--seed", type=int, default=SEED)
     train.set_defaults(func=cmd_train_ranker)
+
+    gt = sub.add_parser("gen-tracklets", help="labelled tracklets from stored lists")
+    gt.add_argument("--data", type=Path, default=WORK / "listwise_train")
+    gt.add_argument("--ranker", type=Path, default=WORK / "ranker" / "ranker.pt")
+    gt.add_argument("--out", type=Path, default=WORK / "tracklets.json")
+    gt.add_argument("--top-k", type=int, default=8)
+    gt.add_argument("--positive-fraction", type=float, default=0.6,
+                    help="fraction of its scored frames a tracklet must sit on the "
+                         "ball to count as the ball")
+    gt.set_defaults(func=cmd_gen_tracklets)
+
+    tt = sub.add_parser("train-tracklet", help="fit the tracklet discriminator")
+    tt.add_argument("--data", type=Path, default=WORK / "tracklets.json")
+    tt.add_argument("--out", type=Path, default=WORK / "ranker" / "tracklet.pt")
+    tt.add_argument("--epochs", type=int, default=400)
+    tt.add_argument("--learning-rate", type=float, default=0.05)
+    tt.add_argument("--drop", default=None,
+                    help="comma-separated feature groups to zero (motion, body, "
+                         "ranking) for an ablation")
+    tt.add_argument("--seed", type=int, default=SEED)
+    tt.set_defaults(func=cmd_train_tracklet)
 
     args = parser.parse_args(argv)
     return args.func(args)
