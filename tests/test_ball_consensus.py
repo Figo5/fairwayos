@@ -292,5 +292,80 @@ class WindowConsensusTests(unittest.TestCase):
         self.assertEqual(set(summary["diagnostics"]), set(bcon.DIAGNOSTIC_KINDS))
 
 
+def scene_frame(width: int = 640, height: int = 480, seed: int = 5) -> np.ndarray:
+    """Turf-like background with clutter, for coordinate-space tests."""
+    rng = np.random.default_rng(seed)
+    base = np.zeros((height, width, 3), dtype=np.float32)
+    base[..., 1] = 108 + rng.normal(0, 6, (height, width))
+    base[..., 0] = 62 + rng.normal(0, 5, (height, width))
+    base[..., 2] = 50 + rng.normal(0, 5, (height, width))
+    for _ in range(20):
+        cv2.circle(base, (int(rng.integers(0, width)), int(rng.integers(0, height))),
+                   int(rng.integers(3, 7)), tuple(float(v) for v in rng.integers(70, 180, 3)), -1)
+    return np.clip(base, 0, 255).astype(np.uint8)
+
+
+def ball_in(frame: np.ndarray, x: int, y: int, radius: int = 6) -> np.ndarray:
+    out = frame.copy()
+    cv2.circle(out, (x, y), radius, (244, 244, 244), -1)
+    return out
+
+
+class CoordinateSpaceTests(unittest.TestCase):
+    """Native pixels in, native pixels out -- whatever the working resolution is.
+
+    Candidates are reported in native pixels, but the dense methods and the optical
+    flow work run on a downscaled copy. On a 4K clip that is a factor of two, and
+    mixing the two spaces pointed the tracking window at the wrong part of the frame
+    while looking like a legitimate "target not found" result.
+    """
+
+    @staticmethod
+    def _panning_clip():
+        scene = scene_frame()
+        return [ball_in(np.roll(scene, index * 6, axis=1), 320, 240, 6)
+                for index in range(8)]
+
+    def test_the_temporal_check_works_at_every_working_scale(self):
+        from ghostcaddie.video import ball_candidates as bc
+        frames = self._panning_clip()
+        verdicts = {}
+        for max_side in (1920, 320):
+            contexts, _ = bc.build_contexts(frames, list(range(len(frames))),
+                                            max_side=max_side)
+            # a candidate in native pixels, as the ensemble reports it
+            verdict = bcon.track_patch_both_ways(contexts, 1, 320.0, 240.0, 6.0,
+                                                bcon.ConsensusParams())
+            verdicts[max_side] = verdict
+        for max_side, verdict in verdicts.items():
+            self.assertNotIn("outside the tracking window", str(verdict.get("reason", "")),
+                             f"the tracking window must contain the candidate at "
+                             f"working side {max_side}: {verdict}")
+        self.assertTrue(all(verdict.get("supported") for verdict in verdicts.values()),
+                        f"the same clip must reach the same temporal verdict at every "
+                        f"working scale: {verdicts}")
+
+    def test_hard_negative_windows_are_native_and_on_frame(self):
+        from ghostcaddie.video import ball_candidates as bc
+        frames = self._panning_clip()
+        contexts, _ = bc.build_contexts(frames, list(range(len(frames))), max_side=320)
+        candidates = bc.ensemble_candidates(contexts)
+        consensus = bcon.consensus_for_window("clip", contexts,
+                                              candidates_by_frame=candidates)
+        records = bcon.mine_hard_negatives("clip", contexts,
+                                           candidates_by_frame=candidates,
+                                           consensus=consensus,
+                                           out_dir=Path("/tmp"), max_per_clip=5)
+        height, width = frames[0].shape[:2]
+        for record in records:
+            left, top, size, _ = record["crop"]
+            self.assertGreaterEqual(left, 0)
+            self.assertGreaterEqual(top, 0)
+            self.assertLessEqual(left + size, width,
+                                 "a hard-negative window must fit the native frame")
+            self.assertLessEqual(top + size, height,
+                                 "a hard-negative window must fit the native frame")
+
+
 if __name__ == "__main__":
     unittest.main()

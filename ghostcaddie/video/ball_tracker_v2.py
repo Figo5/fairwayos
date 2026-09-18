@@ -67,6 +67,10 @@ class TrackerParams:
     #: Rival hypothesis with a score within this fraction of the best one makes the
     #: frame ambiguous instead of decided.
     competitor_ratio: float = 0.85
+    #: How close a rival's *track-level* mean detector probability has to be before it
+    #: counts as a genuinely competing hypothesis. Frame-level ties are everywhere on
+    #: grass; a rival detected worse over its whole track is not a rival.
+    competitor_detector_margin: float = 0.05
     #: Track acceptance rules. Coverage is the observed fraction of the span; the
     #: lock ceilings exist because those were the v1 failure modes.
     min_observed_frames: int = 3
@@ -184,7 +188,10 @@ def track_ball_v2(frames: Sequence[np.ndarray], indices: Sequence[int], *,
 
     contexts, context_info = bc.build_contexts(frames, indices)
     per_frame_candidates = bc.ensemble_candidates(contexts)
-    motion_px = [math.hypot(*context.motion) for context in contexts]
+    # Working-scale shift converted to native pixels: the candidate positions these
+    # are compared against are native.
+    motion_px = [math.hypot(*context.motion) * float(context.scale or 1.0)
+                 for context in contexts]
 
     # --- hypotheses per frame -------------------------------------------------
     hypotheses: dict[int, list[dict]] = {}
@@ -221,6 +228,47 @@ def track_ball_v2(frames: Sequence[np.ndarray], indices: Sequence[int], *,
         entries.sort(key=lambda item: item["score"], reverse=True)
         hypotheses[context.index] = entries
 
+    # --- track-level rival comparison ----------------------------------------
+    # Optical flow will happily track a grass tuft, a divot or a shoe for three
+    # frames, so "the rival is temporally coherent" is not enough to call a frame
+    # ambiguous: on real footage nearly every clutter blob passes that test. The rival
+    # has to hold up as a *track* -- present in a comparable number of frames and
+    # detected about as well -- before two answers are treated as equally defensible.
+    def _rival_for(entries: list[dict]) -> Optional[dict]:
+        if len(entries) < 2:
+            return None
+        best = entries[0]
+        for entry in entries[1:]:
+            far_apart = math.hypot(entry["x"] - best["x"], entry["y"] - best["y"]) > \
+                4.0 * max(entry["radius"], best["radius"])
+            if far_apart and entry["score"] >= params.competitor_ratio * best["score"]:
+                return entry
+        return None
+
+    rival_by_index: dict[int, Optional[dict]] = {
+        index: _rival_for(entries) for index, entries in hypotheses.items()}
+
+    def _evidence(sequence: list[Optional[dict]]) -> tuple[float, int]:
+        probabilities = [entry["detector"] for entry in sequence
+                         if entry is not None and entry["detector"] is not None]
+        if not probabilities:
+            return 0.0, 0
+        return float(sum(probabilities) / len(probabilities)), len(probabilities)
+
+    best_mean, best_count = _evidence([entries[0] if entries else None
+                                       for entries in hypotheses.values()])
+    rival_mean, rival_count = _evidence(list(rival_by_index.values()))
+    rival_is_credible = bool(
+        rival_count >= max(3, int(0.6 * best_count))
+        and rival_mean >= best_mean - params.competitor_detector_margin)
+    competitor_report = {
+        "best_track_mean_detector": round(best_mean, 4),
+        "best_track_frames": best_count,
+        "rival_track_mean_detector": round(rival_mean, 4),
+        "rival_track_frames": rival_count,
+        "rival_credible": rival_is_credible,
+    }
+
     chosen: dict[int, Optional[dict]] = {}
     states: list[FrameState] = []
     for position, context in enumerate(contexts):
@@ -236,18 +284,25 @@ def track_ball_v2(frames: Sequence[np.ndarray], indices: Sequence[int], *,
             continue
 
         best = entries[0]
-        rival = entries[1] if len(entries) > 1 else None
-        if rival is not None and rival["score"] >= params.competitor_ratio * best["score"]:
+        rival = rival_by_index.get(context.index)
+        if rival is not None and rival_is_credible:
             state.state = STATE_AMBIGUOUS
             state.x, state.y = best["x"], best["y"]
             state.radius = best["radius"]
             state.methods = best["methods"]
             state.score = best["score"]
+            state.detector_probability = best["detector"]
             state.reasons.append(
-                f"competing hypothesis {rival['score']:.2f} vs {best['score']:.2f}; "
-                "two defensible answers is not a decision")
+                f"competing hypothesis {rival['score']:.2f} vs {best['score']:.2f}, and "
+                f"the rival survives as a track too (mean detector {rival_mean:.2f} over "
+                f"{rival_count} frames vs {best_mean:.2f} over {best_count}); two "
+                "defensible answers is not a decision")
             states.append(state)
             continue
+        if rival is not None:
+            state.reasons.append(
+                f"a rival candidate scored {rival['score']:.2f} vs {best['score']:.2f} "
+                "but does not hold up as a track; the decision stands on this one")
 
         # temporal verification on the candidate itself
         cycle = bcon.track_patch_both_ways(contexts, context.index, best["x"], best["y"],
@@ -376,6 +431,7 @@ def track_ball_v2(frames: Sequence[np.ndarray], indices: Sequence[int], *,
             abrupt_jumps += 1
 
     confidence = {
+        "competitor": competitor_report,
         "observed_frames": len(observed),
         "span_frames": span,
         "coverage": round(coverage, 4),

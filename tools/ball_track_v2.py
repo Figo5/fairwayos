@@ -122,9 +122,37 @@ def cmd_train(args) -> int:
     if args.use_pseudo and pseudo_path.exists():
         extra = bs.load_crop_records(pseudo_path)
         print(f"adding {len(extra)} high-confidence pseudo-label crops")
+    if args.hard_negatives:
+        mined_path = WORK / "hard_negatives.jsonl"
+        if not mined_path.exists():
+            raise SystemExit("no mined hard negatives yet: run `consensus` first")
+        # Mined failures are copied into the training crop directory rather than
+        # referenced from a second root: a record and its image must stay together or
+        # the loader silently skips samples that look present in the manifest.
+        import shutil
+        copied = 0
+        for line in mined_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            name = f"hn_{record['path']}"
+            target = SYNTHETIC / "crops" / name
+            if not target.exists():
+                source = WORK / "hard_negatives" / record["path"]
+                if not source.exists():
+                    continue
+                shutil.copy2(source, target)
+            extra.append({"path": name, "positive": False,
+                          "label_x": bdet.CROP_SIZE / 2, "label_y": bdet.CROP_SIZE / 2,
+                          "origin": "HARD_NEGATIVE_MINING",
+                          "radius": record.get("radius"),
+                          "mined_from": record.get("clip_id")})
+            copied += 1
+        print(f"adding {copied} mined hard negatives (real non-ball candidates)")
     report = bdet.train_detector(records + extra, SYNTHETIC / "crops",
                                  out_dir=DETECTOR_DIR, epochs=args.epochs,
-                                 seed=args.seed)
+                                 seed=args.seed, learning_rate=args.lr,
+                                 heatmap_weight=args.heatmap_weight)
     print(f"trained {report['parameters']} parameters on {report['train_crops']} crops; "
           f"weights sha256={report['weights_sha256'][:16]}...")
     val = report["history"][-1]["val"]
@@ -340,7 +368,11 @@ def cmd_consensus(args) -> int:
                                          max_per_clip=args.max_negatives)
         for record in mined:
             left, top, size, _ = record["crop"]
-            target = objects_dir / f"hn_{clip['clip_id']}_{record['frame_index']}.jpg"
+            # The candidate's own position has to be in the filename: several rejected
+            # candidates share a frame, and a per-frame name silently overwrote most of
+            # them, leaving records that pointed at a different candidate's pixels.
+            target = objects_dir / (f"hn_{clip['clip_id']}_{record['frame_index']}_"
+                                    f"{int(record['x'])}_{int(record['y'])}.jpg")
             cv2.imwrite(str(target), frames[indices.index(record["frame_index"])]
                         [top:top + size, left:left + size])
             record["path"] = target.name
@@ -544,14 +576,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_gen_synth)
 
     p = sub.add_parser("train")
-    p.add_argument("--epochs", type=int, default=4)
+    p.add_argument("--epochs", type=int, default=8)
     p.add_argument("--seed", type=int, default=TRAIN_SEED)
     p.add_argument("--rounds", type=int, default=1)
     p.add_argument("--use-pseudo", action="store_true")
+    p.add_argument("--hard-negatives", action="store_true")
+    p.add_argument("--lr", type=float, default=1.2e-3)
+    p.add_argument("--heatmap-weight", type=float, default=0.4,
+                   help="weight of the localisation map; it is a regulariser here, "
+                        "not a co-equal objective, because the ensemble supplies "
+                        "coordinates and this head supplies the decision")
     p.set_defaults(func=cmd_train)
 
     p = sub.add_parser("rounds")
-    p.add_argument("--epochs", type=int, default=4)
+    p.add_argument("--epochs", type=int, default=8)
     p.add_argument("--self-train", action="store_true")
     p.set_defaults(func=train_and_eval_rounds)
 

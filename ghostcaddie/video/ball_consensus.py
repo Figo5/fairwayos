@@ -241,6 +241,16 @@ def track_patch_both_ways(contexts: Sequence[FrameContext], start: int, x: float
     if forward < 2 or position == 0:
         return {"supported": False, "reason": "not enough frames on both sides"}
 
+    # Candidates carry *native* pixels (that is what a result means) while the flow
+    # work happens on the downscaled working copy. Mixing the two spaces silently
+    # pointed the tracking window at the wrong part of the frame on every clip above
+    # the working resolution, which is why this check reported "start point outside
+    # the tracking window" on real 4K footage.
+    scale = float(contexts[position].scale or 1.0)
+    native_x, native_y, native_radius = x, y, max(radius, 1e-6)
+    x, y = native_x / scale, native_y / scale
+    radius = max(1.0, native_radius / scale)
+
     # optical flow needs 8-bit images; the contexts carry float32 for the
     # gradient work, so the windows are cast here rather than stored twice.
     windows, origins = [], []
@@ -274,7 +284,7 @@ def track_patch_both_ways(contexts: Sequence[FrameContext], start: int, x: float
         points = moved
 
     far = (points[0][0][0] + origins[forward][0], points[0][0][1] + origins[forward][1])
-    travelled = math.hypot(far[0] - x, far[1] - y)
+    travelled = math.hypot(far[0] - x, far[1] - y) * scale      # reported in native px
 
     back_points = points.copy()
     for step in range(forward, 0, -1):
@@ -288,7 +298,7 @@ def track_patch_both_ways(contexts: Sequence[FrameContext], start: int, x: float
 
     returned = (back_points[0][0][0] + origins[0][0],
                 back_points[0][0][1] + origins[0][1])
-    round_trip = math.hypot(returned[0] - x, returned[1] - y)
+    round_trip = math.hypot(returned[0] - x, returned[1] - y) * scale
 
     # appearance: did the thing we came back to look like the thing we left?
     patch_size = int(max(7, round(radius * 4)) | 1)
@@ -302,13 +312,13 @@ def track_patch_both_ways(contexts: Sequence[FrameContext], start: int, x: float
         if denominator > 1e-6:
             correlation = float((a * b).sum() / denominator)
 
-    tolerance = params.cycle_radii * max(radius, 1.0)
+    tolerance = params.cycle_radii * max(native_radius, 1.0)
     supported = round_trip <= tolerance and (correlation is None
                                              or correlation >= params.appearance_ncc)
     return {
         "supported": bool(supported),
         "round_trip_px": round(round_trip, 2),
-        "round_trip_radii": round(round_trip / max(radius, 1e-6), 2),
+        "round_trip_radii": round(round_trip / max(native_radius, 1e-6), 2),
         "tolerance_radii": params.cycle_radii,
         "travelled_px": round(travelled, 2),
         "appearance_ncc": None if correlation is None else round(correlation, 3),
@@ -511,7 +521,11 @@ def consensus_for_window(clip_id: str, contexts: Sequence[FrameContext], *,
         clusters = clusters_by_frame[context.index]
         chosen[context.index] = clusters[0] if clusters else None
 
-    motion_px = [math.hypot(*context.motion) for context in contexts]
+    # phase correlation runs on the working copy, so its shift is a working-scale
+    # distance; a frame-space step in native pixels is not comparable with it until
+    # it is converted.
+    motion_px = [math.hypot(*context.motion) * float(context.scale or 1.0)
+                 for context in contexts]
 
     labels: dict[int, ConsensusLabel] = {}
     for position, context in enumerate(contexts):
@@ -532,10 +546,17 @@ def consensus_for_window(clip_id: str, contexts: Sequence[FrameContext], *,
         regions = (body_regions_by_frame or {}).get(context.index, [])
         body = body_lock(cluster.x, cluster.y, cluster.radius, regions) if regions \
             else None
-        # competitors: other clusters on this frame with comparable support
-        competitors = sum(1 for other in clusters[1:]
-                          if other.best_score >= 0.8 * cluster.best_score
-                          and other.methods != cluster.methods)
+        # A rival has to be a genuinely competing hypothesis: spatially separate (a
+        # near-duplicate detection of the same object is not a rival), comparable in
+        # score *and* in independent support. Counting every other cluster within 80%
+        # of the best score made clutter frames permanently AMBIGUOUS -- real footage
+        # produced 5-22 "competing" clusters per frame and zero labels above LOW.
+        competitors = sum(
+            1 for other in clusters[1:]
+            if math.hypot(other.x - cluster.x, other.y - cluster.y)
+            > 4.0 * max(other.radius, cluster.radius)
+            and other.best_score >= 0.9 * cluster.best_score
+            and len(other.methods) >= len(cluster.methods))
         labels[context.index] = consensus_label(
             clip_id, context.index, cluster, competitors=competitors, temporal=temporal,
             static=static, plausibility=plausibility, body=body, params=params)
@@ -615,11 +636,15 @@ def mine_hard_negatives(clip_id: str, contexts: Sequence[FrameContext], *,
                                                 cluster.y - label.y) <= \
                     params.agreement_radii * max(cluster.radius, label.radius or 1.0):
                 continue                                   # this is the accepted ball
-            image = context.colour
+            # Native pixels, because the caller crops the original frame. Taking the
+            # window from the working copy with native coordinates put the crop in the
+            # wrong place on every downscaled clip and silently dropped the rest.
             half = crop_size // 2
             left, top = int(round(cluster.x)) - half, int(round(cluster.y)) - half
-            if left < 0 or top < 0 or left + crop_size > image.shape[1] or \
-                    top + crop_size > image.shape[0]:
+            native_width = int(round(context.colour.shape[1] * float(context.scale or 1.0)))
+            native_height = int(round(context.colour.shape[0] * float(context.scale or 1.0)))
+            if left < 0 or top < 0 or left + crop_size > native_width or \
+                    top + crop_size > native_height:
                 continue
             records.append({
                 "clip_id": clip_id,
