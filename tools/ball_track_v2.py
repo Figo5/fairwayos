@@ -215,8 +215,16 @@ def cmd_eval_synth(args) -> int:
 # tracker evaluation
 # ---------------------------------------------------------------------------
 
+#: The kinds the generator actually implements; a made-up name here fails loudly
+#: at generation time rather than silently producing stationary balls for every
+#: sequence, which would make the evaluation unrepresentative of a struck shot.
+TRAJECTORY_KINDS = ("linear", "fast", "accelerating", "entrance", "exit",
+                    "slow", "stationary")
+
+
 def synthetic_tracker_run(clip: dict, *, seed: int, sequence_length: int,
-                          detector, params, interpolate: bool = False) -> dict:
+                          detector, params, interpolate: bool = False,
+                          trajectory: str = "mix", ordinal: int = 0) -> dict:
     import random
     rng = random.Random(seed)
     length = clip.get("frames") or 200
@@ -224,19 +232,31 @@ def synthetic_tracker_run(clip: dict, *, seed: int, sequence_length: int,
     frames = read_window(clip, start, sequence_length)
     if len(frames) < 4:
         return {}
-    modified, samples = bs.synthesize_sequence(frames, seed=rng.randint(0, 2**31))
+    # A corpus of stationary insertions is not a test of a tracker: a ball that never
+    # moves gives a motion-based tie-break nothing to work with, and it flatters
+    # nothing either. The mix cycles through the shot shapes the tracker exists for.
+    kind = None if trajectory == "random" else (
+        TRAJECTORY_KINDS[ordinal % len(TRAJECTORY_KINDS)] if trajectory == "mix"
+        else trajectory)
+    modified, samples = bs.synthesize_sequence(frames, seed=rng.randint(0, 2**31),
+                                               forced_kind=kind)
     indices = [start + sample.frame_index for sample in samples]
     result = btr.track_ball_v2(modified, indices, detector=detector, params=params,
                                interpolate=interpolate,
                                provenance={"source": "synthetic_insertion",
                                            "clip_id": clip["clip_id"]})
     payload = result.to_dict()
-    metrics = bev.synthetic_sequence_metrics(payload["frames"],
-                                             [sample.as_label() | {"frame_index": sample.frame_index,
-                                                                   "x": sample.x, "y": sample.y,
-                                                                   "radius_px": sample.radius_px}
-                                              for sample in samples],
-                                             width=clip["width"], height=clip["height"])
+    # Ground truth has to be keyed in the *same* index space as the tracker states.
+    # Labelling it with the local sample index while the states carry the clip's real
+    # frame numbers made every frame look like a miss (0 hits, 0 false positives, all
+    # false negatives) on clips where the tracker had in fact observed something.
+    metrics = bev.synthetic_sequence_metrics(
+        payload["frames"],
+        [sample.as_label() | {"frame_index": start + sample.frame_index,
+                              "x": sample.x, "y": sample.y,
+                              "radius_px": sample.radius_px}
+         for sample in samples],
+        width=clip["width"], height=clip["height"])
     metrics["clip_id"] = clip["clip_id"]
     metrics["frame_start"] = start
     metrics["accepted"] = result.accepted
@@ -253,7 +273,8 @@ def cmd_track_synth(args) -> int:
     for clip in clips:
         run = synthetic_tracker_run(clip, seed=EVAL_SEED + hash(clip["clip_id"]) % 1000,
                                     sequence_length=args.sequence_length,
-                                    detector=model, params=params)
+                                    detector=model, params=params,
+                                    trajectory=args.trajectory, ordinal=len(per_clip))
         if not run:
             continue
         per_clip.append(run["metrics"])
@@ -267,7 +288,8 @@ def cmd_track_synth(args) -> int:
               f"accepted={run['metrics']['accepted']}")
     pooled = bev.aggregate_synthetic_metrics(per_clip)
     pooled["split"] = args.split
-    payload = {"split": args.split, "seed": EVAL_SEED, "pooled": pooled,
+    payload = {"split": args.split, "seed": EVAL_SEED, "trajectory": args.trajectory,
+               "pooled": pooled,
                "params": params.__dict__,
                "per_clip": [{key: value for key, value in clip.items()
                              if key != "confidence"} for clip in per_clip]}
@@ -542,7 +564,8 @@ def cmd_final_test(args) -> int:
     for clip in clips:
         run = synthetic_tracker_run(clip, seed=EVAL_SEED + 500,
                                     sequence_length=args.sequence_length,
-                                    detector=model, params=params)
+                                    detector=model, params=params,
+                                    trajectory=args.trajectory, ordinal=len(per_clip))
         if not run:
             continue
         per_clip.append(run["metrics"])
@@ -612,6 +635,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--split", default="validation")
     p.add_argument("--clips", type=int, default=6)
     p.add_argument("--sequence-length", type=int, default=12)
+    p.add_argument("--trajectory", default="mix", choices=(*TRAJECTORY_KINDS, "mix", "random"))
     p.add_argument("--final-test", action="store_true")
     p.set_defaults(func=cmd_track_synth)
 
@@ -643,6 +667,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--final-test", action="store_true")
     p.add_argument("--clips", type=int, default=11)
     p.add_argument("--sequence-length", type=int, default=12)
+    p.add_argument("--trajectory", default="mix", choices=(*TRAJECTORY_KINDS, "mix"))
     p.set_defaults(func=cmd_final_test)
 
     return parser
