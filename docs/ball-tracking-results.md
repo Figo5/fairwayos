@@ -436,6 +436,17 @@ only through `tools/ball_research.py`.
 
 Media is local and gitignored; the labels are bound to its SHA-256.
 
+**Reproducibility boundary.** What is in the repository: the annotation dataset
+(`data/ball_annotations/*.json` — clip identifier, source path, source SHA-256 and the
+frame labels), the frozen split (`data/ball_split.json` — same SHA-256 per clip), the
+evaluator, the pipeline, the tools and the tests. What is **not** in the repository:
+the video itself. Every clip is rights-cleared local media that stays out of Git, and
+seven of the ten resolve into gitignored `out/` paths. The repository therefore does
+not, on its own, reproduce the evaluation. Re-running it requires the exact
+rights-cleared media bytes whose SHA-256 matches the recorded values — `bind_source`
+refuses the decode otherwise, and the tests that check the binding fail loudly rather
+than silently scoring a substituted clip.
+
 ```bash
 # labels, and check them by eye
 .venv-video-ai/bin/python3 tools/ball_annotate.py summary --clip-id pexels_6573644

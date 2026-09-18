@@ -65,6 +65,43 @@ Evidence: [`docs/canonical-video-pipeline-audit.md`](docs/canonical-video-pipeli
 Measured behaviour on the local corpus:
 [`docs/canonical-validation-sweep.md`](docs/canonical-validation-sweep.md).
 
+## Ball-tracking research (2026-09-18)
+
+**Automatic ball tracking: `UNAVAILABLE` in canonical mode.** The 2026-09-18 research
+pass did not change that, and no configuration turns it on.
+
+A bounded research pass over 10 rights-cleared Pexels clips produced the first ball
+ground truth in this repository:
+
+| | |
+|---|---|
+| clips | 10 (720p–4K, 24–60 fps) |
+| human-reviewed frames | 325 — 189 ball-visible, 136 ball-absent, 19 ambiguous |
+| split | frozen and group-disjoint (`data/ball_split.json`) |
+| labels | source-hash-bound (`data/ball_annotations/*.json`) |
+
+**Result: `FAILED_TO_GENERALIZE`.** Held-out recall 0.000. The held-out false-positive
+rate on ball-absent frames was 0.333 against a budget of ≤0.05 written down before any
+measurement, and the one held-out failure was a fifteen-frame lock onto the golfer's
+shirt. Body and clothing distractors remain unsolved, and on held-out the simpler
+baseline — this pipeline's own detector with the temporal stages deleted — beat the
+full method. Ball tracking was **not** promoted to the canonical path.
+
+This corpus is development-consumed. It is **not a benchmark**, and no untouched
+held-out portion remains, so it cannot support further threshold tuning or any claim
+of improvement on itself. The next step in this line needs new rights-cleared data,
+not a retune of these ten clips.
+
+The annotations and the split **are** committed. The underlying video is **not**:
+those clips are rights-cleared local media that stays out of Git, so this repository
+alone does not reproduce the evaluation. Re-running it requires the exact media bytes
+matching the recorded SHA-256 values.
+
+Evidence, per-clip metrics and reproduction commands:
+[`docs/ball-tracking-results.md`](docs/ball-tracking-results.md). Acceptance bar,
+written before implementation:
+[`docs/ball-tracking-research-plan.md`](docs/ball-tracking-research-plan.md).
+
 ## Test
 
 The analytics core is standard library only, but the full suite needs `cv2`. Use an
