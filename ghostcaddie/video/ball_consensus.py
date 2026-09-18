@@ -204,6 +204,25 @@ def _patch(gray: np.ndarray, x: float, y: float, size: int) -> Optional[np.ndarr
     return gray[top:top + size, left:left + size]
 
 
+def _tracking_window(gray: np.ndarray, x: float, y: float, radius: float,
+                     span: int) -> tuple[np.ndarray, int, int]:
+    """A local window to run optical flow in, with its origin in frame pixels.
+
+    Running LK on a full 1080p frame once per hypothesis per frame is the kind of
+    cost that makes a research pass stop being bounded; the ball cannot move far
+    in a few frames anyway, and a ball that leaves this window is reported as
+    failing verification rather than guessed at.
+    """
+    size = int(min(320, max(64, radius * (6.0 + 4.0 * span))))
+    height, width = gray.shape[:2]
+    size = min(size, height, width)
+    left = int(round(x)) - size // 2
+    top = int(round(y)) - size // 2
+    left = max(0, min(width - size, left))
+    top = max(0, min(height - size, top))
+    return gray[top:top + size, left:left + size], left, top
+
+
 def track_patch_both_ways(contexts: Sequence[FrameContext], start: int, x: float, y: float,
                           radius: float, params: ConsensusParams) -> dict:
     """Track a small patch forward k frames, then back, and compare.
@@ -222,53 +241,61 @@ def track_patch_both_ways(contexts: Sequence[FrameContext], start: int, x: float
     if forward < 2 or position == 0:
         return {"supported": False, "reason": "not enough frames on both sides"}
 
-    patch_size = int(max(7, round(radius * 4)) | 1)
-    anchor = _patch(contexts[position].gray, x, y, patch_size)
-    if anchor is None:
-        return {"supported": False, "reason": "patch would leave the frame"}
-
     # optical flow needs 8-bit images; the contexts carry float32 for the
-    # gradient work, so the frames are cast here rather than stored twice.
-    def flow_image(context: FrameContext) -> np.ndarray:
-        return np.clip(context.gray, 0, 255).astype(np.uint8)
+    # gradient work, so the windows are cast here rather than stored twice.
+    windows, origins = [], []
+    for step in range(0, forward + 1):
+        context = contexts[position + step]
+        gray = np.clip(context.gray, 0, 255).astype(np.uint8)
+        window, left, top = _tracking_window(gray, x, y, radius, forward)
+        windows.append(window)
+        origins.append((left, top))
+    size = windows[0].shape
 
-    # forward
-    points = np.array([[[x, y]]], dtype=np.float32)
-    forward_path = []
+    def to_window(point_x: float, point_y: float, step: int) -> Optional[np.ndarray]:
+        left, top = origins[step]
+        local_x, local_y = point_x - left, point_y - top
+        if not (0 <= local_x < size[1] and 0 <= local_y < size[0]):
+            return None
+        return np.array([[[local_x, local_y]]], dtype=np.float32)
+
+    points = to_window(x, y, 0)
+    if points is None:
+        return {"supported": False, "reason": "start point outside the tracking window"}
     for step in range(1, forward + 1):
-        previous = flow_image(contexts[position + step - 1])
-        current = flow_image(contexts[position + step])
+        if windows[step].shape != size:
+            return {"supported": False, "reason": "window left the frame edge"}
         moved, status, _ = cv2.calcOpticalFlowPyrLK(
-            previous, current, points, None,
+            windows[step - 1], windows[step], points, None,
             winSize=(11, 11), maxLevel=2,
             criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 20, 0.03))
         if status is None or status[0][0] != 1:
             return {"supported": False, "reason": f"forward track lost at step {step}"}
         points = moved
-        forward_path.append((float(moved[0][0][0]), float(moved[0][0][1])))
 
-    # backward from the far end, asking for the original position back
+    far = (points[0][0][0] + origins[forward][0], points[0][0][1] + origins[forward][1])
+    travelled = math.hypot(far[0] - x, far[1] - y)
+
     back_points = points.copy()
     for step in range(forward, 0, -1):
-        previous = flow_image(contexts[position + step])
-        current = flow_image(contexts[position + step - 1])
         moved, status, _ = cv2.calcOpticalFlowPyrLK(
-            previous, current, back_points, None,
+            windows[step], windows[step - 1], back_points, None,
             winSize=(11, 11), maxLevel=2,
             criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 20, 0.03))
         if status is None or status[0][0] != 1:
             return {"supported": False, "reason": f"backward track lost at step {step}"}
         back_points = moved
 
-    returned = (float(back_points[0][0][0]), float(back_points[0][0][1]))
+    returned = (back_points[0][0][0] + origins[0][0],
+                back_points[0][0][1] + origins[0][1])
     round_trip = math.hypot(returned[0] - x, returned[1] - y)
-    far = forward_path[-1]
-    travelled = math.hypot(far[0] - x, far[1] - y)
 
     # appearance: did the thing we came back to look like the thing we left?
+    patch_size = int(max(7, round(radius * 4)) | 1)
+    anchor = _patch(contexts[position].gray, x, y, patch_size)
     end_patch = _patch(contexts[position].gray, returned[0], returned[1], patch_size)
     correlation = None
-    if end_patch is not None and anchor.shape == end_patch.shape:
+    if anchor is not None and end_patch is not None and anchor.shape == end_patch.shape:
         a = anchor - anchor.mean()
         b = end_patch - end_patch.mean()
         denominator = float(np.sqrt((a * a).sum() * (b * b).sum()))
@@ -331,19 +358,35 @@ def static_scene_lock(cluster_sequence: Sequence[Optional[Cluster]],
     """
     positions = [cluster for cluster in cluster_sequence if cluster is not None]
     if len(positions) < params.static_lock_frames:
-        return {"locked": False, "run_frames": len(positions)}
-    run = 1
-    longest = 1
-    for a, b in zip(positions, positions[1:]):
-        if math.hypot(b.x - a.x, b.y - a.y) <= max(1.0, a.radius):
-            run += 1
-            longest = max(longest, run)
-        else:
-            run = 1
-    camera = float(np.median(motion_px)) if len(motion_px) else 0.0
-    locked = longest >= params.static_lock_frames and camera > 2.0
-    return {"locked": bool(locked), "run_frames": longest,
-            "median_camera_motion_px": round(camera, 2)}
+        return {"locked": False, "run_frames": len(positions),
+                "reason": f"only {len(positions)} observations, "
+                          f"{params.static_lock_frames} needed"}
+    steps = [math.hypot(b.x - a.x, b.y - a.y)
+             for a, b in zip(positions, positions[1:])]
+    cameras = [abs(float(value)) for value in motion_px if value is not None]
+    if not steps or not cameras:
+        return {"locked": False, "run_frames": len(positions),
+                "reason": "not enough motion in the window to judge"}
+    median_step = float(np.median(steps))
+    median_radius = float(np.median([cluster.radius for cluster in positions]))
+    median_camera = float(np.median(cameras))
+    # Both quantities are medians rather than run lengths: detection jitter on a
+    # real candidate resets any consecutive-run test, so a run-based rule fires on
+    # the wrong case (a stationary ball with a jittery centre) and misses the right
+    # one (a candidate the frame drags along).
+    tolerance = max(1.5, 1.5 * median_radius)
+    rides_the_frame = bool(median_step <= tolerance and median_camera > 2.0
+                           and median_camera >= 2.0 * median_step)
+    return {"locked": rides_the_frame,
+            "run_frames": len(positions),
+            "median_step_px": round(median_step, 2),
+            "median_camera_motion_px": round(median_camera, 2),
+            "tolerance_px": round(tolerance, 2),
+            "reason": (f"candidate holds position (median step {median_step:.1f} px) while "
+                       f"the camera moves {median_camera:.1f} px/frame, so it follows the "
+                       f"frame rather than the world"
+                       if rides_the_frame else
+                       "candidate motion is consistent with the camera's")}
 
 
 def body_lock(candidate_x: float, candidate_y: float, radius: float,
