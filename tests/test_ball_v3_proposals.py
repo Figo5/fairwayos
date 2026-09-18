@@ -146,7 +146,14 @@ class ProposalStage(unittest.TestCase):
 
     def test_the_new_generator_is_actually_wired_in(self):
         self.assertIn("local_distinctness", bp.METHOD_NAMES)
+        self.assertIn("local_distinctness", bp.ALL_METHOD_NAMES)
         self.assertIn("local_distinctness", bp.GENERATORS)
+
+    def test_the_default_generator_set_is_the_measured_one(self):
+        """The five v2 generators add no unique ball recall over
+        local_distinctness and cost 89% of the runtime."""
+        self.assertEqual(bp.METHOD_NAMES,
+                         ("local_distinctness", "brightness_cue"))
 
     def test_end_to_end_finds_a_ball_moving_across_turf(self):
         frames = [put_disc(turf(seed=11), 120 + 18 * i, 150, 6, (250, 250, 250))

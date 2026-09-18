@@ -451,16 +451,34 @@ def in_frame_start(spec: TrajectorySpec, count: int, width: int, height: int,
     return place(travel_x, width), place(travel_y, height)
 
 
-def appearance_for(min_side: int, rng: random.Random, *, blur_px: float = 0.0
-                   ) -> BallAppearance:
+def appearance_for(min_side: int, rng: random.Random, *, blur_px: float = 0.0,
+                   wide_scale: bool = False) -> BallAppearance:
     """Sample a ball that is hard for the right reasons.
 
     Radius is drawn in *native* pixels and deliberately skews small: a ball
     between 3 and 20 px across is the real problem, and a macro ball is the easy
     case the previous method was measured on.
     """
-    radius = float(np.clip(rng.lognormvariate(math.log(max(2.5, min_side * 0.004)), 0.55),
-                           2.0, max(12.0, min_side * 0.08)))
+    if wide_scale:
+        # v3. The v2 distribution is centred on min_side * 0.004 with sigma 0.55,
+        # which over 3,366 draws never produced a ball larger than 39 px -- while
+        # the real labelled corpus runs from 12 px to 276 px. The v2 detector was
+        # therefore never shown a large ball and inverted completely on one
+        # (oracle margin -0.369 above 40 px radius: a scale-coverage gap, not a
+        # discrimination failure). A quarter of v3 draws come from a log-uniform
+        # band covering the rest of the observed range, and the small-ball regime
+        # -- still the hard one -- keeps three quarters.
+        if rng.random() < 0.25:
+            low, high = math.log(12.0), math.log(max(24.0, min_side * 0.18))
+            radius = float(math.exp(rng.uniform(low, high)))
+        else:
+            radius = float(rng.lognormvariate(
+                math.log(max(2.5, min_side * 0.004)), 0.55))
+        radius = float(np.clip(radius, 2.0, max(24.0, min_side * 0.18)))
+    else:
+        radius = float(np.clip(
+            rng.lognormvariate(math.log(max(2.5, min_side * 0.004)), 0.55),
+            2.0, max(12.0, min_side * 0.08)))
     colour = rng.choices(list(BALL_COLOURS),
                          weights=[0.55, 0.2, 0.1, 0.12, 0.03])[0]
     return BallAppearance(
@@ -483,7 +501,8 @@ def appearance_for(min_side: int, rng: random.Random, *, blur_px: float = 0.0
 
 def synthesize_sequence(frames: Sequence[np.ndarray], *, seed: int,
                         forced_kind: Optional[str] = None,
-                        occlusion: bool = True, blur: bool = True
+                        occlusion: bool = True, blur: bool = True,
+                        wide_scale: bool = False
                         ) -> tuple[list[np.ndarray], list[BallSample]]:
     """Insert one ball tracking through a real sequence.
 
@@ -497,7 +516,7 @@ def synthesize_sequence(frames: Sequence[np.ndarray], *, seed: int,
     rng = random.Random(seed)
     height, width = frames[0].shape[:2]
     min_side = min(width, height)
-    appearance = appearance_for(min_side, rng)
+    appearance = appearance_for(min_side, rng, wide_scale=wide_scale)
     spec = trajectory_for(appearance.radius_px, min_side, rng, count=len(frames),
                           kind=forced_kind)
     start = None

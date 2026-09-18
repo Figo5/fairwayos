@@ -101,9 +101,9 @@ LABEL_NOISE_PX = 15.0
 #: radial_symmetry 1.30 s, local_distinctness 0.57 s, flow_residual 0.40 s,
 #: frame_difference 0.05 s.
 METHOD_SETS = {
-    "all six": bp.METHOD_NAMES,
-    "v2 five": tuple(m for m in bp.METHOD_NAMES if m != "local_distinctness"),
-    "drop local_contrast": tuple(m for m in bp.METHOD_NAMES if m != "local_contrast"),
+    "all six": bp.ALL_METHOD_NAMES,
+    "v2 five": tuple(m for m in bp.ALL_METHOD_NAMES if m != "local_distinctness"),
+    "drop local_contrast": tuple(m for m in bp.ALL_METHOD_NAMES if m != "local_contrast"),
     "distinctness + brightness": ("local_distinctness", "brightness_cue"),
     "distinctness only": ("local_distinctness",),
 }

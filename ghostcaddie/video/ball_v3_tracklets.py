@@ -78,8 +78,13 @@ MOTION_GROUPS = {
                 "mean_rank_margin", "top1_fraction"),
 }
 
-#: A candidate this many radii from the prediction is a different object.
-LINK_RADII = 4.0
+#: A candidate this many radii from the prediction is a different object. Set to
+#: match the fastest ball the rest of the system considers plausible: the
+#: synthetic generator draws "fast" trajectories at up to 6.0 radii per frame and
+#: v2's plausibility bound was 8.0, so a tighter link radius here would refuse to
+#: follow a struck ball on its first frame -- before any velocity estimate exists
+#: to widen the search.
+LINK_RADII = 8.0
 #: Below this compensated displacement a candidate counts as not moving.
 STATIC_STEP_RADII = 0.25
 
@@ -141,13 +146,22 @@ def build_tracklets(per_frame: dict[int, Sequence[Node]],
         still_open: list[Tracklet] = []
         for track in open_tracks:
             last = track.nodes[-1]
-            # predict where the last node lands on this frame: its own recent
-            # velocity, plus the camera's motion
+            # Predict where the last node lands on this frame: its own velocity
+            # through the world, plus the camera's motion into this frame.
+            #
+            # The velocity has to be CAMERA-COMPENSATED first. Node positions are
+            # native pixels, so a raw frame-to-frame difference already contains
+            # the camera's motion; adding the shift on top of that double-counts
+            # it, and a track on a panning shot then breaks after two frames --
+            # measured directly, every track capped at length 2 on a 40 px/frame
+            # pan.
             velocity = (0.0, 0.0)
             if len(track.nodes) >= 2:
                 previous = track.nodes[-2]
                 gap = max(1, last.frame_index - previous.frame_index)
-                velocity = ((last.x - previous.x) / gap, (last.y - previous.y) / gap)
+                previous_shift = camera_shift.get(last.frame_index, (0.0, 0.0))
+                velocity = ((last.x - previous.x - previous_shift[0]) / gap,
+                            (last.y - previous.y - previous_shift[1]) / gap)
             predicted = (last.x + velocity[0] + shift[0],
                          last.y + velocity[1] + shift[1])
             tolerance = link_radii * max(2.0, last.radius)
@@ -159,7 +173,7 @@ def build_tracklets(per_frame: dict[int, Sequence[Node]],
                 if distance <= best_distance:
                     best, best_distance = slot, distance
             if best is None:
-                (finished if len(track.nodes) >= min_length else finished).append(track)
+                finished.append(track)
                 continue
             used.add(best)
             track.nodes.append(nodes[best])

@@ -143,13 +143,28 @@ def propose_frame(candidates: Sequence[bc.Candidate2], params: ProposalParams
     return proposals[:params.max_per_frame]
 
 
-#: The v2 five, plus the generator built for the miss they make. Measured ball
-#: recall on the legacy labelled corpus, per generator, at work_max_side 2880:
-#: local_distinctness 0.583, brightness_cue 0.417, radial_symmetry 0.298,
-#: local_contrast 0.131, flow_residual 0.036, frame_difference 0.000.
-METHOD_NAMES = tuple(bc.METHOD_NAMES) + ("local_distinctness",)
+#: Every generator this stage can run. The v2 five are kept available for
+#: ablations and for anyone who wants them; they are not the default.
+ALL_METHOD_NAMES = tuple(bc.METHOD_NAMES) + ("local_distinctness",)
 GENERATORS = dict(bc.GENERATORS,
                   local_distinctness=bblobs.candidates_local_distinctness)
+
+#: The default set, chosen by measurement on the legacy labelled corpus:
+#:
+#:   generator set              ball recall   candidates/frame   sec/frame (4K)
+#:   all six                        0.738           139.0            4.93
+#:   the v2 five                    0.321            62.0            4.56
+#:   distinctness + brightness      0.738           104.7            1.38
+#:   distinctness only              0.738            95.5            0.50
+#:
+#: The five v2 generators contribute **no** unique ball recall over
+#: local_distinctness and cost 89% of the runtime, so they are not run by default.
+#: brightness_cue is kept although it adds no recall, for a stated reason rather
+#: than a vague one: its proposals are *bright clutter* -- shirt highlights,
+#: shoes, glare -- which is precisely the distractor class v2 lost to, and the
+#: listwise ranker needs those in its candidate lists to learn to reject them.
+#: ("local_distinctness",) alone is an equally good recall setting at 0.50 s.
+METHOD_NAMES = ("local_distinctness", "brightness_cue")
 
 
 def propose(frames: Sequence[np.ndarray], indices: Sequence[int], *,

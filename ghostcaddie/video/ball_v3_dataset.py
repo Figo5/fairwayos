@@ -95,11 +95,13 @@ def examples_from_sequence(frames: Sequence[np.ndarray], samples: Sequence[Any],
                            *, clip_id: str, frame_indices: Sequence[int],
                            params: bp.ProposalParams, pose_for,
                            numeric_fn, rng: np.random.Generator,
-                           list_size: int = LIST_SIZE) -> Iterator[FrameExample]:
+                           list_size: int = LIST_SIZE,
+                           methods=None) -> Iterator[FrameExample]:
     """Propose on the already-modified frames and pair the list with the answer."""
     import cv2
 
-    per_frame, _info = bp.propose(frames, list(range(len(frames))), params=params)
+    per_frame, _info = bp.propose(frames, list(range(len(frames))), params=params,
+                                  methods=methods or bp.METHOD_NAMES)
     height, width = frames[0].shape[:2]
 
     previous_gray = None

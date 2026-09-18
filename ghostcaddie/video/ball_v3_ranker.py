@@ -58,7 +58,9 @@ except Exception:  # pragma: no cover - environment dependent
     TORCH_AVAILABLE = False
 
 #: geometry (4) + body (7) + proposal evidence (2 + one score per method)
-NUMERIC_FEATURES = 4 + len(bbody.FEATURE_NAMES) + 2 + len(bp.METHOD_NAMES)
+#: Always sized by ALL_METHOD_NAMES, not by whichever generators a given run
+#: enables: an ablation must remove information, not resize the input layer.
+NUMERIC_FEATURES = 4 + len(bbody.FEATURE_NAMES) + 2 + len(bp.ALL_METHOD_NAMES)
 
 
 def _require_torch() -> None:
@@ -82,10 +84,10 @@ def numeric_features(proposal, pose, width: int, height: int) -> list[float]:
     return (
         bctx.geometry_features(proposal.x, proposal.y, proposal.radius, width, height)
         + bbody.features(pose, proposal.x, proposal.y, proposal.radius)
-        + [len(getattr(proposal, "methods", ())) / float(len(bp.METHOD_NAMES)),
+        + [len(getattr(proposal, "methods", ())) / float(len(bp.ALL_METHOD_NAMES)),
            min(1.0, float(getattr(proposal, "spread", 0.0))
                / max(1.0, 4.0 * proposal.radius))]
-        + [float(scores.get(name, 0.0)) for name in bp.METHOD_NAMES]
+        + [float(scores.get(name, 0.0)) for name in bp.ALL_METHOD_NAMES]
     )
 
 
