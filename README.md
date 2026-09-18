@@ -102,6 +102,29 @@ Evidence, per-clip metrics and reproduction commands:
 written before implementation:
 [`docs/ball-tracking-research-plan.md`](docs/ball-tracking-research-plan.md).
 
+### Dataset v2 (2026-09-18)
+
+A second, larger corpus now exists for the next attempt: **56 rights-cleared
+stock clips** (Pexels License) across 26 shoot families, 720p to 4K, 23.98 to 60
+fps, with a provenance manifest, `data/ball_dataset_v2/sources.json`, and a
+frozen group-disjoint split, `data/ball_dataset_v2/split.json` — 34 train, 11
+validation, 11 final test, with no shoot family in two splits and no family
+shared with the consumed v1 corpus in the final test.
+
+The labels are **not** done. This corpus ships with **0 reviewed frames** and
+machine candidates recorded as pending *proposals* instead. That is deliberate:
+the pass that built the corpus declined to promote its own machine reads to
+labels after a control experiment showed ball-scale review was unreliable in both
+directions (documented in
+[`docs/ball-annotation-guide.md`](docs/ball-annotation-guide.md#5-verify-every-label-by-rendering-it-back-onto-its-own-pixels)).
+Labelling is the blocking task, and the tool for it is
+`tools/ball_annotate_web.py`. **Final test has not been evaluated: NO.**
+
+Media is not committed and the corpus is not a benchmark until it has labels and
+an untouched final test. Canonical ball detection remains `UNAVAILABLE`.
+
+Tooling and statistics: [`docs/ball-dataset-v2-status.md`](docs/ball-dataset-v2-status.md).
+
 ## Test
 
 The analytics core is standard library only, but the full suite needs `cv2`. Use an

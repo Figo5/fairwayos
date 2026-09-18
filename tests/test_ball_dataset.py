@@ -720,10 +720,14 @@ class ShippedDatasetTests(unittest.TestCase):
                               legacy_groups=bd.legacy_groups_from_split(
                                   ROOT / "data" / "ball_split.json"))
         self.assertEqual(split["status"], "frozen")
-        groups = {}
+        group_splits: dict[str, set] = {}
         for clip in split["clips"]:
-            self.assertNotIn(clip["source_group"], groups)
-            groups[clip["source_group"]] = clip["split"]
+            group_splits.setdefault(clip["source_group"], set()).add(clip["split"])
+        for group, splits in group_splits.items():
+            self.assertEqual(len(splits), 1,
+                             f"shoot group {group} appears in {sorted(splits)}; a "
+                             "shared golfer, wardrobe or location may not leak "
+                             "across splits")
         self.assertTrue(any(clip["split"] == bd.SPLIT_FINAL_TEST
                             for clip in split["clips"]))
         legacy = bd.legacy_groups_from_split(ROOT / "data" / "ball_split.json")

@@ -499,6 +499,192 @@ def cmd_qa(args) -> int:
     return 0
 
 
+def cmd_montage(args) -> int:
+    """Render consecutive frames as tiles with a native-pixel grid.
+
+    A golf ball is a handful of pixels; reading its centre off a downscaled frame
+    is guessing. Each tile therefore carries a grid whose labels are *native*
+    frame coordinates, so a coordinate read off the sheet is a source coordinate
+    and nothing else.
+    """
+    import cv2
+
+    sources = load_sources_or_die()
+    clip = bd.sources_by_id(sources)[args.clip_id]
+    media = ROOT / clip["media_path"]
+    if not media.exists():
+        raise SystemExit(f"media missing: {media} (media is not committed)")
+    centres = {}
+    if args.centres:
+        candidate = Path(args.centres)
+        centres = (json.loads(candidate.read_text()) if candidate.exists()
+                   else json.loads(args.centres))
+    frames = [args.start + index * args.step for index in range(args.count)]
+    capture = cv2.VideoCapture(str(media))
+    tiles, geometry = [], []
+    for index in frames:
+        capture.set(cv2.CAP_PROP_POS_FRAMES, index)
+        ok, frame = capture.read()
+        if not ok:
+            continue
+        if args.full:
+            factor = args.tile_width / frame.shape[1]
+            tile = cv2.resize(frame, (args.tile_width, int(frame.shape[0] * factor)))
+            cv2.putText(tile, f"f{index}", (6, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                        (0, 255, 255), 2, cv2.LINE_AA)
+            tiles.append(tile)
+            geometry.append({"frame": index, "mode": "full", "scale": factor})
+            continue
+        x0 = int(centres.get(str(index), {}).get("x", args.cx)) - args.crop // 2
+        y0 = int(centres.get(str(index), {}).get("y", args.cy)) - args.crop // 2
+        x0 = max(0, min(clip["width"] - args.crop, x0))
+        y0 = max(0, min(clip["height"] - args.crop, y0))
+        patch = frame[y0:y0 + args.crop, x0:x0 + args.crop]
+        tile = cv2.resize(patch, (args.crop * args.scale, args.crop * args.scale),
+                          interpolation=cv2.INTER_NEAREST)
+        step = max(5, args.grid)
+        for offset in range(step, args.crop, step):
+            pos = offset * args.scale
+            cv2.line(tile, (pos, 0), (pos, tile.shape[0]), (0, 120, 0), 1)
+            cv2.line(tile, (0, pos), (tile.shape[1], pos), (0, 120, 0), 1)
+        cv2.putText(tile, f"f{index} x{x0}-{x0 + args.crop} y{y0}-{y0 + args.crop}",
+                    (4, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 255, 255), 1,
+                    cv2.LINE_AA)
+        cv2.putText(tile, f"({x0},{y0})", (4, tile.shape[0] - 6),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.42, (255, 200, 0), 1, cv2.LINE_AA)
+        tiles.append(tile)
+        geometry.append({"frame": index, "mode": "crop", "x0": x0, "y0": y0,
+                         "crop": args.crop, "scale": args.scale, "grid": step})
+    capture.release()
+    if not tiles:
+        raise SystemExit("no decodable frames in the requested range")
+
+    height = max(tile.shape[0] for tile in tiles)
+    width = max(tile.shape[1] for tile in tiles)
+    rows = (len(tiles) + args.columns - 1) // args.columns
+    sheet = cv2.copyMakeBorder(tiles[0], 0, height * rows - tiles[0].shape[0],
+                              0, width * args.columns - tiles[0].shape[1],
+                              cv2.BORDER_CONSTANT, value=(20, 20, 20))
+    sheet = cv2.resize(sheet, (width * args.columns, height * rows))
+    sheet[:] = (20, 20, 20)
+    for position, tile in enumerate(tiles):
+        row, column = divmod(position, args.columns)
+        y, x = row * height, column * width
+        sheet[y:y + tile.shape[0], x:x + tile.shape[1]] = tile
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(out), sheet)
+    sidecar = out.with_suffix(out.suffix + ".geometry.json")
+    sidecar.write_text(json.dumps({"clip_id": args.clip_id, "tiles": geometry,
+                                   "sheet": str(out)}, indent=1) + "\n")
+    print(f"wrote {out} ({len(tiles)} tiles) and {sidecar}")
+    print(f"sheet is {sheet.shape[1]}x{sheet.shape[0]}, tile {width}x{height}, "
+          f"columns={args.columns}")
+    return 0
+
+
+def cmd_proposal_sheet(args) -> int:
+    """Propose candidates with the research detector, then render them for review.
+
+    A proposal is not a label. This command runs candidate generation (no tracker,
+    no association) and draws the top few candidates on magnified tiles so a
+    reviewer can answer a much easier question than "where is the ball": *which of
+    these marked points is on the ball*. Rank 1 is also recorded as a pending
+    proposal, so a rejected guess stays on the record as negative evidence.
+    """
+    import cv2
+    import numpy as np
+
+    sources = load_sources_or_die()
+    clip = bd.sources_by_id(sources)[args.clip_id]
+    media = ROOT / clip["media_path"]
+    if not media.exists():
+        raise SystemExit(f"media missing: {media} (media is not committed)")
+    from ghostcaddie.video.ball_pipeline import BallParams, _gray, generate_candidates
+
+    params = BallParams()
+    frames = list(range(args.start, args.start + args.count * args.step, args.step))
+    capture = cv2.VideoCapture(str(media))
+    tiles, geometry, proposals = [], [], {}
+    for index in frames:
+        capture.set(cv2.CAP_PROP_POS_FRAMES, index)
+        ok, frame = capture.read()
+        if not ok:
+            continue
+        gray = _gray(frame)
+        candidates = sorted(generate_candidates(gray, index, params),
+                            key=lambda c: c.score, reverse=True)[:args.top]
+        if candidates:
+            best = candidates[0]
+            proposals[str(index)] = {"x": float(best.x), "y": float(best.y),
+                                     "score": float(best.score)}
+        centres = [(c.x, c.y) for c in candidates] or [(clip["width"] / 2,
+                                                        clip["height"] / 2)]
+        cx = int(sum(c[0] for c in centres) / len(centres))
+        cy = int(sum(c[1] for c in centres) / len(centres))
+        crop = args.crop
+        x0 = max(0, min(clip["width"] - crop, cx - crop // 2))
+        y0 = max(0, min(clip["height"] - crop, cy - crop // 2))
+        patch = frame[y0:y0 + crop, x0:x0 + crop]
+        tile = cv2.resize(patch, (crop * args.scale, crop * args.scale),
+                          interpolation=cv2.INTER_NEAREST)
+        labels = []
+        for rank, candidate in enumerate(candidates):
+            letter = "ABCDEFG"[rank]
+            px, py = int((candidate.x - x0) * args.scale), int((candidate.y - y0) * args.scale)
+            colour = [(0, 0, 255), (255, 0, 0), (0, 200, 255)][rank % 3]
+            cv2.drawMarker(tile, (px, py), colour, cv2.MARKER_CROSS, 26, 2)
+            cv2.putText(tile, letter, (px + 8, py - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                        colour, 2, cv2.LINE_AA)
+            cv2.circle(tile, (px, py), max(3, int(candidate.radius * args.scale)),
+                       colour, 1)
+            labels.append(f"{letter}({int(candidate.x)},{int(candidate.y)})")
+        cv2.putText(tile, f"f{index} x{x0}-{x0 + crop} y{y0}-{y0 + crop}", (4, 16),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 255, 255), 1, cv2.LINE_AA)
+        cv2.putText(tile, " ".join(labels), (4, tile.shape[0] - 6),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.42, (255, 220, 0), 1, cv2.LINE_AA)
+        if not candidates:
+            cv2.putText(tile, "NO CANDIDATES", (8, tile.shape[0] // 2),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2, cv2.LINE_AA)
+        tiles.append(tile)
+        geometry.append({"frame": index, "x0": x0, "y0": y0,
+                         "candidates": [{"x": float(c.x), "y": float(c.y),
+                                         "radius": float(c.radius),
+                                         "score": float(c.score)} for c in candidates]})
+    capture.release()
+    if not tiles:
+        raise SystemExit("no decodable frames")
+
+    height = max(tile.shape[0] for tile in tiles)
+    width = max(tile.shape[1] for tile in tiles)
+    rows = (len(tiles) + args.columns - 1) // args.columns
+    sheet = np.zeros((height * rows, width * args.columns, 3), dtype="uint8")
+    for position, tile in enumerate(tiles):
+        row, column = divmod(position, args.columns)
+        sheet[row * height:row * height + tile.shape[0],
+              column * width:column * width + tile.shape[1]] = tile
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(out), sheet)
+    out.with_suffix(out.suffix + ".geometry.json").write_text(
+        json.dumps({"clip_id": args.clip_id, "tiles": geometry}, indent=1) + "\n")
+
+    if not args.no_record:
+        annotation = bd.load_or_new_annotation(
+            annotations_dir=ANNOTATIONS, sources=sources, clip_id=args.clip_id,
+            project_root=ROOT, annotator="agent-visual")
+        for key, proposal in proposals.items():
+            annotation = bd.set_proposal(annotation, int(key), x=proposal["x"],
+                                         y=proposal["y"], method="radial_symmetry",
+                                         confidence="low")
+        bd.save_annotation(bd.annotation_path_for(ANNOTATIONS, args.clip_id),
+                           annotation, sources=sources, project_root=ROOT)
+    print(f"wrote {out} ({len(tiles)} tiles, {len(proposals)} pending proposals)")
+    print("proposals are guesses; only a reviewed label counts. Nothing was "
+          "promoted to a label by this command.")
+    return 0
+
+
 def cmd_set(args) -> int:
     sources = load_sources_or_die()
     annotation = bd.load_or_new_annotation(
@@ -614,6 +800,38 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--width", type=int, default=1280)
     p.add_argument("--out", default=str(ROOT / "out" / "ball_dataset_v2" / "qa"))
     p.set_defaults(func=cmd_qa)
+
+    p = sub.add_parser("montage", help="render frames as tiles with a native grid")
+    p.add_argument("--clip-id", required=True)
+    p.add_argument("--start", type=int, required=True)
+    p.add_argument("--count", type=int, default=8)
+    p.add_argument("--step", type=int, default=1)
+    p.add_argument("--columns", type=int, default=4)
+    p.add_argument("--full", action="store_true", help="whole frames, not crops")
+    p.add_argument("--tile-width", type=int, default=480)
+    p.add_argument("--crop", type=int, default=160)
+    p.add_argument("--cx", type=float, default=0)
+    p.add_argument("--cy", type=float, default=0)
+    p.add_argument("--scale", type=int, default=4)
+    p.add_argument("--grid", type=int, default=20, help="grid step in native pixels")
+    p.add_argument("--centres", help="JSON {frame: {x, y}} of per-frame crop centres")
+    p.add_argument("--out", required=True)
+    p.set_defaults(func=cmd_montage)
+
+    p = sub.add_parser("proposal-sheet",
+                       help="detector candidates drawn for review (never labels)")
+    p.add_argument("--clip-id", required=True)
+    p.add_argument("--start", type=int, required=True)
+    p.add_argument("--count", type=int, default=12)
+    p.add_argument("--step", type=int, default=1)
+    p.add_argument("--columns", type=int, default=4)
+    p.add_argument("--crop", type=int, default=200)
+    p.add_argument("--scale", type=int, default=3)
+    p.add_argument("--top", type=int, default=3)
+    p.add_argument("--no-record", action="store_true",
+                   help="render only; do not record proposals")
+    p.add_argument("--out", required=True)
+    p.set_defaults(func=cmd_proposal_sheet)
 
     p = sub.add_parser("set", help="record one reviewed frame")
     p.add_argument("--clip-id", required=True)

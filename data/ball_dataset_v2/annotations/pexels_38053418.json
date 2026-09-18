@@ -1,0 +1,114 @@
+{
+ "schema_version": "golf-ball-annotation.v2",
+ "clip_id": "pexels_38053418",
+ "video": "out/ball_dataset_v2/media/pexels_38053418.mp4",
+ "source_sha256": "6f8b9e8e036acf6fa475596bfcafcfacd3a1f894affbd747df6ddecc0cdc89f6",
+ "width": 4096,
+ "height": 2160,
+ "fps": 23.976024,
+ "frames_total": 252,
+ "annotator": "agent-visual",
+ "reviewer": null,
+ "source_group": "pexels_3805",
+ "tags": [],
+ "notes": "",
+ "frames": {},
+ "proposals": {
+  "40": {
+   "origin": "AGENT_PROPOSED",
+   "method": "radial_symmetry",
+   "status": "pending",
+   "x": 2028.0,
+   "y": 584.0,
+   "confidence": "low"
+  },
+  "41": {
+   "origin": "AGENT_PROPOSED",
+   "method": "radial_symmetry",
+   "status": "pending",
+   "x": 554.0,
+   "y": 527.0,
+   "confidence": "low"
+  },
+  "42": {
+   "origin": "AGENT_PROPOSED",
+   "method": "radial_symmetry",
+   "status": "pending",
+   "x": 554.0,
+   "y": 527.0,
+   "confidence": "low"
+  },
+  "43": {
+   "origin": "AGENT_PROPOSED",
+   "method": "radial_symmetry",
+   "status": "pending",
+   "x": 554.0,
+   "y": 527.0,
+   "confidence": "low"
+  },
+  "44": {
+   "origin": "AGENT_PROPOSED",
+   "method": "radial_symmetry",
+   "status": "pending",
+   "x": 555.0,
+   "y": 533.0,
+   "confidence": "low"
+  },
+  "45": {
+   "origin": "AGENT_PROPOSED",
+   "method": "radial_symmetry",
+   "status": "pending",
+   "x": 555.0,
+   "y": 533.0,
+   "confidence": "low"
+  },
+  "46": {
+   "origin": "AGENT_PROPOSED",
+   "method": "radial_symmetry",
+   "status": "pending",
+   "x": 555.0,
+   "y": 533.0,
+   "confidence": "low"
+  },
+  "47": {
+   "origin": "AGENT_PROPOSED",
+   "method": "radial_symmetry",
+   "status": "pending",
+   "x": 555.0,
+   "y": 533.0,
+   "confidence": "low"
+  },
+  "48": {
+   "origin": "AGENT_PROPOSED",
+   "method": "radial_symmetry",
+   "status": "pending",
+   "x": 555.0,
+   "y": 533.0,
+   "confidence": "low"
+  },
+  "49": {
+   "origin": "AGENT_PROPOSED",
+   "method": "radial_symmetry",
+   "status": "pending",
+   "x": 555.0,
+   "y": 533.0,
+   "confidence": "low"
+  },
+  "50": {
+   "origin": "AGENT_PROPOSED",
+   "method": "radial_symmetry",
+   "status": "pending",
+   "x": 555.0,
+   "y": 534.0,
+   "confidence": "low"
+  },
+  "51": {
+   "origin": "AGENT_PROPOSED",
+   "method": "radial_symmetry",
+   "status": "pending",
+   "x": 556.0,
+   "y": 534.0,
+   "confidence": "low"
+  }
+ }
+}

@@ -9,43 +9,84 @@
   "6573838": "emoji golf balls, not golf footage",
   "30936718": "mini-golf on artificial turf, not golf footage",
   "legacy_ids": "already consumed by the v1 development corpus",
-  "per_family_cap": "more than 8 clips from one shoot family"
+  "per_family_cap": "more than 8 clips from one shoot family",
+  "content_filter": "clips whose Pexels title identifies a different sport, a non-sport subject, or mini-golf were dropped: this is a golf-ball dataset, and a clip of tennis or baseball is not a hard case, it is a different task",
+  "dropped_entries": [
+   {
+    "clip_id": "pexels_10340699",
+    "source_identifier": "10340699",
+    "title": "Man Hitting Tennis Ball Free Stock Video Footage, Royalty ... - Pexels",
+    "reason": "not golf footage: 'man hitting tennis ball free stock video footage, royalty ..'"
+   },
+   {
+    "clip_id": "pexels_10340711",
+    "source_identifier": "10340711",
+    "title": "Man Getting Ready to Play Tennis Free Stock Video Footage ... - Pexels",
+    "reason": "not golf footage: 'man getting ready to play tennis free stock video footage ..'"
+   },
+   {
+    "clip_id": "pexels_10340768",
+    "source_identifier": "10340768",
+    "title": "Tennis Balls Flying Around Man with Racket Free Stock Video ... - Pexe",
+    "reason": "not golf footage: 'tennis balls flying around man with racket free stock video '"
+   },
+   {
+    "clip_id": "pexels_29045717",
+    "source_identifier": "29045717",
+    "title": "Drone shot capturing a soccer practice on a large outdoor field. - Pex",
+    "reason": "not golf footage: 'drone shot capturing a soccer practice on a large outdoor fi'"
+   },
+   {
+    "clip_id": "pexels_29243753",
+    "source_identifier": "29243753",
+    "title": "Fun Mini Golf Game on Outdoor Course Free Stock Video ... - Pexels",
+    "reason": "mini-golf on artificial turf, not a golf shot on a course"
+   },
+   {
+    "clip_id": "pexels_33853229",
+    "source_identifier": "33853229",
+    "title": "Exciting Night Baseball Game Under Stadium Lights Free Stock Video ...",
+    "reason": "not golf footage: 'exciting night baseball game under stadium lights free stock'"
+   },
+   {
+    "clip_id": "pexels_37743535",
+    "source_identifier": "37743535",
+    "title": "Intense Baseball Game on Sunny Day Free Stock Video Footage ... - Pexe",
+    "reason": "not golf footage: 'intense baseball game on sunny day free stock video footage '"
+   },
+   {
+    "clip_id": "pexels_5108968",
+    "source_identifier": "5108968",
+    "title": "Slow Motion Video of Smoke Coming from Cannabis Free Stock ... - Pexel",
+    "reason": "not golf footage: 'slow motion video of smoke coming from cannabis free stock .'"
+   },
+   {
+    "clip_id": "pexels_5182638",
+    "source_identifier": "5182638",
+    "title": "Baseball Equipments Near the Chain-Link Fence Free ... - Pexels",
+    "reason": "not golf footage: 'baseball equipments near the chain-link fence free ... - pex'"
+   },
+   {
+    "clip_id": "pexels_5423492",
+    "source_identifier": "5423492",
+    "title": "Low Angle Shot of a Football Player Jumping Free Stock Video ... - Pex",
+    "reason": "not golf footage: 'low angle shot of a football player jumping free stock video'"
+   },
+   {
+    "clip_id": "pexels_5730333",
+    "source_identifier": "5730333",
+    "title": "A Tennis Player Spinning His Racket Free Stock Video Footage ... - Pex",
+    "reason": "not golf footage: 'a tennis player spinning his racket free stock video footage'"
+   },
+   {
+    "clip_id": "pexels_9814055",
+    "source_identifier": "9814055",
+    "title": "Drone Footage of a Grass Field in a Park Free Stock Video ... - Pexels",
+    "reason": "title does not identify golf footage: 'drone footage of a grass field in a park free stock video ..'"
+   }
+  ]
  },
  "entries": [
-  {
-   "clip_id": "pexels_10340699",
-   "provider": "pexels",
-   "source_identifier": "10340699",
-   "source_url": "https://www.pexels.com/video/10340699/",
-   "download_url": "https://www.pexels.com/download/video/10340699/",
-   "source_group": "pexels_1034",
-   "title_from_search": "Man Hitting Tennis Ball Free Stock Video Footage, Royalty ... - Pexels",
-   "intended_tags": [
-    "ball"
-   ]
-  },
-  {
-   "clip_id": "pexels_10340711",
-   "provider": "pexels",
-   "source_identifier": "10340711",
-   "source_url": "https://www.pexels.com/video/10340711/",
-   "download_url": "https://www.pexels.com/download/video/10340711/",
-   "source_group": "pexels_1034",
-   "title_from_search": "Man Getting Ready to Play Tennis Free Stock Video Footage ... - Pexels",
-   "intended_tags": []
-  },
-  {
-   "clip_id": "pexels_10340768",
-   "provider": "pexels",
-   "source_identifier": "10340768",
-   "source_url": "https://www.pexels.com/video/10340768/",
-   "download_url": "https://www.pexels.com/download/video/10340768/",
-   "source_group": "pexels_1034",
-   "title_from_search": "Tennis Balls Flying Around Man with Racket Free Stock Video ... - Pexe",
-   "intended_tags": [
-    "ball"
-   ]
-  },
   {
    "clip_id": "pexels_10657769",
    "provider": "pexels",
@@ -112,30 +153,6 @@
    "intended_tags": []
   },
   {
-   "clip_id": "pexels_29045717",
-   "provider": "pexels",
-   "source_identifier": "29045717",
-   "source_url": "https://www.pexels.com/video/29045717/",
-   "download_url": "https://www.pexels.com/download/video/29045717/",
-   "source_group": "pexels_2904",
-   "title_from_search": "Drone shot capturing a soccer practice on a large outdoor field. - Pex",
-   "intended_tags": [
-    "aerial"
-   ]
-  },
-  {
-   "clip_id": "pexels_29243753",
-   "provider": "pexels",
-   "source_identifier": "29243753",
-   "source_url": "https://www.pexels.com/video/29243753/",
-   "download_url": "https://www.pexels.com/download/video/29243753/",
-   "source_group": "pexels_2924",
-   "title_from_search": "Fun Mini Golf Game on Outdoor Course Free Stock Video ... - Pexels",
-   "intended_tags": [
-    "course_scenery"
-   ]
-  },
-  {
    "clip_id": "pexels_31077806",
    "provider": "pexels",
    "source_identifier": "31077806",
@@ -172,18 +189,6 @@
    "intended_tags": [
     "putting",
     "close_up"
-   ]
-  },
-  {
-   "clip_id": "pexels_33853229",
-   "provider": "pexels",
-   "source_identifier": "33853229",
-   "source_url": "https://www.pexels.com/video/33853229/",
-   "download_url": "https://www.pexels.com/download/video/33853229/",
-   "source_group": "pexels_3385",
-   "title_from_search": "Exciting Night Baseball Game Under Stadium Lights Free Stock Video ...",
-   "intended_tags": [
-    "ball"
    ]
   },
   {
@@ -230,18 +235,6 @@
    "title_from_search": "Scenic Golf Course with Los Angeles Skyline View Free Stock Video ...",
    "intended_tags": [
     "course_scenery"
-   ]
-  },
-  {
-   "clip_id": "pexels_37743535",
-   "provider": "pexels",
-   "source_identifier": "37743535",
-   "source_url": "https://www.pexels.com/video/37743535/",
-   "download_url": "https://www.pexels.com/download/video/37743535/",
-   "source_group": "pexels_3774",
-   "title_from_search": "Intense Baseball Game on Sunny Day Free Stock Video Footage ... - Pexe",
-   "intended_tags": [
-    "ball"
    ]
   },
   {
@@ -408,28 +401,6 @@
    ]
   },
   {
-   "clip_id": "pexels_5108968",
-   "provider": "pexels",
-   "source_identifier": "5108968",
-   "source_url": "https://www.pexels.com/video/5108968/",
-   "download_url": "https://www.pexels.com/download/video/5108968/",
-   "source_group": "pexels_5108",
-   "title_from_search": "Slow Motion Video of Smoke Coming from Cannabis Free Stock ... - Pexel",
-   "intended_tags": []
-  },
-  {
-   "clip_id": "pexels_5182638",
-   "provider": "pexels",
-   "source_identifier": "5182638",
-   "source_url": "https://www.pexels.com/video/5182638/",
-   "download_url": "https://www.pexels.com/download/video/5182638/",
-   "source_group": "pexels_5182",
-   "title_from_search": "Baseball Equipments Near the Chain-Link Fence Free ... - Pexels",
-   "intended_tags": [
-    "ball"
-   ]
-  },
-  {
    "clip_id": "pexels_5200680",
    "provider": "pexels",
    "source_identifier": "5200680",
@@ -467,18 +438,6 @@
    ]
   },
   {
-   "clip_id": "pexels_5423492",
-   "provider": "pexels",
-   "source_identifier": "5423492",
-   "source_url": "https://www.pexels.com/video/5423492/",
-   "download_url": "https://www.pexels.com/download/video/5423492/",
-   "source_group": "pexels_5423",
-   "title_from_search": "Low Angle Shot of a Football Player Jumping Free Stock Video ... - Pex",
-   "intended_tags": [
-    "ball"
-   ]
-  },
-  {
    "clip_id": "pexels_5428844",
    "provider": "pexels",
    "source_identifier": "5428844",
@@ -489,16 +448,6 @@
    "intended_tags": [
     "aerial"
    ]
-  },
-  {
-   "clip_id": "pexels_5730333",
-   "provider": "pexels",
-   "source_identifier": "5730333",
-   "source_url": "https://www.pexels.com/video/5730333/",
-   "download_url": "https://www.pexels.com/download/video/5730333/",
-   "source_group": "pexels_5730",
-   "title_from_search": "A Tennis Player Spinning His Racket Free Stock Video Footage ... - Pex",
-   "intended_tags": []
   },
   {
    "clip_id": "pexels_6230548",
@@ -814,18 +763,6 @@
    "title_from_search": "Woman Playing Golf Free Stock Video Footage, Royalty-Free 4K ... - Pex",
    "intended_tags": [
     "player_female"
-   ]
-  },
-  {
-   "clip_id": "pexels_9814055",
-   "provider": "pexels",
-   "source_identifier": "9814055",
-   "source_url": "https://www.pexels.com/video/9814055/",
-   "download_url": "https://www.pexels.com/download/video/9814055/",
-   "source_group": "pexels_9814",
-   "title_from_search": "Drone Footage of a Grass Field in a Park Free Stock Video ... - Pexels",
-   "intended_tags": [
-    "aerial"
    ]
   }
  ]
