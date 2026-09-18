@@ -1,6 +1,7 @@
 """Clean-checkout/CI portability regressions (commit 9b5cd2b failures).
 """
 import shutil
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -86,6 +87,14 @@ class TestNoHardcodedToolPaths(unittest.TestCase):
 
 @unittest.skipUnless(_runtime_ffmpeg(), "ffmpeg is not installed")
 class TestPgaResearchDemoPortableRuntime(unittest.TestCase):
+    def test_fallback_discovers_current_cv2_interpreter_outside_checkout(self):
+        import ghostcaddie.video.pga_fallback as pga_fallback
+
+        with patch.object(pga_fallback.sys, "executable", sys.executable):
+            runtime = pga_fallback._discover_cv2_runtime()
+
+        self.assertEqual(Path(sys.executable).resolve(), runtime.resolve())
+
     def test_fallback_render_works_with_runtime_discovered_ffmpeg(self):
         # The render path must rely on PATH-discovered ffmpeg, not a
         # hard-coded absolute path.
