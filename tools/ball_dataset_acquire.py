@@ -163,6 +163,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--refresh", action="store_true",
                         help="re-probe and re-hash files already on disk")
     args = parser.parse_args(argv)
+    # A relative --media-root is resolved against the repository, not the caller's
+    # working directory: the provenance record stores a repo-relative media path,
+    # and relative_to() raises rather than guessing when the two disagree.
+    args.media_root = (args.media_root if args.media_root.is_absolute()
+                       else (ROOT / args.media_root)).resolve()
+    args.out = (args.out if args.out.is_absolute() else (ROOT / args.out)).resolve()
 
     plan = json.loads(args.plan.read_text(encoding="utf-8"))
     entries = plan["entries"]

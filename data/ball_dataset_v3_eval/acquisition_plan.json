@@ -1,0 +1,270 @@
+{
+ "schema_version": "golf-ball-dataset-acquisition-plan.v1",
+ "created": "2026-09-18",
+ "provider": "pexels",
+ "license": "Pexels License",
+ "license_url": "https://www.pexels.com/license/",
+ "license_text_reference": "https://web.archive.org/web/20260915223912/https://www.pexels.com/license/",
+ "purpose": "Ball tracker v3 EVALUATION corpus. Every clip here is from a shoot family that appears in neither the v2 dataset (data/ball_dataset_v2) nor the legacy human-labelled corpus (data/ball_split.json). No clip here is ever used for training.",
+ "reason_excluded_ids": {
+  "38025678": "already a v2 TRAIN clip (source_group pexels_3802); reusing it as v3 evaluation would be training leakage",
+  "37995798": "source_group pexels_3799 is a v2 train family",
+  "33511635": "source_group pexels_3351 is in the legacy human-labelled corpus",
+  "6541xxx / 6573xxx": "the Kindel Media families pexels_6541 and pexels_6573 dominate Pexels golf search and are already the largest v2 train families",
+  "14997596": "source_group pexels_1499 is one digit from the v2 family pexels_1498; not worth the shoot-family ambiguity in an evaluation set"
+ },
+ "entries": [
+  {
+   "clip_id": "pexels_16632575",
+   "provider": "pexels",
+   "source_identifier": "16632575",
+   "source_url": "https://www.pexels.com/video/a-young-man-practising-golf-16632575/",
+   "download_url": "https://www.pexels.com/download/video/16632575/",
+   "source_group": "pexels_1663",
+   "title_from_search": "A Young Man Practising Golf",
+   "intended_tags": [
+    "swing"
+   ]
+  },
+  {
+   "clip_id": "pexels_38098104",
+   "provider": "pexels",
+   "source_identifier": "38098104",
+   "source_url": "https://www.pexels.com/video/professional-golfer-performing-swing-on-golf-course-38098104/",
+   "download_url": "https://www.pexels.com/download/video/38098104/",
+   "source_group": "pexels_3809",
+   "title_from_search": "Professional Golfer Performing Swing On Golf Course",
+   "intended_tags": [
+    "swing"
+   ]
+  },
+  {
+   "clip_id": "pexels_37140848",
+   "provider": "pexels",
+   "source_identifier": "37140848",
+   "source_url": "https://www.pexels.com/video/golf-player-perfects-swing-on-scenic-course-37140848/",
+   "download_url": "https://www.pexels.com/download/video/37140848/",
+   "source_group": "pexels_3714",
+   "title_from_search": "Golf Player Perfects Swing on Scenic Course",
+   "intended_tags": [
+    "swing"
+   ]
+  },
+  {
+   "clip_id": "pexels_37140849",
+   "provider": "pexels",
+   "source_identifier": "37140849",
+   "source_url": "https://www.pexels.com/video/golfer-playing-on-scenic-mountain-course-37140849/",
+   "download_url": "https://www.pexels.com/download/video/37140849/",
+   "source_group": "pexels_3714",
+   "title_from_search": "Golfer Playing on Scenic Mountain Course",
+   "intended_tags": [
+    "swing"
+   ]
+  },
+  {
+   "clip_id": "pexels_28162215",
+   "provider": "pexels",
+   "source_identifier": "28162215",
+   "source_url": "https://www.pexels.com/video/a-man-playing-golf-on-a-green-field-28162215/",
+   "download_url": "https://www.pexels.com/download/video/28162215/",
+   "source_group": "pexels_2816",
+   "title_from_search": "A Man Playing Golf on a Green Field",
+   "intended_tags": [
+    "swing"
+   ]
+  },
+  {
+   "clip_id": "pexels_28224062",
+   "provider": "pexels",
+   "source_identifier": "28224062",
+   "source_url": "https://www.pexels.com/video/a-man-is-hitting-a-golf-ball-with-a-club-28224062/",
+   "download_url": "https://www.pexels.com/download/video/28224062/",
+   "source_group": "pexels_2822",
+   "title_from_search": "A Man Is Hitting a Golf Ball With a Club",
+   "intended_tags": [
+    "swing"
+   ]
+  },
+  {
+   "clip_id": "pexels_28224067",
+   "provider": "pexels",
+   "source_identifier": "28224067",
+   "source_url": "https://www.pexels.com/video/an-older-man-is-playing-golf-on-a-green-field-28224067/",
+   "download_url": "https://www.pexels.com/download/video/28224067/",
+   "source_group": "pexels_2822",
+   "title_from_search": "An Older Man Is Playing Golf on a Green Field",
+   "intended_tags": [
+    "swing"
+   ]
+  },
+  {
+   "clip_id": "pexels_34479242",
+   "provider": "pexels",
+   "source_identifier": "34479242",
+   "source_url": "https://www.pexels.com/video/golf-ball-placement-on-tee-in-desert-34479242/",
+   "download_url": "https://www.pexels.com/download/video/34479242/",
+   "source_group": "pexels_3447",
+   "title_from_search": "Golf Ball Placement on Tee in Desert",
+   "intended_tags": [
+    "macro_static"
+   ]
+  },
+  {
+   "clip_id": "pexels_32263858",
+   "provider": "pexels",
+   "source_identifier": "32263858",
+   "source_url": "https://www.pexels.com/video/golf-swing-on-a-scenic-outdoor-course-32263858/",
+   "download_url": "https://www.pexels.com/download/video/32263858/",
+   "source_group": "pexels_3226",
+   "title_from_search": "Golf Swing on a Scenic Outdoor Course",
+   "intended_tags": [
+    "swing"
+   ]
+  },
+  {
+   "clip_id": "pexels_37151504",
+   "provider": "pexels",
+   "source_identifier": "37151504",
+   "source_url": "https://www.pexels.com/video/golf-player-teeing-off-on-sunny-course-37151504/",
+   "download_url": "https://www.pexels.com/download/video/37151504/",
+   "source_group": "pexels_3715",
+   "title_from_search": "Golf Player Teeing Off on Sunny Course",
+   "intended_tags": [
+    "swing"
+   ]
+  },
+  {
+   "clip_id": "pexels_37151507",
+   "provider": "pexels",
+   "source_identifier": "37151507",
+   "source_url": "https://www.pexels.com/video/golfer-preparing-swing-on-sunny-course-37151507/",
+   "download_url": "https://www.pexels.com/download/video/37151507/",
+   "source_group": "pexels_3715",
+   "title_from_search": "Golfer Preparing Swing on Sunny Course",
+   "intended_tags": [
+    "swing"
+   ]
+  },
+  {
+   "clip_id": "pexels_38784627",
+   "provider": "pexels",
+   "source_identifier": "38784627",
+   "source_url": "https://www.pexels.com/video/golf-swing-on-picturesque-course-38784627/",
+   "download_url": "https://www.pexels.com/download/video/38784627/",
+   "source_group": "pexels_3878",
+   "title_from_search": "Golf Swing on Picturesque Course",
+   "intended_tags": [
+    "swing"
+   ]
+  },
+  {
+   "clip_id": "pexels_28961434",
+   "provider": "pexels",
+   "source_identifier": "28961434",
+   "source_url": "https://www.pexels.com/video/golfers-practicing-putting-on-a-sunny-day-28961434/",
+   "download_url": "https://www.pexels.com/download/video/28961434/",
+   "source_group": "pexels_2896",
+   "title_from_search": "Golfers Practicing Putting on a Sunny Day",
+   "intended_tags": [
+    "putting"
+   ]
+  },
+  {
+   "clip_id": "pexels_34897076",
+   "provider": "pexels",
+   "source_identifier": "34897076",
+   "source_url": "https://www.pexels.com/video/sunny-day-at-a-picturesque-golf-course-34897076/",
+   "download_url": "https://www.pexels.com/download/video/34897076/",
+   "source_group": "pexels_3489",
+   "title_from_search": "Sunny Day at a Picturesque Golf Course",
+   "intended_tags": [
+    "scenery"
+   ]
+  },
+  {
+   "clip_id": "pexels_17763430",
+   "provider": "pexels",
+   "source_identifier": "17763430",
+   "source_url": "https://www.pexels.com/video/tee-off-17763430/",
+   "download_url": "https://www.pexels.com/download/video/17763430/",
+   "source_group": "pexels_1776",
+   "title_from_search": "Tee Off",
+   "intended_tags": [
+    "swing"
+   ]
+  },
+  {
+   "clip_id": "pexels_11924479",
+   "provider": "pexels",
+   "source_identifier": "11924479",
+   "source_url": "https://www.pexels.com/video/people-playing-golf-11924479/",
+   "download_url": "https://www.pexels.com/download/video/11924479/",
+   "source_group": "pexels_1192",
+   "title_from_search": "People Playing Golf",
+   "intended_tags": [
+    "swing"
+   ]
+  },
+  {
+   "clip_id": "pexels_8065880",
+   "provider": "pexels",
+   "source_identifier": "8065880",
+   "source_url": "https://www.pexels.com/video/man-playing-golf-8065880/",
+   "download_url": "https://www.pexels.com/download/video/8065880/",
+   "source_group": "pexels_8065",
+   "title_from_search": "Man Playing Golf",
+   "intended_tags": [
+    "swing"
+   ]
+  },
+  {
+   "clip_id": "pexels_36107616",
+   "provider": "pexels",
+   "source_identifier": "36107616",
+   "source_url": "https://www.pexels.com/video/scenic-golf-course-during-summer-day-36107616/",
+   "download_url": "https://www.pexels.com/download/video/36107616/",
+   "source_group": "pexels_3610",
+   "title_from_search": "Scenic Golf Course During Summer Day",
+   "intended_tags": [
+    "scenery"
+   ]
+  },
+  {
+   "clip_id": "pexels_38488433",
+   "provider": "pexels",
+   "source_identifier": "38488433",
+   "source_url": "https://www.pexels.com/video/aerial-view-of-golfers-on-a-green-course-38488433/",
+   "download_url": "https://www.pexels.com/download/video/38488433/",
+   "source_group": "pexels_3848",
+   "title_from_search": "Aerial View of Golfers on a Green Course",
+   "intended_tags": [
+    "scenery"
+   ]
+  },
+  {
+   "clip_id": "pexels_27768771",
+   "provider": "pexels",
+   "source_identifier": "27768771",
+   "source_url": "https://www.pexels.com/video/a-golf-course-with-trees-and-grass-27768771/",
+   "download_url": "https://www.pexels.com/download/video/27768771/",
+   "source_group": "pexels_2776",
+   "title_from_search": "A Golf Course With Trees and Grass",
+   "intended_tags": [
+    "scenery"
+   ]
+  },
+  {
+   "clip_id": "pexels_9240968",
+   "provider": "pexels",
+   "source_identifier": "9240968",
+   "source_url": "https://www.pexels.com/video/golf-clubs-on-a-green-grass-9240968/",
+   "download_url": "https://www.pexels.com/download/video/9240968/",
+   "source_group": "pexels_9240",
+   "title_from_search": "Golf Clubs on a Green Grass",
+   "intended_tags": [
+    "equipment_static"
+   ]
+  }
+ ]
+}
