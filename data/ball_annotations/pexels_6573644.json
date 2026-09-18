@@ -1,0 +1,300 @@
+{
+  "schema_version": "golf-ball-annotation.v1",
+  "clip_id": "pexels_6573644",
+  "video": "research_stock/pexels_6573644.mp4",
+  "source_sha256": "af4e6e2318ec5f50a43e8786281b6c9bf970c5b46769b7a20af2546d40d3d94c",
+  "width": 1920,
+  "height": 1080,
+  "fps": 30.0,
+  "annotator": "agent-visual",
+  "notes": "train: yellow range ball close-up",
+  "frames": {
+    "44": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "no ball anywhere in frame; only turf, with a dark shoe at the left edge"
+    },
+    "45": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "no ball anywhere in frame; only turf, with a dark shoe at the left edge"
+    },
+    "46": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "no ball anywhere in frame; only turf, with a dark shoe at the left edge"
+    },
+    "47": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "no ball anywhere in frame; only turf, with a dark shoe at the left edge"
+    },
+    "48": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "no ball anywhere in frame; only turf, with a dark shoe at the left edge"
+    },
+    "49": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "no ball anywhere in frame; only turf, with a dark shoe at the left edge"
+    },
+    "50": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "no ball anywhere in frame; only turf, with a dark shoe at the left edge"
+    },
+    "51": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "no ball anywhere in frame; only turf, with a dark shoe at the left edge"
+    },
+    "52": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "no ball anywhere in frame; only turf, with a dark shoe at the left edge"
+    },
+    "53": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "no ball anywhere in frame; only turf, with a dark shoe at the left edge"
+    },
+    "54": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "no ball anywhere in frame; only turf, with a dark shoe at the left edge"
+    },
+    "55": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "no ball anywhere in frame; only turf, with a dark shoe at the left edge"
+    },
+    "56": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "no ball anywhere in frame; only turf, with a dark shoe at the left edge"
+    },
+    "57": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "no ball anywhere in frame; only turf, with a dark shoe at the left edge"
+    },
+    "58": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "no ball anywhere in frame; only turf, with a dark shoe at the left edge"
+    },
+    "196": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "197": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "198": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "199": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "200": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "201": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "202": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "203": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "204": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "205": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "206": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "207": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "208": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "209": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "210": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "243": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "244": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "245": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "246": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "247": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "248": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "249": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "250": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "251": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "252": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "253": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "254": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "255": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0
+    },
+    "256": {
+      "visible": true,
+      "ambiguous": true,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0,
+      "reason": "club face overlapping the ball at contact; centre partly inferred from the visible arc"
+    },
+    "257": {
+      "visible": true,
+      "ambiguous": true,
+      "x": 963.0,
+      "y": 616.0,
+      "radius": 72.0,
+      "reason": "club face overlapping the ball at contact; centre partly inferred from the visible arc"
+    }
+  }
+}

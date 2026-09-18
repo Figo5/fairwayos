@@ -1,0 +1,194 @@
+{
+  "schema_version": "golf-ball-annotation.v1",
+  "clip_id": "pexels_34883764",
+  "video": "out/demo_improvement_campaign/development/pexels_round4/pexels_34883764.mp4",
+  "source_sha256": "2288176398a8cf8d5f1607b7bda4765c999c967c515b47ec1e8d9f31591fdc14",
+  "width": 1080,
+  "height": 1920,
+  "fps": 30.0,
+  "annotator": "agent-visual",
+  "notes": "held-out: white ball, flagsticks, scattered decoy balls",
+  "frames": {
+    "160": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 639.0,
+      "y": 1456.0,
+      "radius": 12.0
+    },
+    "161": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 631.0,
+      "y": 1456.0,
+      "radius": 12.0
+    },
+    "162": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 621.0,
+      "y": 1456.0,
+      "radius": 12.0
+    },
+    "163": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 617.0,
+      "y": 1456.0,
+      "radius": 12.0
+    },
+    "164": {
+      "visible": true,
+      "ambiguous": true,
+      "x": 654.0,
+      "y": 1456.0,
+      "radius": 12.0,
+      "reason": "rightmost-column read disagreed with both neighbours; annotator would not defend it"
+    },
+    "165": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 622.0,
+      "y": 1460.0,
+      "radius": 12.0
+    },
+    "166": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 621.0,
+      "y": 1460.0,
+      "radius": 12.0
+    },
+    "167": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 627.0,
+      "y": 1460.0,
+      "radius": 12.0
+    },
+    "168": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 617.0,
+      "y": 1460.0,
+      "radius": 12.0
+    },
+    "169": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 621.0,
+      "y": 1460.0,
+      "radius": 12.0
+    },
+    "170": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 617.0,
+      "y": 1463.0,
+      "radius": 12.0
+    },
+    "171": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 611.0,
+      "y": 1463.0,
+      "radius": 12.0
+    },
+    "172": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 617.0,
+      "y": 1463.0,
+      "radius": 12.0
+    },
+    "173": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 614.0,
+      "y": 1463.0,
+      "radius": 12.0
+    },
+    "174": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 614.0,
+      "y": 1463.0,
+      "radius": 12.0
+    },
+    "740": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "golfer standing after the shot; no played ball in frame (white flagsticks and flags remain in the tree line as distractors)"
+    },
+    "741": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "golfer standing after the shot; no played ball in frame (white flagsticks and flags remain in the tree line as distractors)"
+    },
+    "742": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "golfer standing after the shot; no played ball in frame (white flagsticks and flags remain in the tree line as distractors)"
+    },
+    "743": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "golfer standing after the shot; no played ball in frame (white flagsticks and flags remain in the tree line as distractors)"
+    },
+    "744": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "golfer standing after the shot; no played ball in frame (white flagsticks and flags remain in the tree line as distractors)"
+    },
+    "745": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "golfer standing after the shot; no played ball in frame (white flagsticks and flags remain in the tree line as distractors)"
+    },
+    "746": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "golfer standing after the shot; no played ball in frame (white flagsticks and flags remain in the tree line as distractors)"
+    },
+    "747": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "golfer standing after the shot; no played ball in frame (white flagsticks and flags remain in the tree line as distractors)"
+    },
+    "748": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "golfer standing after the shot; no played ball in frame (white flagsticks and flags remain in the tree line as distractors)"
+    },
+    "749": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "golfer standing after the shot; no played ball in frame (white flagsticks and flags remain in the tree line as distractors)"
+    },
+    "750": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "golfer standing after the shot; no played ball in frame (white flagsticks and flags remain in the tree line as distractors)"
+    },
+    "751": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "golfer standing after the shot; no played ball in frame (white flagsticks and flags remain in the tree line as distractors)"
+    },
+    "752": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "golfer standing after the shot; no played ball in frame (white flagsticks and flags remain in the tree line as distractors)"
+    },
+    "753": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "golfer standing after the shot; no played ball in frame (white flagsticks and flags remain in the tree line as distractors)"
+    },
+    "754": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "golfer standing after the shot; no played ball in frame (white flagsticks and flags remain in the tree line as distractors)"
+    }
+  }
+}

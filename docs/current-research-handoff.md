@@ -29,6 +29,43 @@ What changed on 2026-09-16:
 
 Not done, and not recommended yet. SAM2 and BootsTAPIR would revive code whose claims are already withdrawn. Restore an optional asset only when the canonical path actually needs it, the audit evidence supports the method, the environment can load it safely, and there is a concrete validation plan. Until then they stay `model_absent`, documented, and out of the canonical path.
 
+## Ball-tracking research pass, 2026-09-18
+
+Outcome: **FAILED_TO_GENERALIZE**. Canonical `ball` stays `UNAVAILABLE`; nothing on the
+canonical path changed and `tests/test_ball_research_isolation.py` fails if that stops
+being true.
+
+What it added that is worth keeping regardless of the outcome:
+
+- **The first ball ground truth in this repository.** `data/ball_annotations/` — 325
+  human-read frames across 10 rights-cleared Pexels clips (189 ball-visible, 136
+  ball-absent, 19 ambiguous), in 20 consecutive runs, every label bound to its clip's
+  SHA-256 and every visible label rendered back onto its own frame and checked by eye.
+  Four clips were mislabelled on the first pass and corrected — one of them had the
+  centre on the *tee* rather than the ball.
+- **A frozen clip-level split**, `data/ball_split.json`, validated by the existing
+  `research_split` contract, split by shoot group rather than by clip so a shared
+  golfer cannot leak across splits. Held-out was scored once, after freezing.
+- **An evaluator that scores the right thing** (`ball_evaluation.py`): correct silence
+  on a ball-absent frame is a success, a prediction on the wrong object is a false
+  positive rather than a near miss, and only `observed` states can earn credit.
+- **Two measured baselines and one method**, per clip, in `docs/ball-tracking-results.md`.
+
+Findings to carry forward:
+
+- The flagstick/tee/shoe failure family that got the earlier tracker withdrawn does not
+  occur anywhere in this corpus under the new method. The tee case is explicit: on
+  `pexels_6573621` the bare tee stands in the ball's former position and the method
+  correctly says nothing.
+- The unsolved distractor is the **golfer's own body**. A head, shoulder or cap has a
+  closed circular boundary at ball scale and a strong colour separation from grass, and
+  no bottom-up appearance feature tried here separates it from a ball.
+- `stationarity_gate.py` must never be applied to the ball layer: a tee'd ball is
+  definitionally sustained-stationary, and that gate would delete every correct at-rest
+  observation.
+- `temporal_candidate_gate.accept_candidate_run` requires `residual_motion > 0` and so
+  also discards every at-rest ball. Concept reusable, implementation not.
+
 ## Hard research flags
 
 All referenced perception records remain:

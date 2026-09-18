@@ -1,0 +1,298 @@
+{
+  "schema_version": "golf-ball-annotation.v1",
+  "clip_id": "pexels_6573621",
+  "video": "out/demo_improvement_campaign/development/pexels_round4/pexels_6573621.mp4",
+  "source_sha256": "5219fe3d5a6004a88b39a7a19b30554141db3651f1083fbca45e495d74b15f91",
+  "width": 720,
+  "height": 1280,
+  "fps": 30.0,
+  "annotator": "agent-visual",
+  "notes": "train: yellow ball on white tee, lens flare",
+  "frames": {
+    "98": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "99": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "100": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "101": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "102": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "103": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "104": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "105": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "106": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "107": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "108": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "109": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "110": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "111": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "112": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "113": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "114": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "115": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "116": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "117": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "118": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "119": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "120": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "121": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "122": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "123": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "124": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "125": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "126": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "127": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 64.0,
+      "y": 1111.0,
+      "radius": 25.0
+    },
+    "246": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; only the bare white tee remains at the ball's former position"
+    },
+    "247": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; only the bare white tee remains at the ball's former position"
+    },
+    "248": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; only the bare white tee remains at the ball's former position"
+    },
+    "249": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; only the bare white tee remains at the ball's former position"
+    },
+    "250": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; only the bare white tee remains at the ball's former position"
+    },
+    "251": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; only the bare white tee remains at the ball's former position"
+    },
+    "252": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; only the bare white tee remains at the ball's former position"
+    },
+    "253": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; only the bare white tee remains at the ball's former position"
+    },
+    "254": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; only the bare white tee remains at the ball's former position"
+    },
+    "255": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; only the bare white tee remains at the ball's former position"
+    },
+    "256": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; only the bare white tee remains at the ball's former position"
+    },
+    "257": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; only the bare white tee remains at the ball's former position"
+    },
+    "258": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; only the bare white tee remains at the ball's former position"
+    },
+    "259": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; only the bare white tee remains at the ball's former position"
+    },
+    "260": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; only the bare white tee remains at the ball's former position"
+    }
+  }
+}

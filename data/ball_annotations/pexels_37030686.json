@@ -1,0 +1,119 @@
+{
+  "schema_version": "golf-ball-annotation.v1",
+  "clip_id": "pexels_37030686",
+  "video": "out/demo_improvement_campaign/development/pexels_round4/pexels_37030686.mp4",
+  "source_sha256": "01299123abecd32a98a189334171e5498d7c1aa9b5d48ac742240006756849a6",
+  "width": 1080,
+  "height": 1920,
+  "fps": 30.0,
+  "annotator": "agent-visual",
+  "notes": "train: white ball on grass, camera pan, white cap",
+  "frames": {
+    "80": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 825.0,
+      "y": 1587.0,
+      "radius": 14.0
+    },
+    "81": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 826.0,
+      "y": 1587.0,
+      "radius": 14.0
+    },
+    "82": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 826.0,
+      "y": 1587.0,
+      "radius": 14.0
+    },
+    "83": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 829.0,
+      "y": 1587.0,
+      "radius": 14.0
+    },
+    "84": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 835.0,
+      "y": 1587.0,
+      "radius": 14.0
+    },
+    "85": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 829.0,
+      "y": 1587.0,
+      "radius": 14.0
+    },
+    "86": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 835.0,
+      "y": 1587.0,
+      "radius": 14.0
+    },
+    "87": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 832.0,
+      "y": 1587.0,
+      "radius": 14.0
+    },
+    "88": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 838.0,
+      "y": 1587.0,
+      "radius": 14.0
+    },
+    "89": {
+      "visible": true,
+      "ambiguous": true,
+      "x": 806.0,
+      "y": 1587.0,
+      "radius": 14.0,
+      "reason": "centre read disagreed with both neighbours; annotator would not defend it"
+    },
+    "90": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 844.0,
+      "y": 1587.0,
+      "radius": 14.0
+    },
+    "91": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 851.0,
+      "y": 1587.0,
+      "radius": 14.0
+    },
+    "92": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 844.0,
+      "y": 1587.0,
+      "radius": 14.0
+    },
+    "93": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 851.0,
+      "y": 1587.0,
+      "radius": 14.0
+    },
+    "94": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 856.0,
+      "y": 1587.0,
+      "radius": 14.0
+    }
+  }
+}

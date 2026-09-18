@@ -1,0 +1,275 @@
+{
+  "schema_version": "golf-ball-annotation.v1",
+  "clip_id": "pexels_6541842",
+  "video": "research_stock/pexels_6541842.mp4",
+  "source_sha256": "aeca117864ab8919deee30857829ba8412f5dd23c439dae526a41b2a2e4dcbb6",
+  "width": 1440,
+  "height": 2560,
+  "fps": 25.0,
+  "annotator": "agent-visual",
+  "notes": "train: white ball at address, visible flight against sky",
+  "frames": {
+    "50": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1090.0,
+      "y": 1885.0,
+      "radius": 26.0
+    },
+    "51": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1090.0,
+      "y": 1885.0,
+      "radius": 26.0
+    },
+    "52": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1090.0,
+      "y": 1885.0,
+      "radius": 26.0
+    },
+    "53": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1090.0,
+      "y": 1885.0,
+      "radius": 26.0
+    },
+    "54": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1090.0,
+      "y": 1885.0,
+      "radius": 26.0
+    },
+    "55": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1090.0,
+      "y": 1885.0,
+      "radius": 26.0
+    },
+    "56": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1090.0,
+      "y": 1885.0,
+      "radius": 26.0
+    },
+    "57": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1090.0,
+      "y": 1885.0,
+      "radius": 26.0
+    },
+    "58": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1090.0,
+      "y": 1885.0,
+      "radius": 26.0
+    },
+    "59": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1090.0,
+      "y": 1885.0,
+      "radius": 26.0
+    },
+    "60": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "occluded by the club face at contact"
+    },
+    "61": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1111.0,
+      "y": 1888.0,
+      "radius": 24.0,
+      "reason": "in flight; centre read from a ball-following magnified crop, annotation precision about 20 px"
+    },
+    "62": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1069.0,
+      "y": 1887.0,
+      "radius": 24.0,
+      "reason": "in flight; centre read from a ball-following magnified crop, annotation precision about 20 px"
+    },
+    "63": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1090.0,
+      "y": 1843.0,
+      "radius": 24.0,
+      "reason": "in flight; centre read from a ball-following magnified crop, annotation precision about 20 px"
+    },
+    "64": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1132.0,
+      "y": 1730.0,
+      "radius": 24.0,
+      "reason": "in flight; centre read from a ball-following magnified crop, annotation precision about 20 px"
+    },
+    "65": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1095.0,
+      "y": 1610.0,
+      "radius": 22.0,
+      "reason": "in flight; centre read from a ball-following magnified crop, annotation precision about 20 px"
+    },
+    "66": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1092.0,
+      "y": 1553.0,
+      "radius": 22.0,
+      "reason": "in flight; centre read from a ball-following magnified crop, annotation precision about 20 px"
+    },
+    "67": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1083.0,
+      "y": 1462.0,
+      "radius": 22.0,
+      "reason": "in flight; centre read from a ball-following magnified crop, annotation precision about 20 px"
+    },
+    "68": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1080.0,
+      "y": 1381.0,
+      "radius": 22.0,
+      "reason": "in flight; centre read from a ball-following magnified crop, annotation precision about 20 px"
+    },
+    "69": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1076.0,
+      "y": 1311.0,
+      "radius": 22.0,
+      "reason": "in flight; centre read from a ball-following magnified crop, annotation precision about 20 px"
+    },
+    "70": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1080.0,
+      "y": 1263.0,
+      "radius": 20.0,
+      "reason": "in flight; centre read from a ball-following magnified crop, annotation precision about 20 px"
+    },
+    "71": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1062.0,
+      "y": 1213.0,
+      "radius": 20.0,
+      "reason": "in flight; centre read from a ball-following magnified crop, annotation precision about 20 px"
+    },
+    "72": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1063.0,
+      "y": 1177.0,
+      "radius": 20.0,
+      "reason": "in flight; centre read from a ball-following magnified crop, annotation precision about 20 px"
+    },
+    "73": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1063.0,
+      "y": 1157.0,
+      "radius": 20.0,
+      "reason": "in flight; centre read from a ball-following magnified crop, annotation precision about 20 px"
+    },
+    "74": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1057.0,
+      "y": 1117.0,
+      "radius": 20.0,
+      "reason": "in flight; centre read from a ball-following magnified crop, annotation precision about 20 px"
+    },
+    "150": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; no ball anywhere in frame"
+    },
+    "151": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; no ball anywhere in frame"
+    },
+    "152": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; no ball anywhere in frame"
+    },
+    "153": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; no ball anywhere in frame"
+    },
+    "154": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; no ball anywhere in frame"
+    },
+    "155": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; no ball anywhere in frame"
+    },
+    "156": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; no ball anywhere in frame"
+    },
+    "157": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; no ball anywhere in frame"
+    },
+    "158": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; no ball anywhere in frame"
+    },
+    "159": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; no ball anywhere in frame"
+    },
+    "160": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; no ball anywhere in frame"
+    },
+    "161": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; no ball anywhere in frame"
+    },
+    "162": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; no ball anywhere in frame"
+    },
+    "163": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; no ball anywhere in frame"
+    },
+    "164": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; no ball anywhere in frame"
+    }
+  }
+}

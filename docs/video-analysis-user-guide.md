@@ -44,6 +44,13 @@ Research-only. Never reached from the canonical path, never a fallback:
 - `fresh_ai` upload mode — network, external paid AI service, non-deterministic.
 - `research_ball.py`, `research_ball_track.py`, `pga_sliced_ball.py` — falsified on
   the accepted artifact; the track followed the flagstick base.
+- `ball_pipeline.py`, `ball_evaluation.py`, `ball_annotations.py`,
+  `tools/ball_research.py`, `tools/ball_annotate.py` — the 2026-09-18 ball-tracking
+  research pass. Classified **FAILED_TO_GENERALIZE**: it tracks one clip of ten
+  correctly and abstains on the rest, and on the held-out split it locked onto a
+  golfer's shirt for fifteen frames. Reachable only through `tools/ball_research.py`;
+  the canonical ball layer is untouched. Evidence:
+  [`ball-tracking-results.md`](ball-tracking-results.md).
 - `region_tracker_mil.py`, `mil_overlay.py`, `clubhead_methods.py` — transfer FAILED
   with frozen settings; the baseline's extra frames are wrong frames.
 - `BallTapirAdapter` (BootsTAPIR) — falsified for transfer under a hash-bound rerun.

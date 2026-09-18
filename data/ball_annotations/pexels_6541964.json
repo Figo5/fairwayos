@@ -1,0 +1,163 @@
+{
+  "schema_version": "golf-ball-annotation.v1",
+  "clip_id": "pexels_6541964",
+  "video": "out/demo_improvement_campaign/development/pexels_round4/pexels_6541964.mp4",
+  "source_sha256": "cbcc91439d6749cfa3f474b62f056cfcc3425a3769c7a463c400ea3e0ef31dbc",
+  "width": 2560,
+  "height": 1440,
+  "fps": 25.0,
+  "annotator": "agent-visual",
+  "notes": "held-out: dirt lie, ball may be unresolvable",
+  "frames": {
+    "160": {
+      "visible": false,
+      "ambiguous": true,
+      "reason": "at address on a bare dirt lie; no ball locatable anywhere in frame at this resolution, so neither a detection nor a miss can be scored here"
+    },
+    "161": {
+      "visible": false,
+      "ambiguous": true,
+      "reason": "at address on a bare dirt lie; no ball locatable anywhere in frame at this resolution, so neither a detection nor a miss can be scored here"
+    },
+    "162": {
+      "visible": false,
+      "ambiguous": true,
+      "reason": "at address on a bare dirt lie; no ball locatable anywhere in frame at this resolution, so neither a detection nor a miss can be scored here"
+    },
+    "163": {
+      "visible": false,
+      "ambiguous": true,
+      "reason": "at address on a bare dirt lie; no ball locatable anywhere in frame at this resolution, so neither a detection nor a miss can be scored here"
+    },
+    "164": {
+      "visible": false,
+      "ambiguous": true,
+      "reason": "at address on a bare dirt lie; no ball locatable anywhere in frame at this resolution, so neither a detection nor a miss can be scored here"
+    },
+    "165": {
+      "visible": false,
+      "ambiguous": true,
+      "reason": "at address on a bare dirt lie; no ball locatable anywhere in frame at this resolution, so neither a detection nor a miss can be scored here"
+    },
+    "166": {
+      "visible": false,
+      "ambiguous": true,
+      "reason": "at address on a bare dirt lie; no ball locatable anywhere in frame at this resolution, so neither a detection nor a miss can be scored here"
+    },
+    "167": {
+      "visible": false,
+      "ambiguous": true,
+      "reason": "at address on a bare dirt lie; no ball locatable anywhere in frame at this resolution, so neither a detection nor a miss can be scored here"
+    },
+    "168": {
+      "visible": false,
+      "ambiguous": true,
+      "reason": "at address on a bare dirt lie; no ball locatable anywhere in frame at this resolution, so neither a detection nor a miss can be scored here"
+    },
+    "169": {
+      "visible": false,
+      "ambiguous": true,
+      "reason": "at address on a bare dirt lie; no ball locatable anywhere in frame at this resolution, so neither a detection nor a miss can be scored here"
+    },
+    "170": {
+      "visible": false,
+      "ambiguous": true,
+      "reason": "at address on a bare dirt lie; no ball locatable anywhere in frame at this resolution, so neither a detection nor a miss can be scored here"
+    },
+    "171": {
+      "visible": false,
+      "ambiguous": true,
+      "reason": "at address on a bare dirt lie; no ball locatable anywhere in frame at this resolution, so neither a detection nor a miss can be scored here"
+    },
+    "172": {
+      "visible": false,
+      "ambiguous": true,
+      "reason": "at address on a bare dirt lie; no ball locatable anywhere in frame at this resolution, so neither a detection nor a miss can be scored here"
+    },
+    "173": {
+      "visible": false,
+      "ambiguous": true,
+      "reason": "at address on a bare dirt lie; no ball locatable anywhere in frame at this resolution, so neither a detection nor a miss can be scored here"
+    },
+    "174": {
+      "visible": false,
+      "ambiguous": true,
+      "reason": "at address on a bare dirt lie; no ball locatable anywhere in frame at this resolution, so neither a detection nor a miss can be scored here"
+    },
+    "230": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "post-impact follow-through; ball gone (a large white golf bag and white shoe trim remain in frame as distractors)"
+    },
+    "231": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "post-impact follow-through; ball gone (a large white golf bag and white shoe trim remain in frame as distractors)"
+    },
+    "232": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "post-impact follow-through; ball gone (a large white golf bag and white shoe trim remain in frame as distractors)"
+    },
+    "233": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "post-impact follow-through; ball gone (a large white golf bag and white shoe trim remain in frame as distractors)"
+    },
+    "234": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "post-impact follow-through; ball gone (a large white golf bag and white shoe trim remain in frame as distractors)"
+    },
+    "235": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "post-impact follow-through; ball gone (a large white golf bag and white shoe trim remain in frame as distractors)"
+    },
+    "236": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "post-impact follow-through; ball gone (a large white golf bag and white shoe trim remain in frame as distractors)"
+    },
+    "237": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "post-impact follow-through; ball gone (a large white golf bag and white shoe trim remain in frame as distractors)"
+    },
+    "238": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "post-impact follow-through; ball gone (a large white golf bag and white shoe trim remain in frame as distractors)"
+    },
+    "239": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "post-impact follow-through; ball gone (a large white golf bag and white shoe trim remain in frame as distractors)"
+    },
+    "240": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "post-impact follow-through; ball gone (a large white golf bag and white shoe trim remain in frame as distractors)"
+    },
+    "241": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "post-impact follow-through; ball gone (a large white golf bag and white shoe trim remain in frame as distractors)"
+    },
+    "242": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "post-impact follow-through; ball gone (a large white golf bag and white shoe trim remain in frame as distractors)"
+    },
+    "243": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "post-impact follow-through; ball gone (a large white golf bag and white shoe trim remain in frame as distractors)"
+    },
+    "244": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "post-impact follow-through; ball gone (a large white golf bag and white shoe trim remain in frame as distractors)"
+    }
+  }
+}

@@ -1,0 +1,193 @@
+{
+  "schema_version": "golf-ball-annotation.v1",
+  "clip_id": "pexels_37080178",
+  "video": "out/demo_improvement_campaign/development/pexels_round4/pexels_37080178.mp4",
+  "source_sha256": "69e6763c5f3aefb357a79e60540438d378818469ed2a28cf28ff9901288c9ade",
+  "width": 1080,
+  "height": 1920,
+  "fps": 30.0,
+  "annotator": "agent-visual",
+  "notes": "validation: white ball on grass, white shoes",
+  "frames": {
+    "55": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 670.0,
+      "y": 1429.0,
+      "radius": 12.0
+    },
+    "56": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 676.0,
+      "y": 1429.0,
+      "radius": 12.0
+    },
+    "57": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 680.0,
+      "y": 1429.0,
+      "radius": 12.0
+    },
+    "58": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 681.0,
+      "y": 1429.0,
+      "radius": 12.0
+    },
+    "59": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 687.0,
+      "y": 1429.0,
+      "radius": 12.0
+    },
+    "60": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 681.0,
+      "y": 1431.0,
+      "radius": 12.0
+    },
+    "61": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 681.0,
+      "y": 1431.0,
+      "radius": 12.0
+    },
+    "62": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 684.0,
+      "y": 1431.0,
+      "radius": 12.0
+    },
+    "63": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 687.0,
+      "y": 1431.0,
+      "radius": 12.0
+    },
+    "64": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 691.0,
+      "y": 1431.0,
+      "radius": 12.0
+    },
+    "65": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 694.0,
+      "y": 1445.0,
+      "radius": 12.0
+    },
+    "66": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 695.0,
+      "y": 1445.0,
+      "radius": 12.0
+    },
+    "67": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 697.0,
+      "y": 1445.0,
+      "radius": 12.0
+    },
+    "68": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 699.0,
+      "y": 1445.0,
+      "radius": 12.0
+    },
+    "69": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 709.0,
+      "y": 1445.0,
+      "radius": 12.0
+    },
+    "340": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; the played ball is gone from frame (distant white bunker sand and cart-path specks remain as distractors)"
+    },
+    "341": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; the played ball is gone from frame (distant white bunker sand and cart-path specks remain as distractors)"
+    },
+    "342": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; the played ball is gone from frame (distant white bunker sand and cart-path specks remain as distractors)"
+    },
+    "343": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; the played ball is gone from frame (distant white bunker sand and cart-path specks remain as distractors)"
+    },
+    "344": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; the played ball is gone from frame (distant white bunker sand and cart-path specks remain as distractors)"
+    },
+    "345": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; the played ball is gone from frame (distant white bunker sand and cart-path specks remain as distractors)"
+    },
+    "346": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; the played ball is gone from frame (distant white bunker sand and cart-path specks remain as distractors)"
+    },
+    "347": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; the played ball is gone from frame (distant white bunker sand and cart-path specks remain as distractors)"
+    },
+    "348": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; the played ball is gone from frame (distant white bunker sand and cart-path specks remain as distractors)"
+    },
+    "349": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; the played ball is gone from frame (distant white bunker sand and cart-path specks remain as distractors)"
+    },
+    "350": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; the played ball is gone from frame (distant white bunker sand and cart-path specks remain as distractors)"
+    },
+    "351": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; the played ball is gone from frame (distant white bunker sand and cart-path specks remain as distractors)"
+    },
+    "352": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; the played ball is gone from frame (distant white bunker sand and cart-path specks remain as distractors)"
+    },
+    "353": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; the played ball is gone from frame (distant white bunker sand and cart-path specks remain as distractors)"
+    },
+    "354": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "shot completed; the played ball is gone from frame (distant white bunker sand and cart-path specks remain as distractors)"
+    }
+  }
+}

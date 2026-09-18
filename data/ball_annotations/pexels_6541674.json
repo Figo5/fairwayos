@@ -1,0 +1,193 @@
+{
+  "schema_version": "golf-ball-annotation.v1",
+  "clip_id": "pexels_6541674",
+  "video": "out/demo_improvement_campaign/development/pexels_round4/pexels_6541674.mp4",
+  "source_sha256": "7ea6631d8eb4032c5c52dbb4f5b77670adb0de1f64d174fe33635c6591b20fc8",
+  "width": 2560,
+  "height": 1440,
+  "fps": 25.0,
+  "annotator": "agent-visual",
+  "notes": "validation: yellow ball, yellow trousers",
+  "frames": {
+    "70": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 860.0,
+      "y": 1211.0,
+      "radius": 15.0
+    },
+    "71": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 860.0,
+      "y": 1211.0,
+      "radius": 15.0
+    },
+    "72": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 860.0,
+      "y": 1211.0,
+      "radius": 15.0
+    },
+    "73": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 860.0,
+      "y": 1211.0,
+      "radius": 15.0
+    },
+    "74": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 860.0,
+      "y": 1211.0,
+      "radius": 15.0
+    },
+    "75": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 860.0,
+      "y": 1211.0,
+      "radius": 15.0
+    },
+    "76": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 860.0,
+      "y": 1211.0,
+      "radius": 15.0
+    },
+    "77": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 860.0,
+      "y": 1211.0,
+      "radius": 15.0
+    },
+    "78": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 860.0,
+      "y": 1211.0,
+      "radius": 15.0
+    },
+    "79": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 860.0,
+      "y": 1211.0,
+      "radius": 15.0
+    },
+    "80": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 860.0,
+      "y": 1211.0,
+      "radius": 15.0
+    },
+    "81": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 860.0,
+      "y": 1211.0,
+      "radius": 15.0
+    },
+    "82": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 860.0,
+      "y": 1211.0,
+      "radius": 15.0
+    },
+    "83": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 860.0,
+      "y": 1211.0,
+      "radius": 15.0
+    },
+    "84": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 860.0,
+      "y": 1211.0,
+      "radius": 15.0
+    },
+    "150": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; nothing ball-like anywhere in frame"
+    },
+    "151": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; nothing ball-like anywhere in frame"
+    },
+    "152": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; nothing ball-like anywhere in frame"
+    },
+    "153": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; nothing ball-like anywhere in frame"
+    },
+    "154": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; nothing ball-like anywhere in frame"
+    },
+    "155": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; nothing ball-like anywhere in frame"
+    },
+    "156": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; nothing ball-like anywhere in frame"
+    },
+    "157": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; nothing ball-like anywhere in frame"
+    },
+    "158": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; nothing ball-like anywhere in frame"
+    },
+    "159": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; nothing ball-like anywhere in frame"
+    },
+    "160": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; nothing ball-like anywhere in frame"
+    },
+    "161": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; nothing ball-like anywhere in frame"
+    },
+    "162": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; nothing ball-like anywhere in frame"
+    },
+    "163": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; nothing ball-like anywhere in frame"
+    },
+    "164": {
+      "visible": false,
+      "ambiguous": false,
+      "reason": "ball struck away; nothing ball-like anywhere in frame"
+    }
+  }
+}

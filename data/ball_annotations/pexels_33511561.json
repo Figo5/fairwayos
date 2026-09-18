@@ -1,0 +1,223 @@
+{
+  "schema_version": "golf-ball-annotation.v1",
+  "clip_id": "pexels_33511561",
+  "video": "research_stock/pexels_33511561.mp4",
+  "source_sha256": "6964bc74518e30ad48cbf8f6dffd139ad46b72f73d04e5869a8866f1b55b964f",
+  "width": 2560,
+  "height": 1440,
+  "fps": 60.0,
+  "annotator": "agent-visual",
+  "notes": "validation: white ball on tee, white shoes, 60fps",
+  "frames": {
+    "100": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1334.0,
+      "y": 754.0,
+      "radius": 159.0
+    },
+    "101": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1334.0,
+      "y": 754.0,
+      "radius": 159.0
+    },
+    "102": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1334.0,
+      "y": 754.0,
+      "radius": 159.0
+    },
+    "103": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1334.0,
+      "y": 754.0,
+      "radius": 159.0
+    },
+    "104": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1334.0,
+      "y": 754.0,
+      "radius": 159.0
+    },
+    "105": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1334.0,
+      "y": 754.0,
+      "radius": 159.0
+    },
+    "106": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1334.0,
+      "y": 754.0,
+      "radius": 159.0
+    },
+    "107": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1334.0,
+      "y": 754.0,
+      "radius": 159.0
+    },
+    "108": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1334.0,
+      "y": 754.0,
+      "radius": 159.0
+    },
+    "109": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1334.0,
+      "y": 754.0,
+      "radius": 159.0
+    },
+    "110": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1334.0,
+      "y": 754.0,
+      "radius": 159.0
+    },
+    "111": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1334.0,
+      "y": 754.0,
+      "radius": 159.0
+    },
+    "112": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1334.0,
+      "y": 754.0,
+      "radius": 159.0
+    },
+    "113": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1334.0,
+      "y": 754.0,
+      "radius": 159.0
+    },
+    "114": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1334.0,
+      "y": 754.0,
+      "radius": 159.0
+    },
+    "300": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1281.0,
+      "y": 789.0,
+      "radius": 276.0
+    },
+    "301": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1281.0,
+      "y": 789.0,
+      "radius": 276.0
+    },
+    "302": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1281.0,
+      "y": 789.0,
+      "radius": 276.0
+    },
+    "303": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1281.0,
+      "y": 789.0,
+      "radius": 276.0
+    },
+    "304": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1281.0,
+      "y": 789.0,
+      "radius": 276.0
+    },
+    "305": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1281.0,
+      "y": 789.0,
+      "radius": 276.0
+    },
+    "306": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1281.0,
+      "y": 789.0,
+      "radius": 276.0
+    },
+    "307": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1281.0,
+      "y": 789.0,
+      "radius": 276.0
+    },
+    "308": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1281.0,
+      "y": 789.0,
+      "radius": 276.0
+    },
+    "309": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1281.0,
+      "y": 789.0,
+      "radius": 276.0
+    },
+    "310": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1281.0,
+      "y": 789.0,
+      "radius": 276.0
+    },
+    "311": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1281.0,
+      "y": 789.0,
+      "radius": 276.0
+    },
+    "312": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1281.0,
+      "y": 789.0,
+      "radius": 276.0
+    },
+    "313": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1281.0,
+      "y": 789.0,
+      "radius": 276.0
+    },
+    "314": {
+      "visible": true,
+      "ambiguous": false,
+      "x": 1281.0,
+      "y": 789.0,
+      "radius": 276.0
+    }
+  }
+}
