@@ -249,3 +249,27 @@ class ExampleReader:
 
     def numeric_for(self, record: dict) -> np.ndarray:
         return np.asarray(record["numeric"], dtype=np.float32)
+
+
+class MultiReader:
+    """Several stores read as one. Generation is slow and interruptible, so a
+    training run has to be able to consume whatever passes have completed."""
+
+    def __init__(self, directories) -> None:
+        if isinstance(directories, (str, Path)):
+            directories = [directories]
+        self.readers = [ExampleReader(Path(d)) for d in directories
+                        if (Path(d) / "index.jsonl").exists()]
+        self.records = []
+        for position, reader in enumerate(self.readers):
+            for record in reader.records:
+                self.records.append({**record, "_store": position})
+
+    def __len__(self) -> int:
+        return len(self.records)
+
+    def stacks_for(self, record: dict) -> np.ndarray:
+        return self.readers[record["_store"]].stacks_for(record)
+
+    def numeric_for(self, record: dict) -> np.ndarray:
+        return self.readers[record["_store"]].numeric_for(record)

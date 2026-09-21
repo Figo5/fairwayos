@@ -166,10 +166,40 @@ def cmd_gen(args) -> int:
     return 0
 
 
+def augment(stacks: np.ndarray, numeric: np.ndarray,
+            rng: random.Random) -> tuple[np.ndarray, np.ndarray]:
+    """Flips and photometric jitter, applied to a whole candidate list at once.
+
+    Needed because the store is small: 178k parameters over a few hundred lists
+    memorised the training set by the second epoch (loss 1.478 -> 0.0014 over
+    twelve), and model selection then had nothing but noise to choose between.
+
+    A horizontal flip also has to flip the x geometry feature, or the network is
+    handed a picture and a coordinate that disagree -- which teaches it that the
+    coordinate means nothing.
+    """
+    stacks = np.ascontiguousarray(stacks)
+    if rng.random() < 0.5:
+        stacks = stacks[:, :, ::-1, :]
+        numeric[:, 0] = 1.0 - numeric[:, 0]
+    if rng.random() < 0.5:
+        stacks = stacks[:, ::-1, :, :]
+        numeric[:, 1] = 1.0 - numeric[:, 1]
+    if rng.random() < 0.7:
+        # the colour streams only; the motion channel is a difference and scaling
+        # it would misrepresent how much actually moved
+        gain = rng.uniform(0.75, 1.3)
+        bias = rng.uniform(-18.0, 18.0)
+        colour = stacks[..., :6].astype(np.float32) * gain + bias
+        stacks = np.concatenate(
+            [np.clip(colour, 0, 255).astype(np.uint8), stacks[..., 6:]], axis=-1)
+    return np.ascontiguousarray(stacks), numeric
+
+
 def cmd_train_ranker(args) -> int:
     import torch
 
-    reader = bdata.ExampleReader(args.data)
+    reader = bdata.MultiReader(args.data)
     if not len(reader):
         print("no training lists found; run gen first", file=sys.stderr)
         return 2
@@ -187,7 +217,8 @@ def cmd_train_ranker(args) -> int:
 
     device = brank.device()
     model = brank.CandidateRanker().to(device)
-    optimiser = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
+    optimiser = torch.optim.Adam(model.parameters(), lr=args.learning_rate,
+                                 weight_decay=args.weight_decay)
     history = []
     best_top1, best_state, best_epoch = -1.0, None, 0
 
@@ -198,9 +229,13 @@ def cmd_train_ranker(args) -> int:
         optimiser.zero_grad()
         for position, record in enumerate(train):
             stacks = reader.stacks_for(record)
-            numeric = reader.numeric_for(record)
-            images = torch.from_numpy(
-                stacks.transpose(0, 3, 1, 2).astype(np.float32) / 255.0).to(device)
+            numeric = reader.numeric_for(record).copy()
+            stacks, numeric = augment(stacks, numeric, rng)
+            # ascontiguousarray matters: the store is memory-mapped, so a
+            # transposed view spans two contiguous subspaces and autograd's
+            # backward pass rejects it rather than failing at the forward pass.
+            images = torch.from_numpy(np.ascontiguousarray(
+                stacks.transpose(0, 3, 1, 2), dtype=np.float32) / 255.0).to(device)
             numbers = torch.from_numpy(numeric).to(device)
             scores = model(images, numbers)
             loss = brank.listwise_loss(scores, record["target"], model.null_logit)
@@ -531,12 +566,14 @@ def main(argv: list[str] | None = None) -> int:
     gen.set_defaults(func=cmd_gen)
 
     train = sub.add_parser("train-ranker", help="listwise training")
-    train.add_argument("--data", type=Path, default=WORK / "listwise_train")
+    train.add_argument("--data", type=Path, action="append", default=None,
+                       help="a listwise store; repeat to train on several")
     train.add_argument("--out", type=Path, default=WORK / "ranker" / "ranker.pt")
     train.add_argument("--epochs", type=int, default=8)
     train.add_argument("--learning-rate", type=float, default=1e-3)
     train.add_argument("--accumulate", type=int, default=8,
                        help="lists per optimiser step; one list is one softmax")
+    train.add_argument("--weight-decay", type=float, default=1e-4)
     train.add_argument("--seed", type=int, default=SEED)
     train.set_defaults(func=cmd_train_ranker)
 
@@ -562,6 +599,8 @@ def main(argv: list[str] | None = None) -> int:
     tt.set_defaults(func=cmd_train_tracklet)
 
     args = parser.parse_args(argv)
+    if getattr(args, "command", None) == "train-ranker" and not args.data:
+        args.data = [WORK / "listwise_train"]
     return args.func(args)
 
 

@@ -159,8 +159,8 @@ def rank_frame(model: Any, images: np.ndarray, numeric: np.ndarray, *,
     with torch.no_grad():
         for start in range(0, len(images), batch_size):
             batch = images[start:start + batch_size]
-            tensor = torch.from_numpy(
-                batch.transpose(0, 3, 1, 2).astype(np.float32) / 255.0).to(device)
+            tensor = torch.from_numpy(np.ascontiguousarray(
+                batch.transpose(0, 3, 1, 2), dtype=np.float32) / 255.0).to(device)
             numeric_tensor = torch.from_numpy(
                 numeric[start:start + batch_size].astype(np.float32)).to(device)
             chunks.append(model(tensor, numeric_tensor).cpu())
