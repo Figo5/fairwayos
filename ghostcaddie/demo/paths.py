@@ -51,6 +51,43 @@ def out_paths(out_dir) -> Dict[str, Path]:
     }
 
 
+#: The four phases that must exist as showcase stills, in LinkedIn order.
+SHOWCASE_STILL_PHASES = ("address", "top", "impact", "finish")
+
+
+def showcase_out_paths(out_dir) -> Dict[str, Path]:
+    """The showcase output contract: presentation artifacts, same writer.
+
+    Separate names, not a rename of the demo contract, so a showcase run can never
+    overwrite a demo artifact set: the demo names and the showcase names are two
+    disjoint namespaces in the same directory.
+    """
+    out = Path(out_dir).expanduser()
+    return {
+        "annotated": out / "showcase_annotated.mp4",
+        "report": out / "showcase_report.md",
+        "analysis": out / "showcase_analysis.json",
+        "provenance": out / "showcase_provenance.json",
+        "config_copy": out / "showcase_config.json",
+        "linkedin": out / "linkedin_post_draft.md",
+        # A showcase still is named for its phase at the top level
+        # (showcase_address.png, ...), so the stills directory IS the output
+        # directory: one file per phase, no numbered copies of the same frame.
+        "keyframes_dir": out,
+        "contact_sheet": out / "showcase_contact_sheet.png",
+        "debug_dir": out / "showcase_debug",
+    }
+
+
+def showcase_still_path(out_dir, phase: str) -> Path:
+    """The still for one phase: ``showcase_<phase>.png`` in the output directory."""
+    return Path(out_dir).expanduser() / f"showcase_{phase}.png"
+
+
+def resolve_out_paths(out_dir, *, showcase: bool) -> Dict[str, Path]:
+    return showcase_out_paths(out_dir) if showcase else out_paths(out_dir)
+
+
 def candidate_interpreters(explicit: Optional[str] = None
                            ) -> List[Tuple[str, str]]:
     """Every interpreter worth trying, with the rule that produced it."""

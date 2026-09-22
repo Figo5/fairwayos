@@ -240,3 +240,146 @@ or approximate values are flagged as such in the report, in `demo_analysis.json`
   or the seed patch was too flat to match (the debug record says `flat_low_texture`).
 * **Refused config** — the message names the field and the reason; demo mode refuses
   rather than truncating, so a wrong frame index cannot silently run anyway.
+
+## Showcase presentation (opt-in)
+
+`demo-video` has a second, opt-in presentation for the same analysis: a **showcase**
+render that fills the frame with the footage and draws translucent cards *on* it,
+instead of putting the chrome in a gutter beside the picture. It is the look that
+survives a phone screen; the demo renderer remains the one that keeps every pixel of
+the picture clear.
+
+```bash
+.venv/bin/python3 -m ghostcaddie demo-video CLIP.mp4 \
+    --config showcase_config.json --out showcase_out/ [--showcase | --no-showcase]
+```
+
+It is enabled by `showcase.enabled` in the config or by `--showcase` (which also works
+with a config that has no `showcase` block at all); `--no-showcase` forces the demo
+renderer back on. The two presentations write **disjoint artifact names**, so a
+showcase run can never overwrite a demo artifact set:
+
+```text
+showcase_out/
+  showcase_annotated.mp4   1920x1080 (or render/showcase max_width), source aspect
+  showcase_address.png  showcase_top.png  showcase_impact.png  showcase_finish.png
+      ... plus one still per additional marked phase, named for the phase
+  showcase_contact_sheet.png   the four primary phases on one 2x2 panel
+  showcase_report.md  showcase_analysis.json  showcase_provenance.json
+  showcase_config.json      the run's own config, re-runnable as-is
+  linkedin_post_draft.md    a draft that says it is a draft
+  showcase_debug/
+```
+
+`examples/showcase_config.template.json` is the annotated template.
+
+### What the showcase block controls
+
+| key | meaning |
+|---|---|
+| `enabled` | off by default |
+| `brand`, `brand_sub` | the small title top-left |
+| `metrics` | 3–4 cards from the registry: `shoulder_tilt`, `hip_tilt`, `knee_flexion`, `head_movement`, `sway`, `tempo`, `hand_rise`. A typo is refused, not dropped |
+| `disclosure` | the line drawn under the cards |
+| `club_trail_points`, `ball_trail_points` | trail length in drawn points |
+| `impact_accent` | the short ring at the operator's impact marker |
+| `impact_accent_span_frames` | how far, in SOURCE frames, the accent fades out either side of the marker (default 3; at `stride: 3` a small value is a blink) |
+| `card_debounce_frames` | card stability, in consecutive source frames (default 8). A card only switches between a value and the placeholder once a state has held that long; a shorter flicker leaves the card as it was, and the frames where it held a previous value are listed in `presentation.cards.debounce` |
+| `max_width`, `crf`, `preset` | the showcase encode (may upscale: the chrome is rendered at the output size, so a 2x render keeps the type sharp) |
+| `card_row_max_width` | cap on the card strip's total width in output pixels, so the strip can stop short of a logo or watermark in the footage |
+| `holds` | `{frame, seconds, label}`, at most four: repeat one already-drawn frame for a short beat. Recorded as a held replay of a verified frame, with its output-frame range |
+
+`hand_rise` is the only card that needs a reference: it is how far the wrist midpoint
+sits above the midpoint on the **first frame where both wrists were resolvable**, in
+image pixels. That reference frame and its y are recorded with the run. The camera's
+own movement is included, and the report says so.
+
+`card_debounce_frames` keeps a per-frame card from strobing: a card holds the last
+measured value (dimmed) across a gap of at most `card_debounce_frames - 1` frames, then
+settles on the placeholder until a value has held for `card_debounce_frames` again. A
+frame whose own measurement exists is always shown as measured, and every held frame is
+listed with the frame its value came from under `presentation.cards.debounce`.
+
+### Moving ROI (`roi_keyframes`)
+
+A camera that pans makes one crop box useless. `roi_keyframes` is a list of operator
+boxes — `{"frame": n, "roi": [x, y, w, h], "note": "..."}` — in ascending frame order,
+and the crop is interpolated **linearly in position and size** between them and held
+constant outside them. It is operator crop geometry, not a pose and not a tracked
+subject: the real per-frame box is recorded on every frame's record
+(`roi_xywh`) and listed in the provenance with its author and method. A list that is
+out of order, has a duplicate frame, or a fractional index is refused rather than
+sorted, because the crop decides which pixels the pose model sees.
+
+### Operator-anchored segments (`manual_segments`, opt-in)
+
+A template match is a local appearance tracker: on a clubhead against grass, or a ball
+next to the hands, it can hold a point that *looks* right while the real target has
+already moved. When the operator has looked at the frames and knows where the target
+is, `manual_segments` replaces that guesswork for the target in question:
+
+```text
+"manual_segments": {                       # fragment of a config, not a whole one
+  "clubhead": {
+    "author": "operator, visual inspection",
+    "replace_automatic": true,
+    "trail": "segments_only",
+    "hide_frames": [[839, 841]],
+    "segments": [
+      {"name": "takeaway_visible", "max_anchor_spacing_frames": 24,
+       "anchors": [[48, 2375.0, 1641.0], [72, 2343.0, 1608.0]]}
+    ]
+  }
+}
+```
+
+The rules, all of them enforced before anything is drawn:
+
+* every **anchor** is an operator placement (origin `operator`, never called a
+  detection), and carries the operator's own note and the segment it belongs to;
+* between two anchors **of the same segment** the position is linearly interpolated and
+  labelled `interpolated` / origin `derived`, with both endpoint frames in the record;
+* the gap between consecutive anchors may not exceed `max_anchor_spacing_frames`. A
+  longer gap is **refused at parse time** rather than filled, so a segment can never
+  become a long invented stretch;
+* **nothing outside the segments is drawn**: no extrapolation past either end, no
+  bridging across an offscreen or occluded stretch, and the trail may not join a manual
+  segment to an automatic point (a run breaks whenever the kind of point changes);
+* `hide_frames` are inclusive source ranges the operator declares unusable. They are
+  emptied explicitly, never interpolated across, and may not overlap an anchor;
+* `replace_automatic: true` drops the automatic track for that target from the
+  presentation — the segments are then the whole of what is shown. The automatic
+  measurements are still in `showcase_analysis.json` and the raw measurements, and the
+  record says how many observations were dropped. `false` (the default) keeps the
+  automatic track and lays the operator's anchors over it;
+* `trail: "segments_only"` draws that target's trail only inside the manual segments.
+  That is how a trail stops tracing the camera's pan behind a ball that is sitting
+  still; `"all"` (the default) is the old behaviour. `trail_from_frame` additionally
+  withholds the trail before one source frame (it must lie inside one of the declared
+  segments) and does not affect the marker: the ball's marker is still drawn at
+  address, but its trail starts at the launch anchor.
+
+Seeds, corrections and the automatic tracker are **unchanged**: a config with no
+`manual_segments` block behaves exactly as it did before this block existed. The
+block is recorded in `showcase_provenance.json` under
+`manual_input_records.manual_anchor_segments`, in `presentation.manual_segments`, and
+printed in the report with every anchor coordinate.
+
+### Presentation pace (`render.stride` and `showcase.holds`)
+
+`render.stride: 3` keeps every third source frame at the **source's own cadence**, so
+playback is three times faster and output frame *i* shows source frame
+`start + i*stride`; that mapping is recorded in `showcase_provenance.json` and in the
+report. A hold then repeats one already-drawn frame for `seconds`. Both change
+**presentation pace only**: every analysis value stays a per-source-frame measurement,
+and neither the stride nor the source's own slow motion is ever treated as measured
+action time.
+
+### What the showcase measures about itself
+
+The cards cover part of the picture by design, so instead of claiming otherwise the
+run measures the overlap of every chrome band with the golfer region and with each
+drawn ball/club point, and records it under `presentation.chrome.measured_coverage`
+(also printed in the report). Card layout is checked the same way: every rectangle must
+be inside the picture, which is what backs the claim that no sidebar or letterbox was
+added.

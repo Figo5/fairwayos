@@ -41,6 +41,14 @@ def register(sub) -> None:
                        help="Skip the annotated video (cards and JSON still written).")
     video.add_argument("--no-summary", action="store_true",
                        help="Skip demo_summary.md.")
+    video.add_argument("--showcase", action="store_true",
+                       help="Write the opt-in presentation artifact set "
+                            "(showcase_* names, chrome drawn over the picture) instead "
+                            "of the demo set. Also enabled by showcase.enabled in the "
+                            "config.")
+    video.add_argument("--no-showcase", action="store_true",
+                       help="Force the demo renderer even when showcase.enabled is "
+                            "true in the config.")
     video.add_argument("--redact-path", action="store_true",
                        help="Record only file names, not full paths.")
     video.add_argument("--json", action="store_true",
@@ -68,12 +76,20 @@ def _run_demo_video(args) -> None:
     from .pipeline import run_demo
     from .report import render_terminal_summary
 
+    if getattr(args, "showcase", False) and getattr(args, "no_showcase", False):
+        raise SystemExit("demo-video: --showcase and --no-showcase are contradictory; "
+                         "nothing was run.")
+    showcase: Optional[bool] = None
+    if getattr(args, "showcase", False):
+        showcase = True
+    elif getattr(args, "no_showcase", False):
+        showcase = False
     try:
         result = run_demo(
             str(args.video), str(args.config), str(args.out),
             cv_python=args.cv_python, body_model_path=args.body_model,
             render=not args.no_render, summary=not args.no_summary,
-            redact_path=args.redact_path)
+            redact_path=args.redact_path, showcase=showcase)
     except DemoError as exc:
         raise SystemExit(f"demo-video failed: {exc}") from exc
     # Config warnings are printed as well as persisted: an operator who is about to

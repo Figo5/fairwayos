@@ -45,6 +45,10 @@ class DemoResult:
     targets: Dict[str, Any]
     render: Dict[str, Any]
     keyframes: Dict[str, Any]
+    #: How the artifact was presented: the demo renderer or the opt-in showcase.
+    #: Recorded on the result so the report, the analysis JSON and the provenance
+    #: describe the same presentation the video was rendered in.
+    presentation: Dict[str, Any] = field(default_factory=dict)
     limitations: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
@@ -75,10 +79,12 @@ class DemoResult:
             "schema_version": self.schema_version,
             "created_utc": self.created_utc,
             "tool": {"name": "fairwayos-demo", "version": self.tool_version,
-                     "outputs": ["demo_annotated.mp4", "demo_report.md",
-                                 "demo_analysis.json", "demo_provenance.json",
-                                 "demo_summary.md", "keyframes/", "debug/"]},
+                     "outputs": (self.presentation.get("output_names")
+                                 or ["demo_annotated.mp4", "demo_report.md",
+                                     "demo_analysis.json", "demo_provenance.json",
+                                     "demo_summary.md", "keyframes/", "debug/"])},
             "mode": self.disclosure(),
+            "presentation": self.presentation,
             "source": self.source,
             "processing": self.interval,
             "config": self.config,

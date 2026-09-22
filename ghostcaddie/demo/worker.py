@@ -27,14 +27,17 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING
 
 import cv2
 import numpy as np
 
 from . import report as report_mod
 from . import render as render_mod
-from .tracking import RawMeasurement, resolve_track
+from . import render_showcase as render_showcase_mod
+from .showcase import interpolate_roi
+from .tracking import (RawMeasurement, apply_manual_segments, manual_segments_only,
+                       resolve_track)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .tracking import TargetTrack
@@ -327,6 +330,7 @@ def body_pass(cap: cv2.VideoCapture, spec: dict) -> dict:
     start_frame = int(spec["interval"]["start_frame"])
     end_frame = int(spec["interval"]["end_frame"])
     roi = spec.get("roi")
+    roi_keyframes = spec.get("roi_keyframes") or []
     model = spec.get("body", {})
     identity: Dict[str, object] = {"identity_method": "none", "roi_xywh": None}
     limitations: List[str] = []
@@ -338,7 +342,30 @@ def body_pass(cap: cv2.VideoCapture, spec: dict) -> dict:
         except Exception as exc:
             model_error = f"{type(exc).__name__}: {exc}"
 
+    # Who the subject is, recorded BEFORE the model is consulted: the identity here is
+    # the operator's ROI (or ROI keyframes), and that is true whether or not a body
+    # model was available on this run. Leaving it as "none" when the model is missing
+    # would misdescribe the operator's input as absent.
+    def effective_box(frame: int) -> List[int]:
+        """The crop box for one frame: the interpolated operator box when the ROI
+        moves, otherwise the static ROI. Recorded on every per-frame record so the run
+        says which crop each measurement came from."""
+        if roi_keyframes:
+            box = interpolate_roi(roi_keyframes, frame)
+            if box:
+                return [int(v) for v in box]
+        return [int(v) for v in roi] if roi else []
+
     per_frame: List[dict] = []
+    if roi:
+        identity["roi_xywh"] = [int(v) for v in roi]
+        identity["identity_method"] = "operator_roi"
+    if roi and roi_keyframes:
+        identity["identity_method"] = "operator_roi_keyframes"
+        identity["roi_keyframes"] = [dict(key) for key in roi_keyframes]
+        identity["roi_interpolation"] = ("linear in position and size between the "
+                                         "operator's boxes, held constant outside them")
+        identity["roi_author"] = spec.get("roi_author") or "operator"
     if not roi:
         limitations.append(
             "No operator ROI was supplied. The demo does not attribute a whole-frame "
@@ -348,7 +375,8 @@ def body_pass(cap: cv2.VideoCapture, spec: dict) -> dict:
         for frame in range(start_frame, end_frame + 1):
             per_frame.append({"source_frame": frame, "available": False,
                               "reason": "no_operator_roi",
-                              "visible_keypoint_count": 0, "keypoints": []})
+                              "visible_keypoint_count": 0, "keypoints": [],
+                              "roi_xywh": None})
         return {"state": "ambiguous", "method": "none", "identity": identity,
                 "model_error": model_error, "limitations": limitations,
                 "per_frame": per_frame, "roi_xywh": None}
@@ -359,7 +387,8 @@ def body_pass(cap: cv2.VideoCapture, spec: dict) -> dict:
         for frame in range(start_frame, end_frame + 1):
             per_frame.append({"source_frame": frame, "available": False,
                               "reason": model_error or "body_model_not_found",
-                              "visible_keypoint_count": 0, "keypoints": []})
+                              "visible_keypoint_count": 0, "keypoints": [],
+                              "roi_xywh": effective_box(frame)})
         return {"state": "unavailable", "method": "none", "identity": identity,
                 "model_error": model_error or "body model not found",
                 "limitations": limitations, "per_frame": per_frame,
@@ -368,8 +397,12 @@ def body_pass(cap: cv2.VideoCapture, spec: dict) -> dict:
     x, y, rw, rh = (int(v) for v in roi)
     if rw <= 0 or rh <= 0 or x < 0 or y < 0:
         raise RuntimeError(f"roi {list(roi)} is not usable")
-    identity["roi_xywh"] = [x, y, rw, rh]
-    identity["identity_method"] = "operator_roi"
+    if roi_keyframes:
+        limitations.append(
+            "The golfer region is an operator crop that MOVES: the operator placed "
+            "boxes at specific frames and the crop is interpolated between them. It is "
+            "crop geometry from the operator, not a detected or tracked subject, and "
+            "each frame's effective box is recorded.")
     limitations.append(
         "The golfer region was supplied by the operator. It is user input, not "
         "automatic perception, and the pose inside it is attributed to the golfer on "
@@ -381,24 +414,27 @@ def body_pass(cap: cv2.VideoCapture, spec: dict) -> dict:
         limitations.append(f"the body runtime reported: {model_error}")
 
     for frame, img in _forward_leg(cap, start_frame, end_frame + 1):
-        crop = img[y:y + rh, x:x + rw]
+        bx, by, bw, bh = effective_box(frame)
+        crop = img[by:by + bh, bx:bx + bw]
         if crop.size == 0:
             per_frame.append({"source_frame": frame, "available": False,
                               "reason": "empty_roi_crop", "visible_keypoint_count": 0,
-                              "keypoints": []})
+                              "keypoints": [], "roi_xywh": [bx, by, bw, bh]})
             continue
         try:
-            points, transform = net.infer(crop, (x, y))
+            points, transform = net.infer(crop, (bx, by))
         except Exception as exc:
             per_frame.append({"source_frame": frame, "available": False,
                               "reason": f"pose_inference_failed:{type(exc).__name__}",
-                              "visible_keypoint_count": 0, "keypoints": []})
+                              "visible_keypoint_count": 0, "keypoints": [],
+                              "roi_xywh": [bx, by, bw, bh]})
             continue
-        ok, why = attribute(points, [x, y, rw, rh])
+        ok, why = attribute(points, [bx, by, bw, bh])
         visible = sum(1 for p in points if p["visible"])
         per_frame.append({"source_frame": frame, "available": bool(ok),
                           "reason": why, "visible_keypoint_count": visible,
-                          "keypoints": points, "transform": transform})
+                          "keypoints": points, "transform": transform,
+                          "roi_xywh": [bx, by, bw, bh]})
     posed = [r for r in per_frame if r["available"]]
     coverage = len(posed) / float(len(per_frame)) if per_frame else 0.0
     if coverage >= 0.80:
@@ -751,6 +787,613 @@ def _analytics_lines(record: Optional[dict], tempo_line: str = "") -> List[str]:
 
 
 # --------------------------------------------------------------------------
+# showcase rendering (opt-in)
+#
+# The demo pass above puts its chrome in a gutter beside the picture. The showcase
+# pass instead fills the frame with the picture and draws translucent cards ON it,
+# which is the look social playback needs and the reason the two are separate code
+# paths rather than one renderer full of branches. Everything about what is drawn
+# lives in ``demo.showcase`` (stdlib) and ``demo.render_showcase`` (cv2/PIL); this
+# section only supplies the per-frame measurements those modules expect.
+
+def _showcase_stage(spec: dict) -> dict:
+    """Output size, scale and layout for a showcase render.
+
+    ``showcase.max_width`` may upscale as well as downscale: the footage carries no
+    extra detail, but the CHROME is rendered at the output size, so a 2x render of a
+    640px source gives cards that stay sharp on a phone while the picture is honest
+    about what it is.
+    """
+    from . import showcase as showcase_mod
+
+    options = spec.get("showcase") or {}
+    native_w, native_h = (int(v) for v in spec["native_wh"])
+    scale = 1.0
+    target = options.get("max_width")
+    if target:
+        scale = min(3.0, max(0.1, float(target) / float(native_w)))
+    out_w = int(round(native_w * scale))
+    out_h = int(round(native_h * scale))
+    trimmed = False
+    if out_w % 2 or out_h % 2:
+        out_w -= out_w % 2
+        out_h -= out_h % 2
+        trimmed = True
+        scale = out_w / float(native_w)
+    metrics = tuple(options.get("metrics") or showcase_mod.DEFAULT_METRICS)
+    layout = showcase_mod.plan_layout(out_w, out_h, metrics,
+                                      max_row_width=options.get("card_row_max_width"))
+    return {"scale": scale, "out_w": out_w, "out_h": out_h, "trimmed": trimmed,
+            "metrics": metrics, "layout": layout, "options": options,
+            # Display-pixel factor for line weights and markers: separate from the
+            # coordinate scale, which is 0.5 for a 4K source rendered at 1080p.
+            "style": render_showcase_mod.style_scale(out_h)}
+
+
+def _frame_metric_series(body_records: Sequence[dict], metrics: Sequence[str], *,
+                         handedness: str, wrist_reference: Optional[dict] = None
+                         ) -> Dict[str, Dict[int, Optional[float]]]:
+    """The measured per-frame series behind each per-frame card.
+
+    One series per metric for the whole run, because the card's stability rule is about
+    consecutive frames and cannot be decided one frame at a time.
+    """
+    from . import showcase as showcase_mod
+    from .analytics import body_angles_for_record
+
+    wanted = [metric for metric in metrics
+              if (showcase_mod.METRICS.get(metric) or {}).get("source") == "frame"]
+    series: Dict[str, Dict[int, Optional[float]]] = {metric: {} for metric in wanted}
+    if not wanted:
+        return series
+    for record in body_records:
+        frame = int(record["source_frame"])
+        angles = (body_angles_for_record(record, handedness=handedness)
+                  if record.get("available") else {})
+        values = showcase_mod.frame_values(
+            angles, handedness=handedness,
+            wrist_reference=(wrist_reference or {}).get("y"))
+        for metric in wanted:
+            series[metric][frame] = values.get(metric)
+    return series
+
+
+def _card_display_series(body_records: Sequence[dict], metrics: Sequence[str], *,
+                         handedness: str, wrist_reference: Optional[dict],
+                         min_run: int) -> dict:
+    """What each per-frame card SHOWS, after the bounded display hysteresis.
+
+    The measured series is returned untouched next to it, so the report, the analysis
+    JSON and the provenance can always be checked against what a card displayed.
+    """
+    from . import showcase as showcase_mod
+
+    measured = _frame_metric_series(body_records, metrics, handedness=handedness,
+                                    wrist_reference=wrist_reference)
+    display: Dict[str, Dict[int, dict]] = {}
+    records: Dict[str, dict] = {}
+    for metric, values in measured.items():
+        series = showcase_mod.debounce_series(values, min_run=min_run)
+        display[metric] = series
+        records[metric] = {
+            **showcase_mod.debounce_record(series, min_run=min_run),
+            "measured_frames": len(values),
+            "measured_available_frames": sum(1 for value in values.values()
+                                             if value is not None),
+        }
+    return {"display": display, "measured": measured, "records": records}
+
+
+def _showcase_card_payload(metrics, record: Optional[dict], clip: Dict[str, Any], *,
+                           handedness: str,
+                           wrist_ref: Optional[Dict[str, Any]] = None,
+                           display: Optional[Dict[str, Dict[int, dict]]] = None
+                           ) -> List[dict]:
+    """The cards for one frame: per-frame angles, clip values where applicable.
+
+    ``display`` is the debounced per-metric table (see ``_card_display_series``). When a
+    metric has no entry for this frame the raw per-frame value is used, so this function
+    is still correct without a series (for example on a single-frame still).
+    """
+    from . import showcase as showcase_mod
+    from .analytics import body_angles_for_record
+
+    angles: Dict[str, Any] = {}
+    if record is not None and record.get("available"):
+        angles = body_angles_for_record(record, handedness=handedness)
+    frame_metrics = showcase_mod.frame_values(
+        angles, handedness=handedness,
+        wrist_reference=(wrist_ref or {}).get("y"))
+    frame = int(record["source_frame"]) if record is not None else None
+    cards: List[dict] = []
+    for metric in metrics:
+        spec = showcase_mod.METRICS.get(metric) or {}
+        held = False
+        if spec.get("source") == "clip":
+            value = (clip.get(metric) or {}).get("value")
+            state = (clip.get(metric) or {}).get("state")
+            sub = (clip.get(metric) or {}).get("sub") or showcase_mod.format_sub(
+                metric, unicode_ok=True)
+        else:
+            entry = ((display or {}).get(metric) or {}).get(frame) \
+                if frame is not None else None
+            if entry is not None:
+                value = entry.get("value")
+                held = bool(entry.get("held"))
+                state = ("held" if held and value is not None
+                         else "held_unavailable" if held
+                         else "supported" if value is not None else "unavailable")
+            else:
+                value = frame_metrics.get(metric)
+                state = "supported" if value is not None else "unavailable"
+            sub = showcase_mod.format_sub(metric, unicode_ok=True)
+        cards.append({
+            "metric": metric, "label": showcase_mod.format_label(metric),
+            "value": showcase_mod.format_value(metric, value, unicode_ok=True),
+            "value_ascii": showcase_mod.format_value(metric, value, unicode_ok=False),
+            "sub": sub, "available": bool(value is not None),
+            "state": state, "held": held,
+            "raw_value": None if value is None else round(float(value), 3),
+        })
+    return cards
+
+
+def _render_pass_showcase(cap: cv2.VideoCapture, spec: dict, body: dict,
+                          tracks: Dict[str, "TargetTrack"], phases: dict) -> tuple:
+    """Stream the interval to ffmpeg with the showcase chrome, capturing stills."""
+    from . import render_showcase as sc_render
+    from . import showcase as showcase_mod
+    from .tracking import trail_window
+
+    stage = _showcase_stage(spec)
+    # hand_rise is measured from the first frame in which both wrists were
+    # resolvable; the reference is computed once here and reported with the run.
+    stage["wrist_reference"] = showcase_mod.wrist_reference(body["per_frame"])
+    layout = stage["layout"]
+    scale = stage["scale"]
+    out_w, out_h = stage["out_w"], stage["out_h"]
+    options = stage["options"]
+    out_path = spec["render"]["path"]
+    start_frame = int(spec["interval"]["start_frame"])
+    end_frame = int(spec["interval"]["end_frame"])
+    native_w, native_h = (int(v) for v in spec["native_wh"])
+    fps = float(spec["native_fps"])
+    ffmpeg = _ffmpeg_path()
+    empty_stills: Dict[str, Any] = {}
+    if not ffmpeg:
+        return ({"written": False, "frames": 0, "fps": fps, "wh": [out_w, out_h],
+                 "picture_wh": [out_w, out_h], "source_wh": [native_w, native_h],
+                 "scale": round(scale, 6), "trimmed_to_even": stage["trimmed"],
+                 "reason": ("ffmpeg was not found on PATH. The showcase writes "
+                            "H.264 / yuv420p / faststart output with ffmpeg."),
+                 "style": "showcase"}, empty_stills)
+
+    cmd = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-f", "rawvideo",
+           "-pix_fmt", "bgr24", "-s", f"{out_w}x{out_h}", "-r", f"{fps}", "-i", "-",
+           "-an", "-c:v", "libx264", "-preset", str(options.get("preset", "slow")),
+           "-crf", str(options.get("crf", 18)), "-pix_fmt", "yuv420p", "-movflags",
+           "+faststart", out_path]
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    body_by_frame = {int(r["source_frame"]): r for r in body["per_frame"]}
+    point_by_frame = {name: {int(p.source_frame): p for p in track.points}
+                      for name, track in tracks.items()}
+    markers = showcase_mod.phase_markers(phases)
+    impact_frame = markers.get("IMPACT")
+    handedness = str(spec.get("handedness", "right"))
+    # Clip-level cards (peak head movement, sway) are read from the same pure
+    # analytic the report prints, computed here on the same per-frame records, so a
+    # card and the metric table cannot disagree about a peak.
+    from .analytics import body_metrics as _body_metrics
+    frames_possible = (int(spec["interval"]["end_frame"])
+                       - int(spec["interval"]["start_frame"]) + 1)
+    clip_analytics = {"body_2d": _body_metrics(
+        body["per_frame"], frames_possible=frames_possible,
+        pixel_aspect=float(spec.get("pixel_aspect", 1.0)), handedness=handedness)}
+    clip = showcase_mod.clip_values(clip_analytics, phases, handedness=handedness)
+    trail_points = {"ball": int(options.get("ball_trail_points") or
+                                showcase_mod.BALL_TRAIL_POINTS),
+                    "clubhead": int(options.get("club_trail_points") or
+                                    showcase_mod.CLUB_TRAIL_POINTS)}
+    accent_on = bool(options.get("impact_accent", True))
+    accent_span = int(options.get("impact_accent_span_frames") or 3)
+    debounce_frames = int(options.get("card_debounce_frames")
+                          or showcase_mod.DEFAULT_CARD_DEBOUNCE_FRAMES)
+    # The card's display series is computed once, from the whole run: the stability rule
+    # is about CONSECUTIVE frames, so it cannot be decided frame by frame in the encode
+    # loop. The measured series is kept beside it and reported.
+    card_display = _card_display_series(body["per_frame"], stage["metrics"],
+                                        handedness=handedness,
+                                        wrist_reference=stage.get("wrist_reference"),
+                                        min_run=debounce_frames)
+    stage["card_display"] = card_display
+    engine = sc_render.TextEngine()
+    stills: Dict[str, Any] = {}
+    phase_frames = {name: info.get("frame")
+                    for name, info in (phases.get("phases") or {}).items()}
+    frame_to_phases: Dict[int, List[str]] = {}
+    for name, frame in phase_frames.items():
+        if frame is not None:
+            frame_to_phases.setdefault(int(frame), []).append(name)
+    rendered = 0
+    overlay_elements = 0
+    log_path = os.path.join(spec["debug_dir"], "ffmpeg.log")
+    os.makedirs(spec["debug_dir"], exist_ok=True)
+
+    # --- presentation pace: a uniform stride plus any operator holds.
+    stride = int((spec.get("render") or {}).get("stride") or 1)
+    source_frames = showcase_mod.stride_frames(start_frame, end_frame, stride)
+    holds = list(options.get("holds") or [])
+    output_plan = showcase_mod.expand_holds(source_frames, holds, fps)
+    slots: Dict[int, int] = {}
+    for entry in output_plan:
+        slots[entry["source_frame"]] = slots.get(entry["source_frame"], 0) + 1
+    style = float(stage["style"])
+
+    def scaled_keypoints(record: Optional[dict]) -> List[dict]:
+        """Move the pose into OUTPUT pixels; the renderer never scales coordinates."""
+        if record is None or not record.get("available"):
+            return []
+        return [dict(p, x=p["x"] * scale, y=p["y"] * scale)
+                for p in (record.get("keypoints") or [])]
+
+    def scaled_points(name: str, frame: int) -> List[dict]:
+        track = tracks[name]
+        window = trail_window(track.points, frame, trail_points.get(name, 10))
+        # ``trail: segments_only`` (opt-in, per target) keeps the trail inside the
+        # operator's own anchored segments: behind a stationary ball the trail would
+        # otherwise trace the camera's pan, not the ball.
+        window = manual_segments_only(track, window)
+        return [dict(p.to_dict(), x=p.x * scale, y=p.y * scale) for p in window
+                if p.x is not None and p.y is not None]
+
+    def overlay_draw(layer, mask, record, frame):
+        nonlocal overlay_elements
+        drawn = 0
+        keypoints = scaled_keypoints(record)
+        if keypoints:
+            drawn += sc_render.draw_skeleton(layer, mask, keypoints, style)
+        for name, track in tracks.items():
+            if not track.available:
+                continue
+            point = point_by_frame[name].get(frame)
+            if point is None or not point.drawn:
+                continue
+            payload = scaled_points(name, frame)
+            payload.append(dict(point.to_dict(), x=point.x * scale, y=point.y * scale))
+            if name == "clubhead":
+                sc_render.draw_trail(layer, mask, payload, sc_render.CLUB_TRAIL,
+                                     alpha=sc_render.CLUB_TRAIL_ALPHA,
+                                     thickness=max(3, int(round(3.4 * style))), dash=5)
+                sc_render.draw_club_marker(
+                    layer, mask, dict(point.to_dict(), x=point.x * scale,
+                                      y=point.y * scale), style)
+            else:
+                sc_render.draw_trail(layer, mask, payload, sc_render.BALL_TRAIL,
+                                     alpha=sc_render.TRAIL_ALPHA,
+                                     thickness=max(2, int(round(2.0 * style))), dash=4)
+                sc_render.draw_ball_marker(
+                    layer, mask, dict(point.to_dict(), x=point.x * scale,
+                                      y=point.y * scale), style)
+        if accent_on:
+            strength = showcase_mod.impact_accent(frame, impact_frame,
+                                                  half_span=accent_span)
+            if strength > 0:
+                anchor = None
+                for name in ("clubhead", "ball"):
+                    candidate = point_by_frame.get(name, {}).get(frame)
+                    if candidate is not None and candidate.drawn:
+                        anchor = dict(candidate.to_dict(), x=candidate.x * scale,
+                                      y=candidate.y * scale)
+                        break
+                sc_render.draw_impact_accent(layer, mask, anchor, style, strength)
+        overlay_elements = drawn
+        return drawn
+
+    def draw_slot(frame: int, img) -> Optional[np.ndarray]:
+        """Draw one output frame from one decoded source frame. Returns the canvas."""
+        picture = (img if abs(scale - 1.0) < 1e-9 else
+                   cv2.resize(img, (out_w, out_h),
+                              interpolation=(cv2.INTER_AREA if scale < 1.0
+                                             else cv2.INTER_CUBIC)))
+        record = body_by_frame.get(frame)
+        cards = _showcase_card_payload(stage["metrics"], record, clip,
+                                       handedness=handedness,
+                                       wrist_ref=stage.get("wrist_reference"),
+                                       display=(stage.get("card_display") or {}).get(
+                                           "display"))
+        chrome = {
+            "brand": options.get("brand", showcase_mod.DEFAULT_BRAND),
+            "brand_sub": options.get("brand_sub", showcase_mod.DEFAULT_BRAND_SUB),
+            "phase": showcase_mod.current_phase(frame, markers),
+            "cards": cards,
+            "disclosure": options.get("disclosure", showcase_mod.DEFAULT_DISCLOSURE),
+        }
+        staged = sc_render.stage_overlays(
+            picture, overlay_draw=lambda layer, mask: overlay_draw(layer, mask, record,
+                                                                   frame))
+        annotated, _drawing = sc_render.compose_chrome(staged, layout=layout,
+                                                       chrome=chrome, engine=engine)
+        for phase_name in frame_to_phases.get(frame, []):
+            if phase_name not in stills:
+                stills[phase_name] = {"staged": staged.copy(), "cards": cards,
+                                      "frame": frame}
+        return annotated
+
+    with open(log_path, "wb") as log:
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=log, stderr=log)
+        stdin = proc.stdin
+        if stdin is None:  # pragma: no cover - Popen with PIPE always provides one
+            raise RuntimeError("ffmpeg stdin pipe could not be opened")
+        try:
+            for frame, img in _forward_leg(cap, start_frame, end_frame + 1):
+                count = slots.get(frame)
+                if not count:
+                    continue
+                annotated = draw_slot(frame, img)
+                if annotated is None:
+                    continue
+                payload = np.ascontiguousarray(annotated).tobytes()
+                # A hold repeats the SAME drawn bytes: nothing new is measured or
+                # drawn during the held frames, which is what makes the hold a replay
+                # of a verified frame rather than a stretch of invented motion.
+                for _ in range(count):
+                    stdin.write(payload)
+                    rendered += 1
+        except BrokenPipeError:
+            pass
+        finally:
+            try:
+                stdin.close()
+            except Exception:
+                pass
+            returncode = proc.wait()
+
+    # --- stills for marked phases that the stride skipped.
+    #
+    # The stills must be the operator's own frames, not a neighbouring encoded frame,
+    # so a phase that does not land on the stride grid is decoded separately and drawn
+    # with exactly the same overlay code.
+    extra_stills = 0
+    for phase_frame, phase_names in sorted(frame_to_phases.items()):
+        missing = [name for name in phase_names if name not in stills]
+        if not missing:
+            continue
+        image = _frame(cap, phase_frame)
+        if image is None:
+            continue
+        still_picture = (image if abs(scale - 1.0) < 1e-9 else
+                         cv2.resize(image, (out_w, out_h),
+                                    interpolation=(cv2.INTER_AREA if scale < 1.0
+                                                   else cv2.INTER_CUBIC)))
+        record = body_by_frame.get(phase_frame)
+        staged = sc_render.stage_overlays(
+            still_picture,
+            overlay_draw=lambda layer, mask: overlay_draw(layer, mask, record,
+                                                          phase_frame))
+        cards = _showcase_card_payload(stage["metrics"], record, clip,
+                                       handedness=handedness,
+                                       wrist_ref=stage.get("wrist_reference"),
+                                       display=(stage.get("card_display") or {}).get(
+                                           "display"))
+        for name in missing:
+            stills[name] = {"staged": staged.copy(), "cards": cards,
+                            "frame": phase_frame}
+            extra_stills += 1
+
+    ok = returncode == 0 and os.path.isfile(out_path) and os.path.getsize(out_path) > 0
+    result = {
+        "written": bool(ok), "frames": rendered, "fps": fps, "wh": [out_w, out_h],
+        "picture_wh": [out_w, out_h], "source_wh": [native_w, native_h],
+        "scale": round(scale, 6), "dimensions_trimmed_to_even": stage["trimmed"],
+        "encoder": "libx264 (ffmpeg)", "style": "showcase",
+        "pipeline": "rawvideo bgr24 | libx264 -pix_fmt yuv420p -movflags +faststart",
+        "reason": "" if ok else f"ffmpeg exited {returncode}; see debug/ffmpeg.log",
+        "bytes": os.path.getsize(out_path) if os.path.isfile(out_path) else 0,
+        "chrome_inside_picture": True, "added_width_px": 0,
+        "chrome_coverage": showcase_mod.chrome_coverage(
+            layout, roi=spec.get("roi_effective"),
+            points_xy=_drawn_points(tracks), scale=scale),
+        "layout": layout.to_dict(),
+        "layout_problems": showcase_mod.layout_problems(layout),
+        "text_engine": sc_render.font_report(engine),
+        "card_metrics": list(stage["metrics"]),
+        "card_values": {
+            "debounce": (stage.get("card_display") or {}).get("records") or {},
+            "rule": ("the card holds its previous state until a new state has held for "
+                     "card_debounce_frames consecutive source frames. Held frames show "
+                     "the last measured value (dimmed) or keep the placeholder; the "
+                     "measured per-frame series is unchanged and is reported in "
+                     "showcase_analysis.json."),
+        },
+        "manual_segments": {name: (track.manual_segments or None)
+                            for name, track in tracks.items()},
+        "wrist_reference": stage.get("wrist_reference"),
+        "trail_points": trail_points,
+        "style_scale": round(style, 4),
+        "playback": {
+            "stride": stride,
+            "rule": ("the base sequence is source frame start + i*stride for i = 0..N-1; "
+                     "a hold then repeats an ALREADY DRAWN frame in place, so from the "
+                     "first hold onwards the output index is the base index plus the "
+                     "repeats inserted before it. `output_to_source_frames` lists the "
+                     "exact source frame of every output frame, and `holds` locates "
+                     "each repeat in the output timeline."),
+            "source_frames_encoded": len(source_frames),
+            "sampled_source_frames": len(source_frames),
+            "output_frames": len(output_plan),
+            "output_to_source_frames": [entry["source_frame"] for entry in output_plan],
+            "source_frame_span": [start_frame, end_frame],
+            "source_fps_unchanged": fps,
+            "presentation_speedup": float(stride),
+            "output_seconds": round(len(output_plan) / fps, 3) if fps else None,
+            "source_interval_seconds": round((end_frame - start_frame + 1) / fps, 3)
+            if fps else None,
+            "holds": showcase_mod.hold_records(source_frames, holds, fps),
+            "extra_stills_from_off_grid_frames": extra_stills,
+            "note": ("the stride and the holds change PRESENTATION pace only. Every "
+                     "analysis value is still measured per source frame, and neither "
+                     "the speed-up nor the source's own slow motion is treated as "
+                     "measured action time."),
+        },
+        "impact_accent_frames": ([f for f in source_frames
+                                  if showcase_mod.impact_accent(f, impact_frame,
+                                                                half_span=accent_span)
+                                  > 0]
+                                 if accent_on and impact_frame is not None else []),
+        "impact_accent_span_frames": (accent_span if accent_on and impact_frame
+                                      is not None else None),
+        "ffmpeg_log": log_path,
+    }
+    return result, stills
+
+
+def _render_showcase_stills(spec: dict, stills: Dict[str, Any], phases: dict) -> dict:
+    """Write ``showcase_<phase>.png`` for every marked phase, then the contact sheet.
+
+    A still carries at most three cards: it is read in a feed, not paused on a
+    timeline. The still is composed from the SAME staged frame the video showed (same
+    skeleton, same markers, same trails) with its own layout, so a card can never
+    disagree with the video it was taken from. A phase with no frame gets an explicit
+    UNAVAILABLE card rather than a blank or a repeat of another phase.
+    """
+    from . import render_showcase as sc_render
+    from . import showcase as showcase_mod
+    from .paths import SHOWCASE_STILL_PHASES, showcase_still_path
+
+    out_dir = os.path.dirname(spec["contact_sheet"])
+    options = spec.get("showcase") or {}
+    metrics = tuple(options.get("metrics") or showcase_mod.DEFAULT_METRICS)
+    still_metrics = metrics[:3]
+    written: List[dict] = []
+    unavailable: List[dict] = []
+    panels: Dict[str, np.ndarray] = {}
+    #: What goes on the contact sheet: the same stills, composed without their own
+    #: disclosure line because the sheet prints one for all four panels.
+    panel_images: Dict[str, np.ndarray] = {}
+    frames: Dict[str, Optional[int]] = {}
+    card_lookup = {c["phase"]: c for c in (phases.get("cards") or [])}
+    engine = sc_render.TextEngine()
+
+    for card in (phases.get("cards") or []):
+        name = card["phase"]
+        entry = stills.get(name)
+        if not card.get("renderable") or entry is None:
+            continue
+        staged = entry["staged"]
+        height, width = staged.shape[:2]
+        # The still honours the SAME card-row clearance as the video, so a still cannot
+        # spread its cards over a mark in the footage that the video leaves visible.
+        layout = showcase_mod.plan_layout(width, height, still_metrics,
+                                          max_row_width=options.get(
+                                              "card_row_max_width"))
+        subset = _still_cards(entry["cards"], still_metrics, showcase_mod)
+        label = report_mod.PHASE_LABEL_TEXT.get(str(card.get("label")), "UNAVAILABLE")
+        # ONE sub-brand string everywhere: the video and the stills used to disagree
+        # (`SWING ANALYSIS` vs `SWING ANALYSIS · OPERATOR-MARKED`), which is a difference
+        # a viewer cannot explain. The phase is on the pill.
+        chrome = {
+            "brand": options.get("brand", showcase_mod.DEFAULT_BRAND),
+            "brand_sub": options.get("brand_sub", showcase_mod.DEFAULT_BRAND_SUB),
+            "phase": name.replace("_", "-").upper(),
+            "cards": subset,
+            "disclosure": options.get("disclosure", showcase_mod.DEFAULT_DISCLOSURE),
+        }
+        image, drawing = sc_render.compose_chrome(staged, layout=layout, chrome=chrome,
+                                                  engine=engine, mode="still")
+        path = str(showcase_still_path(out_dir, name))
+        ok = sc_render.write_png(path, image)
+        record = {"phase": name, "path": path, "written": bool(ok),
+                  "label": card.get("label"), "frame": card.get("frame"),
+                  "metrics": [c["metric"] for c in subset],
+                  "unavailable_metrics": [c["metric"] for c in subset
+                                          if not c.get("available")],
+                  "held_metrics": [c["metric"] for c in subset if c.get("held")],
+                  "layout_problems": drawing.get("layout_problems") or []}
+        (written if ok else unavailable).append(record)
+        if ok:
+            panels[name] = image
+            frames[name] = card.get("frame")
+            # The sheet carries ONE disclosure line in its footer, so its panels are
+            # composed without the per-panel line: same staged frame, same cards, same
+            # markers, one line fewer.
+            if chrome["disclosure"]:
+                sheet_chrome = dict(chrome, disclosure="")
+                sheet_panel, _ = sc_render.compose_chrome(staged, layout=layout,
+                                                          chrome=sheet_chrome,
+                                                          engine=engine, mode="still")
+                panel_images[name] = sheet_panel
+            else:
+                panel_images[name] = image
+
+    missing: List[dict] = []
+    for phase in SHOWCASE_STILL_PHASES:
+        if phase in panels:
+            continue
+        card = card_lookup.get(phase) or {}
+        reason = str(card.get("note")
+                     or "no operator keyframe was supplied for this phase")[:220]
+        title = phase.replace("_", " ").upper()
+        image = render_mod.draw_unavailable_card(
+            title=f"{title} - UNAVAILABLE", reason=reason, card_width=640, height=360)
+        path = str(showcase_still_path(out_dir, phase))
+        ok = render_mod.write_png(path, image)
+        missing.append({"phase": phase, "path": path, "written": bool(ok),
+                        "reason": reason})
+        if ok:
+            panels[phase] = image
+
+    sheet_path = spec["contact_sheet"]
+    ordered = [(name, panels[name]) for name in SHOWCASE_STILL_PHASES
+               if name in panels]
+    sheet_written = False
+    if ordered:
+        # No frame indices and no per-run numbers on the graphic: those live in
+        # showcase_report.md and showcase_provenance.json, and on the sheet they were
+        # the debug clutter that crowded the header. The footer carries the one
+        # disclosure line.
+        sheet_panels: List[Tuple[str, Any]] = []
+        for name, panel in ordered:
+            chosen = panel_images.get(name)
+            sheet_panels.append((name, panel if chosen is None else chosen))
+        image = sc_render.contact_sheet(
+            sheet_panels, columns=2, gap=14,
+            title=(f"{options.get('brand', showcase_mod.DEFAULT_BRAND)}"
+                   f"  \u00b7  "
+                   f"{options.get('brand_sub', showcase_mod.DEFAULT_BRAND_SUB)}"),
+            subtitle="",
+            disclaimer=options.get("disclosure", showcase_mod.DEFAULT_DISCLOSURE))
+        sheet_written = sc_render.write_png(sheet_path, image)
+    return {"cards": written, "unavailable": unavailable, "missing": missing,
+            "contact_sheet": sheet_path if sheet_written else "",
+            "contact_sheet_written": bool(sheet_written),
+            "contact_sheet_panels": [name for name, _ in ordered],
+            "contact_sheet_panel_disclosure_dropped": bool(panel_images),
+            "still_metrics": list(still_metrics),
+            "video_metrics": list(metrics),
+            "still_paths": [record["path"] for record in written],
+            "still_frames": frames}
+
+
+def _still_cards(cards: Sequence[dict], still_metrics: Sequence[str],
+                 showcase_mod) -> List[dict]:
+    """The first cards of the video, in the still's own order, placeholders filled.
+
+    A still has room for fewer cards than the video, so the metrics it drops are
+    simply not shown on it -- they are never merged into one card or relabelled.
+    """
+    by_metric = {c.get("metric"): c for c in cards}
+    out: List[dict] = []
+    for metric in still_metrics:
+        card = by_metric.get(metric)
+        if card is None:
+            card = {"metric": metric, "label": showcase_mod.format_label(metric),
+                    "value": showcase_mod.PLACEHOLDER, "sub": "", "available": False,
+                    "state": "unavailable"}
+        out.append(card)
+    return out
+
+
+# --------------------------------------------------------------------------
 # entry point
 
 def run(spec: dict) -> dict:
@@ -765,23 +1408,40 @@ def run(spec: dict) -> dict:
         raw_dump: Dict[str, dict] = {}
         interval_frames = list(range(int(spec["interval"]["start_frame"]),
                                      int(spec["interval"]["end_frame"]) + 1))
+        manual_blocks = spec.get("manual_segments") or {}
         for name in ("ball", "clubhead"):
             target_spec = spec.get("targets", {}).get(name) or {}
             seed = spec.get("seeds", {}).get(name)
-            if not seed:
-                continue
+            manual = manual_spec(manual_blocks.get(name))
             options = _options(target_spec.get("options"))
             corrections = spec.get("corrections", {}).get(name) or []
-            raw = measure_target(cap, name, options, _point(seed),
-                                 [_point(c) for c in corrections],
-                                 int(spec["interval"]["start_frame"]),
-                                 int(spec["interval"]["end_frame"]))
-            raw_dump[name] = {str(k): v.to_dict() for k, v in sorted(raw.items())}
-            track = resolve_track(
-                name, options=options, interval_frames=interval_frames, raw=raw,
-                seed=_point(seed), corrections=[_point(c) for c in corrections],
-                interpolation_enabled=bool(spec["interpolation"]["enabled"]),
-                max_gap_frames=int(spec["interpolation"]["max_gap_frames"]))
+            if manual and manual.get("replace_automatic"):
+                # The operator replaced this target's automatic track with their own
+                # anchor segments, so there is nothing to measure: the segments ARE the
+                # presentation. Nothing is drawn outside them, and the run says so.
+                raw: Dict[int, RawMeasurement] = {}
+                raw_dump[name] = {}
+                track = resolve_track(
+                    name, options=options, interval_frames=interval_frames, raw={},
+                    seed=None, corrections=[],
+                    interpolation_enabled=False, max_gap_frames=0)
+            elif not seed:
+                continue
+            else:
+                raw = measure_target(cap, name, options, _point(seed),
+                                     [_point(c) for c in corrections],
+                                     int(spec["interval"]["start_frame"]),
+                                     int(spec["interval"]["end_frame"]))
+                raw_dump[name] = {str(k): v.to_dict()
+                                  for k, v in sorted(raw.items())}
+                track = resolve_track(
+                    name, options=options, interval_frames=interval_frames, raw=raw,
+                    seed=_point(seed), corrections=[_point(c) for c in corrections],
+                    interpolation_enabled=bool(spec["interpolation"]["enabled"]),
+                    max_gap_frames=int(spec["interpolation"]["max_gap_frames"]))
+            if manual:
+                apply_manual_segments(track, manual=manual,
+                                      interval_frames=interval_frames)
             track_objects[name] = track
             tracks[name] = track.to_dict()
 
@@ -802,11 +1462,20 @@ def run(spec: dict) -> dict:
                 frame_times, int(phase_config.get("start_frame",
                                                   interval_frames[0]))))
 
-        render, cards = render_pass(cap, spec, body, track_objects, phase_payload)
-        keyframes = render_keyframe_cards(spec, cards, phase_payload)
+        style = str((spec.get("render") or {}).get("style") or "demo")
+        if style == "showcase":
+            # The showcase pass captures its stills from the same staged frames it
+            # encoded, so the stills are produced inside it rather than from a second
+            # decode that could draw something slightly different.
+            render, showcase_stills = _render_pass_showcase(cap, spec, body,
+                                                            track_objects,
+                                                            phase_payload)
+            keyframes = _render_showcase_stills(spec, showcase_stills, phase_payload)
+        else:
+            render, cards = render_pass(cap, spec, body, track_objects, phase_payload)
+            keyframes = render_keyframe_cards(spec, cards, phase_payload)
     finally:
         cap.release()
-
     return {
         "source_frames": {"start_frame": int(spec["interval"]["start_frame"]),
                           "end_frame": int(spec["interval"]["end_frame"]),
@@ -839,6 +1508,48 @@ def _point(payload):
         return payload
     return Point(frame=int(payload["frame"]), x=float(payload["x"]),
                  y=float(payload["y"]), note=str(payload.get("note", "")))
+
+
+def manual_spec(payload: Optional[dict]) -> Dict[str, Any]:
+    """Normalise one target's ``manual_segments`` spec block for the tracker.
+
+    The orchestrator sends the resolved block, in which every anchor is a mapping. The
+    ``[frame, x, y]`` list form the operator's own annotation files use is accepted here
+    too, so a spec built straight from one of those files cannot be mis-read: both shapes
+    end up as one.
+    """
+    if not payload:
+        return {}
+    out: Dict[str, Any] = {
+        "author": str(payload.get("author") or ""),
+        "replace_automatic": bool(payload.get("replace_automatic")),
+        "trail": str(payload.get("trail") or "all"),
+        "trail_from_frame": (None if payload.get("trail_from_frame") is None
+                             else int(payload["trail_from_frame"])),
+        "hide_frames": [[int(pair[0]), int(pair[1])]
+                        for pair in (payload.get("hide_frames") or [])],
+        "segments": [],
+    }
+    for segment in (payload.get("segments") or []):
+        anchors: List[Dict[str, Any]] = []
+        for item in (segment.get("anchors") or []):
+            if isinstance(item, dict):
+                anchors.append({"frame": int(item["frame"]), "x": float(item["x"]),
+                                "y": float(item["y"]),
+                                "note": str(item.get("note") or "")})
+            else:
+                values = list(item)
+                anchors.append({"frame": int(values[0]), "x": float(values[1]),
+                                "y": float(values[2]),
+                                "note": str(values[3]) if len(values) > 3 else ""})
+        out["segments"].append({
+            "name": str(segment.get("name") or "segment"),
+            "max_anchor_spacing_frames": int(segment.get("max_anchor_spacing_frames")
+                                             or 1),
+            "anchors": anchors,
+            "note": str(segment.get("note") or ""),
+        })
+    return out
 
 
 def _environment() -> dict:

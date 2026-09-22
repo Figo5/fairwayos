@@ -93,6 +93,11 @@ def body_angles_for_record(record: Optional[dict], *, pixel_aspect: float = 1.0,
                                  (ankle["x"], ankle["y"]), pixel_aspect=pixel_aspect)
         out["knee_interior_deg"][side] = interior
         out["knee_flexion_deg"][side] = flexion_degrees(interior)
+    # Both wrists or nothing: the midpoint is the same quantity the wrist-path metric
+    # uses, exposed here so a card and the metric table cannot disagree about it.
+    if "wr_l" in pts and "wr_r" in pts:
+        out["wrist_midpoint"] = [round((pts["wr_l"]["x"] + pts["wr_r"]["x"]) / 2.0, 2),
+                                 round((pts["wr_l"]["y"] + pts["wr_r"]["y"]) / 2.0, 2)]
     return out
 
 

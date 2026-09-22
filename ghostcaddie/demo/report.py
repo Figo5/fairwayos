@@ -10,6 +10,7 @@ detection, and nothing may claim a physical quantity.
 """
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, List
 
 from .config import PHASE_ORDER
@@ -26,6 +27,13 @@ VIDEO_CAVEAT = "operator-seeded points, not automatic detections - no physical m
 
 PHASE_LABEL_TEXT = {"manual": "OPERATOR-MARKED", "approx": "APPROXIMATE",
                     "unavailable": "UNAVAILABLE"}
+
+
+def _video_name(result) -> str:
+    """The rendered video's own file name, so a showcase run is not reported as the
+    demo's file name in the terminal summary."""
+    path = ((result.presentation or {}).get("output_paths") or {}).get("annotated")
+    return os.path.basename(str(path)) if path else "demo_annotated.mp4"
 
 
 def _fmt(value: Any, unit: str = "") -> str:
@@ -291,7 +299,7 @@ def render_report(result: DemoResult) -> str:
     render = result.render
     wh = render.get("wh") or [0, 0]
     if render.get("written"):
-        video_line = (f"`demo_annotated.mp4` ({render.get('bytes')} bytes, "
+        video_line = (f"`{_video_name(result)}` ({render.get('bytes')} bytes, "
                       f"{render.get('frames')} frames, {render.get('fps')} fps, "
                       f"{wh[0]}×{wh[1]}, pix_fmt {render.get('pix_fmt')}, faststart "
                       f"{render.get('faststart')})")
@@ -447,7 +455,7 @@ def render_terminal_summary(result: DemoResult) -> str:
                                     if tempo.get("state") == "supported"
                                     else f"unavailable ({tempo.get('reason', '')})"))
     render = result.render
-    lines.append(f"annotated   " + (f"demo_annotated.mp4 ({render.get('bytes')} bytes, "
+    lines.append(f"annotated   " + (f"{_video_name(result)} ({render.get('bytes')} bytes, "
                                     f"{render.get('frames')} frames)"
                                     if render.get("written")
                                     else f"NOT PRODUCED: {render.get('reason')}"))

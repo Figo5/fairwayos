@@ -36,12 +36,13 @@ DEMO_MODULES = ("ghostcaddie.demo", "ghostcaddie.demo.config",
                 "ghostcaddie.demo.report", "ghostcaddie.demo.result",
                 "ghostcaddie.demo.pipeline", "ghostcaddie.demo.paths",
                 "ghostcaddie.demo.picker", "ghostcaddie.demo.probe",
-                "ghostcaddie.demo.cli", "ghostcaddie.demo.errors")
+                "ghostcaddie.demo.cli", "ghostcaddie.demo.errors",
+                "ghostcaddie.demo.showcase", "ghostcaddie.demo.showcase_report")
 
 #: The half of the package that may import cv2, because it never runs in the
 #: process that owns the output contract.
 CV2_MODULES = ("ghostcaddie.demo.worker", "ghostcaddie.demo.render",
-               "ghostcaddie.demo.setup_gui")
+               "ghostcaddie.demo.render_showcase", "ghostcaddie.demo.setup_gui")
 
 
 class IsolationTests(unittest.TestCase):

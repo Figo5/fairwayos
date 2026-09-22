@@ -33,6 +33,9 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence
 from . import DEMO_CONFIG_SCHEMA
 from .errors import DemoConfigError
 from .probe import SourceProbe
+from .showcase import (DEFAULT_BRAND, DEFAULT_BRAND_SUB, DEFAULT_DISCLOSURE,
+                       MAX_CARDS, METRICS, MIN_CARDS, SHOWCASE_FIELDS,
+                       ShowcaseOptions)
 
 PHASE_ORDER = ("address", "takeaway", "top", "downswing", "impact",
                "follow_through", "finish")
@@ -54,6 +57,11 @@ SECONDS_BASIS_CADENCE = "frames / container cadence"
 
 DEFAULT_MAX_FRAMES = 1200
 DEFAULT_RENDER_MAX_WIDTH = 1280
+
+#: A hold repeats one drawn frame. More than a few, or a long one, turns the clip
+#: into a slideshow, so both are bounded here rather than in the renderer.
+MAX_HOLDS = 4
+HOLD_MAX_SECONDS = 3.0
 
 _TARGET_MODES = ("template", "manual")
 _DIRECTIONS = ("forward", "backward", "both")
@@ -217,9 +225,123 @@ class RenderOptions:
     crf: int = 20
     preset: str = "medium"
     render: bool = True
+    #: Keep every Nth source frame in the output, at the SOURCE cadence: a uniform
+    #: presentation speed-up (stride 3 makes playback three times faster) whose exact
+    #: mapping is recorded. It changes playback pace only; every analysis value stays
+    #: a per-source-frame measurement, and nothing here is a claim about real time.
+    stride: int = 1
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class RoiKeyframe:
+    """An operator crop box at one source frame (for a camera that pans)."""
+    frame: int
+    roi: List[int]
+    #: Free text from the operator: who placed the box and by what method. Recorded
+    #: in the provenance, because a moving crop has an author and a method.
+    note: str = ""
+
+    def to_dict(self) -> dict:
+        return {"frame": self.frame, "roi": [int(v) for v in self.roi],
+                "note": self.note}
+
+
+@dataclass(frozen=True)
+class ManualAnchor:
+    """One operator-placed point inside a manual anchor segment.
+
+    It is an operator observation: origin ``operator``, never described as a
+    detection. Its ``note`` carries the operator's own words for it.
+    """
+    frame: int
+    x: float
+    y: float
+    note: str = ""
+
+    def to_dict(self) -> dict:
+        return {"frame": int(self.frame), "x": round(float(self.x), 3),
+                "y": round(float(self.y), 3), "note": self.note}
+
+
+@dataclass(frozen=True)
+class ManualAnchorSegment:
+    """One contiguous, operator-anchored stretch of a target's presentation.
+
+    Inside the segment, between two anchors, the presented position is linearly
+    interpolated and is labelled ``interpolated`` / origin ``derived``. The
+    interpolation is bounded by ``max_anchor_spacing_frames``, which is validated at
+    parse time: an anchor gap longer than that is REFUSED rather than filled, so a
+    segment can never become a long invented stretch. Outside the segment nothing is
+    drawn: no extrapolation, and no bridging across an offscreen or occluded gap.
+    """
+    name: str
+    max_anchor_spacing_frames: int
+    anchors: List[ManualAnchor]
+    note: str = ""
+
+    def frames(self) -> List[int]:
+        return [int(anchor.frame) for anchor in self.anchors]
+
+    def start_frame(self) -> int:
+        return int(self.anchors[0].frame)
+
+    def end_frame(self) -> int:
+        return int(self.anchors[-1].frame)
+
+    def to_dict(self) -> dict:
+        return {"name": self.name,
+                "max_anchor_spacing_frames": int(self.max_anchor_spacing_frames),
+                "start_frame": self.start_frame(),
+                "end_frame": self.end_frame(),
+                "anchor_count": len(self.anchors),
+                "interpolated_rule": ("linear between the two surrounding anchors of "
+                                      "THIS segment only"),
+                "anchors": [a.to_dict() for a in self.anchors],
+                "note": self.note}
+
+
+@dataclass(frozen=True)
+class ManualSegments:
+    """The opt-in ``manual_segments.<target>`` block.
+
+    ``replace_automatic`` drops the automatic track for that target from the
+    PRESENTATION (the operator replaced it with their own verified anchors);
+    ``hide_frames`` are inclusive source ranges the operator declares unusable, and
+    nothing is drawn or inferred there. ``trail`` is ``all`` (the target's trail is
+    drawn wherever the target is drawn) or ``segments_only`` (the trail is drawn only
+    inside these manual segments, which is how a trail stops tracing camera pan
+    behind a ball that is sitting still); ``trail_from_frame`` additionally withholds
+    the trail before one frame, without affecting the marker.
+    """
+    author: str = ""
+    replace_automatic: bool = False
+    hide_frames: List[List[int]] = field(default_factory=list)
+    segments: List[ManualAnchorSegment] = field(default_factory=list)
+    trail: str = "all"
+    trail_from_frame: Optional[int] = None
+
+    def hidden_frame_set(self) -> List[int]:
+        frames: List[int] = []
+        for first, last in self.hide_frames:
+            frames.extend(range(int(first), int(last) + 1))
+        return frames
+
+    def to_dict(self) -> dict:
+        return {"author": self.author,
+                "replace_automatic": bool(self.replace_automatic),
+                "hide_frames": [[int(a), int(b)] for a, b in self.hide_frames],
+                "trail": self.trail,
+                "trail_from_frame": (None if self.trail_from_frame is None
+                                     else int(self.trail_from_frame)),
+                "segment_count": len(self.segments),
+                "anchor_count": sum(len(s.anchors) for s in self.segments),
+                "segments": [s.to_dict() for s in self.segments],
+                "rule": ("anchors are operator placements; frames between two anchors of "
+                         "the same segment are linearly interpolated (origin: derived) "
+                         "and no point outside the segments is added by this block")}
 
 
 @dataclass
@@ -230,15 +352,28 @@ class DemoConfig:
     end_seconds: Optional[float] = None
     max_frames: int = DEFAULT_MAX_FRAMES
     roi: Optional[List[int]] = None
+    #: Operator crop boxes across a camera pan. When present, the effective ROI of a
+    #: frame is interpolated from these and the static ``roi`` is only the fallback.
+    roi_keyframes: List[RoiKeyframe] = field(default_factory=list)
     seeds: Dict[str, Point] = field(default_factory=dict)
     keyframes: Dict[str, int] = field(default_factory=dict)
     targets: Dict[str, TargetOptions] = field(default_factory=dict)
     corrections: Dict[str, List[Point]] = field(default_factory=dict)
+    #: Opt-in operator-anchored presentation segments, per target. Absent means the
+    #: classic behaviour: seeds + corrections + bounded automatic interpolation.
+    manual_segments: Dict[str, ManualSegments] = field(default_factory=dict)
     interpolation: InterpolationOptions = InterpolationOptions()
     timing: TimingOptions = TimingOptions()
     render: RenderOptions = RenderOptions()
+    #: Opt-in presentation layer. ``enabled`` false is the demo renderer, so a
+    #: config written before this block existed behaves exactly as it did.
+    showcase: ShowcaseOptions = ShowcaseOptions()
     handedness: str = "right"
     allow_approx_phases: bool = False
+    #: The operator's own description of what the clip is (who is in it, where it came
+    #: from, what it is not). Free text, recorded verbatim in the report and the
+    #: provenance: the tool never identifies a person or a rights status itself.
+    source_description: str = ""
     notes: str = ""
     raw: Dict[str, Any] = field(default_factory=dict)
 
@@ -253,16 +388,21 @@ class DemoConfig:
                          "end_seconds": self.end_seconds,
                          "max_frames": self.max_frames},
             "roi": list(self.roi) if self.roi else None,
+            "roi_keyframes": [k.to_dict() for k in self.roi_keyframes],
             "seeds": {k: v.to_dict() for k, v in sorted(self.seeds.items())},
             "keyframes": {k: self.keyframes[k] for k in sorted(self.keyframes)},
             "targets": {k: v.to_dict() for k, v in sorted(self.targets.items())},
             "corrections": {k: [p.to_dict() for p in v]
                             for k, v in sorted(self.corrections.items())},
+            "manual_segments": {k: v.to_dict()
+                                for k, v in sorted(self.manual_segments.items())},
             "interpolation": self.interpolation.to_dict(),
             "timing": self.timing.to_dict(),
             "render": self.render.to_dict(),
+            "showcase": self.showcase.to_dict(),
             "handedness": self.handedness,
             "allow_approx_phases": self.allow_approx_phases,
+            "source_description": self.source_description,
             "notes": self.notes,
         }
 
@@ -274,9 +414,350 @@ _TARGET_FIELDS = ("mode", "template_size", "search_radius", "min_score",
                   "template_refresh_frames", "template_refresh_min_score",
                   "track_radius_frames", "track_until_frame",
                   "automatic_until_frame")
-_TOP_FIELDS = ("schema_version", "clip_path_hint", "interval", "roi", "seeds",
-               "keyframes", "targets", "corrections", "interpolation", "timing",
-               "render", "handedness", "allow_approx_phases", "notes")
+_TOP_FIELDS = ("schema_version", "clip_path_hint", "interval", "roi", "roi_keyframes",
+               "seeds", "keyframes", "targets", "corrections", "manual_segments",
+               "interpolation",
+               "timing", "render", "showcase", "handedness", "allow_approx_phases",
+               "source_description", "notes")
+_MANUAL_TARGET_FIELDS = ("author", "replace_automatic", "hide_frames", "segments",
+                         "trail", "trail_from_frame", "note")
+_MANUAL_SEGMENT_FIELDS = ("name", "max_anchor_spacing_frames", "anchors", "note")
+#: Bounds for the opt-in manual anchor segments. They exist so a typo (an extra zero
+#: on a spacing, a segment for the wrong target) is refused instead of rendered.
+MAX_MANUAL_SEGMENTS = 32
+MAX_MANUAL_ANCHORS_PER_SEGMENT = 512
+MAX_ANCHOR_SPACING_FRAMES = 240
+MANUAL_TRAIL_MODES = ("all", "segments_only")
+
+
+def _parse_roi(value: Any, path: str) -> List[int]:
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        raise DemoConfigError(f"{path} must be [x, y, w, h] in source pixels")
+    roi = [_whole(v, f"{path}[{i}]", minimum=0) for i, v in enumerate(value)]
+    if roi[2] <= 0 or roi[3] <= 0:
+        raise DemoConfigError(f"{path} width and height must be positive")
+    return roi
+
+
+def parse_roi_keyframes(block: Any, path: str = "roi_keyframes") -> List[RoiKeyframe]:
+    """Operator ROI keyframes: a crop box per frame, for a camera that pans.
+
+    Strict like every other block: a fractional frame, a duplicate frame, a box that
+    is not four numbers, or an out-of-order list is refused, because the ROI decides
+    which pixels the pose model sees and a silently reordered list would move the crop.
+    """
+    if block is None:
+        return []
+    if not isinstance(block, (list, tuple)):
+        raise DemoConfigError(
+            f"{path} must be a list of {{\"frame\": n, \"roi\": [x, y, w, h]}} objects")
+    out: List[RoiKeyframe] = []
+    seen: Dict[int, int] = {}
+    for index, item in enumerate(block):
+        entry = _mapping(item, f"{path}[{index}]")
+        _reject_unknown(entry, ("frame", "roi", "note"), f"{path}[{index}]")
+        frame = _whole(entry.get("frame"), f"{path}[{index}].frame", minimum=0)
+        if frame in seen:
+            raise DemoConfigError(
+                f"{path} has more than one box at frame {frame} "
+                f"(indexes {seen[frame]} and {index}); the effective crop would depend "
+                f"on list order")
+        seen[frame] = index
+        out.append(RoiKeyframe(
+            frame=frame, roi=_parse_roi(entry.get("roi"), f"{path}[{index}].roi"),
+            note=_text(entry.get("note", ""), f"{path}[{index}].note")))
+    frames = [k.frame for k in out]
+    if frames != sorted(frames):
+        raise DemoConfigError(
+            f"{path} must be in ascending frame order; it is {frames}. The list is "
+            f"refused rather than sorted so a mis-ordered file cannot silently change "
+            f"the crop geometry.")
+    return out
+
+
+def _parse_anchor(item: Any, path: str) -> ManualAnchor:
+    """One manual anchor: ``{"frame", "x", "y", "note"}`` or ``[frame, x, y]``.
+
+    The list form exists because the operator's own annotation files are lists of
+    triples; it is normalised here so exactly one shape reaches the rest of the code.
+    """
+    if isinstance(item, (list, tuple)):
+        if len(item) not in (3, 4):
+            raise DemoConfigError(
+                f"{path} must be [frame, x, y] or [frame, x, y, note], got "
+                f"{len(item)} value(s)")
+        frame = _whole(item[0], f"{path}[0]", minimum=0)
+        x = _finite(item[1], f"{path}[1]")
+        y = _finite(item[2], f"{path}[2]")
+        note = _text(item[3], f"{path}[3]") if len(item) == 4 else ""
+        return ManualAnchor(frame=frame, x=x, y=y, note=note)
+    entry = _mapping(item, path)
+    _reject_unknown(entry, ("frame", "x", "y", "note"), path)
+    return ManualAnchor(frame=_whole(entry.get("frame"), f"{path}.frame", minimum=0),
+                        x=_finite(entry.get("x"), f"{path}.x"),
+                        y=_finite(entry.get("y"), f"{path}.y"),
+                        note=_text(entry.get("note", ""), f"{path}.note"))
+
+
+def parse_manual_segments(block: Any, path: str = "manual_segments"
+                          ) -> Dict[str, ManualSegments]:
+    """The opt-in operator-anchored presentation segments, per target.
+
+    Every rule here exists so that a segment can only ever describe a stretch of
+    video the operator actually anchored:
+
+    * anchors must be strictly ascending and unique;
+    * consecutive anchors may not be further apart than
+      ``max_anchor_spacing_frames`` — a longer gap is REFUSED, because the whole point
+      of the bound is that interpolation cannot become an invented stretch;
+    * segments must be ascending and may not overlap each other (a frame belongs to at
+      most one segment, so there is never a question of which segment owns it);
+    * ``hide_frames`` ranges must not overlap a segment or an anchor: "draw here" and
+      "hide here" in the same frame is a contradiction, not a preference.
+    """
+    out: Dict[str, ManualSegments] = {}
+    for name, raw in _named_blocks(_mapping(block, path), path, TARGET_NAMES).items():
+        entry = _mapping(raw, f"{path}.{name}")
+        _reject_unknown(entry, _MANUAL_TARGET_FIELDS, f"{path}.{name}")
+
+        trail = _text(entry.get("trail", "all"), f"{path}.{name}.trail")
+        if trail not in MANUAL_TRAIL_MODES:
+            raise DemoConfigError(
+                f"{path}.{name}.trail must be one of {list(MANUAL_TRAIL_MODES)}, got "
+                f"{trail!r}")
+
+        segments_raw = entry.get("segments")
+        if not isinstance(segments_raw, (list, tuple)):
+            raise DemoConfigError(
+                f"{path}.{name}.segments must be a list of "
+                f"{{name, max_anchor_spacing_frames, anchors}} objects")
+        if not segments_raw:
+            raise DemoConfigError(
+                f"{path}.{name}.segments is empty: a manual_segments block with no "
+                f"segment draws nothing, so it is refused rather than ignored silently. "
+                f"Delete the block, or give it the anchors the operator verified.")
+        if len(segments_raw) > MAX_MANUAL_SEGMENTS:
+            raise DemoConfigError(
+                f"{path}.{name}.segments has {len(segments_raw)} entries; at most "
+                f"{MAX_MANUAL_SEGMENTS} are allowed")
+
+        segments: List[ManualAnchorSegment] = []
+        names: List[str] = []
+        for index, item in enumerate(segments_raw):
+            seg_path = f"{path}.{name}.segments[{index}]"
+            seg = _mapping(item, seg_path)
+            _reject_unknown(seg, _MANUAL_SEGMENT_FIELDS, seg_path)
+            seg_name = _text(seg.get("name", f"segment_{index}"), f"{seg_path}.name",
+                             allow_empty=False)
+            if seg_name in names:
+                raise DemoConfigError(
+                    f"{path}.{name}.segments repeats the segment name {seg_name!r}; "
+                    f"provenance has to be able to name one segment")
+            names.append(seg_name)
+            spacing = _whole(seg.get("max_anchor_spacing_frames"),
+                             f"{seg_path}.max_anchor_spacing_frames", minimum=1,
+                             maximum=MAX_ANCHOR_SPACING_FRAMES)
+            anchors_raw = seg.get("anchors")
+            if not isinstance(anchors_raw, (list, tuple)) or not anchors_raw:
+                raise DemoConfigError(
+                    f"{seg_path}.anchors must be a non-empty list of operator anchors")
+            if len(anchors_raw) > MAX_MANUAL_ANCHORS_PER_SEGMENT:
+                raise DemoConfigError(
+                    f"{seg_path}.anchors has {len(anchors_raw)} entries; at most "
+                    f"{MAX_MANUAL_ANCHORS_PER_SEGMENT} are allowed")
+            anchors = [_parse_anchor(item, f"{seg_path}.anchors[{i}]")
+                       for i, item in enumerate(anchors_raw)]
+            frames = [a.frame for a in anchors]
+            if frames != sorted(frames):
+                raise DemoConfigError(
+                    f"{seg_path}.anchors must be in ascending frame order; it is "
+                    f"{frames}. It is refused rather than sorted so a mis-ordered file "
+                    f"cannot silently change which frames are anchored.")
+            if len(set(frames)) != len(frames):
+                raise DemoConfigError(f"{seg_path}.anchors repeats a frame: {frames}")
+            for before, after in zip(anchors, anchors[1:]):
+                gap = int(after.frame) - int(before.frame)
+                if gap > spacing:
+                    raise DemoConfigError(
+                        f"{seg_path}.anchors has a {gap}-frame gap between frames "
+                        f"{before.frame} and {after.frame}, above "
+                        f"max_anchor_spacing_frames={spacing}. A longer gap is refused "
+                        f"rather than interpolated: that is how a bounded "
+                        f"interpolation would become an invented stretch.")
+            segments.append(ManualAnchorSegment(
+                name=seg_name, max_anchor_spacing_frames=spacing, anchors=anchors,
+                note=_text(seg.get("note", ""), f"{seg_path}.note")))
+
+        for before, after in zip(segments, segments[1:]):
+            if after.start_frame() <= before.end_frame():
+                raise DemoConfigError(
+                    f"{path}.{name}.segments: {after.name} (frames "
+                    f"{after.start_frame()}..{after.end_frame()}) overlaps or precedes "
+                    f"{before.name} (frames {before.start_frame()}.."
+                    f"{before.end_frame()}); segments must be ascending and disjoint, so "
+                    f"that each frame belongs to at most one segment")
+
+        hide_raw = entry.get("hide_frames", [])
+        if not isinstance(hide_raw, (list, tuple)):
+            raise DemoConfigError(
+                f"{path}.{name}.hide_frames must be a list of [first, last] inclusive "
+                f"source-frame ranges")
+        hide: List[List[int]] = []
+        for index, item in enumerate(hide_raw):
+            hide_path = f"{path}.{name}.hide_frames[{index}]"
+            if not isinstance(item, (list, tuple)) or len(item) != 2:
+                raise DemoConfigError(f"{hide_path} must be [first_frame, last_frame]")
+            first = _whole(item[0], f"{hide_path}[0]", minimum=0)
+            last = _whole(item[1], f"{hide_path}[1]", minimum=0)
+            if last < first:
+                raise DemoConfigError(
+                    f"{hide_path} is [{first}, {last}]: the last frame is before the "
+                    f"first")
+            hide.append([first, last])
+        for before, after in zip(hide, hide[1:]):
+            if after[0] <= before[1]:
+                raise DemoConfigError(
+                    f"{path}.{name}.hide_frames has overlapping ranges {before} and "
+                    f"{after}; one merged range says the same thing")
+        for first, last in hide:
+            for segment in segments:
+                if first <= segment.end_frame() and last >= segment.start_frame():
+                    raise DemoConfigError(
+                        f"{path}.{name}.hide_frames [{first}, {last}] overlaps the "
+                        f"segment {segment.name} (frames {segment.start_frame()}.."
+                        f"{segment.end_frame()}): a frame cannot be both anchored and "
+                        f"hidden")
+            for anchor_frame in (f for segment in segments for f in segment.frames()):
+                if first <= anchor_frame <= last:
+                    raise DemoConfigError(
+                        f"{path}.{name}.hide_frames [{first}, {last}] contains the "
+                        f"operator anchor at frame {anchor_frame}")
+
+        replace_automatic = _boolean(entry.get("replace_automatic", False),
+                                     f"{path}.{name}.replace_automatic")
+        if replace_automatic and not segments:
+            raise DemoConfigError(
+                f"{path}.{name}.replace_automatic is true but no segment is given: "
+                f"replacing the automatic track with nothing would draw nothing at all")
+        trail_from_raw = entry.get("trail_from_frame", None)
+        trail_from = None if trail_from_raw is None else _whole(
+            trail_from_raw, f"{path}.{name}.trail_from_frame", minimum=0)
+        if trail_from is not None and not any(
+                segment.start_frame() <= trail_from <= segment.end_frame()
+                for segment in segments):
+            raise DemoConfigError(
+                f"{path}.{name}.trail_from_frame = {trail_from} is not inside any of "
+                f"this target's segments "
+                f"{[[s.start_frame(), s.end_frame()] for s in segments]}: a trail bound "
+                f"outside the segments the operator anchored would withhold a trail "
+                f"that is not there, or start it on an unverified stretch")
+        out[name] = ManualSegments(
+            author=_text(entry.get("author", ""), f"{path}.{name}.author"),
+            replace_automatic=replace_automatic, hide_frames=hide, segments=segments,
+            trail=trail, trail_from_frame=trail_from)
+    return out
+
+
+def parse_showcase(block: Any, path: str = "showcase") -> ShowcaseOptions:
+    """Parse the opt-in ``showcase`` block. Strict, like every other block.
+
+    The card count is capped at four because that is what stays legible at social
+    playback size, and a metric name that is not in the registry is refused rather
+    than dropped: a typo in ``metrics`` would otherwise silently present three cards
+    and look like a design choice.
+    """
+    data = _mapping(block, path)
+    _reject_unknown(data, SHOWCASE_FIELDS, path)
+
+    metrics_raw = data.get("metrics", None)
+    metrics = list(ShowcaseOptions().metrics)
+    if metrics_raw is not None:
+        if not isinstance(metrics_raw, (list, tuple)):
+            raise DemoConfigError(f"{path}.metrics must be a list of metric names")
+        if len(metrics_raw) < MIN_CARDS or len(metrics_raw) > MAX_CARDS:
+            raise DemoConfigError(
+                f"{path}.metrics must name {MIN_CARDS} to {MAX_CARDS} cards, got "
+                f"{len(metrics_raw)}; the renderer has room for {MAX_CARDS} legible "
+                f"cards and will not shrink further without saying so")
+        seen: List[str] = []
+        for index, name in enumerate(metrics_raw):
+            value = _text(name, f"{path}.metrics[{index}]", allow_empty=False)
+            if value not in METRICS:
+                raise DemoConfigError(
+                    f"{path}.metrics[{index}] = {value!r} is not a known metric; "
+                    f"known metrics are {sorted(METRICS)}")
+            if value in seen:
+                raise DemoConfigError(f"{path}.metrics repeats {value!r}")
+            seen.append(value)
+        metrics = seen
+
+    preset = _text(data.get("preset", ShowcaseOptions().preset), f"{path}.preset")
+    if preset not in _PRESETS:
+        raise DemoConfigError(f"{path}.preset must be one of {list(_PRESETS)}")
+    max_width_raw = data.get("max_width", ShowcaseOptions().max_width)
+    max_width = None if max_width_raw is None else _whole(
+        max_width_raw, f"{path}.max_width", minimum=64)
+    row_raw = data.get("card_row_max_width", None)
+    card_row_max_width = None if row_raw is None else _whole(
+        row_raw, f"{path}.card_row_max_width", minimum=64)
+
+    holds_raw = data.get("holds", None)
+    holds: List[Dict[str, Any]] = []
+    if holds_raw is not None:
+        if not isinstance(holds_raw, (list, tuple)):
+            raise DemoConfigError(f"{path}.holds must be a list of "
+                                  f"{{frame, seconds, label}} objects")
+        if len(holds_raw) > MAX_HOLDS:
+            raise DemoConfigError(
+                f"{path}.holds has {len(holds_raw)} entries; at most {MAX_HOLDS} are "
+                f"allowed, because a run made mostly of held frames is a slideshow "
+                f"rather than the swing")
+        seen_holds: List[int] = []
+        for index, item in enumerate(holds_raw):
+            entry = _mapping(item, f"{path}.holds[{index}]")
+            _reject_unknown(entry, ("frame", "seconds", "label"),
+                            f"{path}.holds[{index}]")
+            frame = _whole(entry.get("frame"), f"{path}.holds[{index}].frame",
+                           minimum=0)
+            if frame in seen_holds:
+                raise DemoConfigError(f"{path}.holds repeats frame {frame}")
+            seen_holds.append(frame)
+            holds.append({
+                "frame": frame,
+                "seconds": _finite(entry.get("seconds"),
+                                   f"{path}.holds[{index}].seconds", minimum=0.05,
+                                   maximum=HOLD_MAX_SECONDS),
+                "label": _text(entry.get("label", ""),
+                               f"{path}.holds[{index}].label")})
+
+    return ShowcaseOptions(
+        enabled=_boolean(data.get("enabled", False), f"{path}.enabled"),
+        brand=_text(data.get("brand", DEFAULT_BRAND), f"{path}.brand",
+                    allow_empty=False),
+        brand_sub=_text(data.get("brand_sub", DEFAULT_BRAND_SUB), f"{path}.brand_sub"),
+        metrics=tuple(metrics),
+        disclosure=_text(data.get("disclosure", DEFAULT_DISCLOSURE),
+                         f"{path}.disclosure", allow_empty=False),
+        club_trail_points=_whole(data.get("club_trail_points",
+                                          ShowcaseOptions().club_trail_points),
+                                 f"{path}.club_trail_points", minimum=2, maximum=120),
+        ball_trail_points=_whole(data.get("ball_trail_points",
+                                          ShowcaseOptions().ball_trail_points),
+                                 f"{path}.ball_trail_points", minimum=2, maximum=120),
+        impact_accent=_boolean(data.get("impact_accent", True),
+                               f"{path}.impact_accent"),
+        impact_accent_span_frames=_whole(
+            data.get("impact_accent_span_frames", ShowcaseOptions().impact_accent_span_frames),
+            f"{path}.impact_accent_span_frames", minimum=1, maximum=120),
+        card_debounce_frames=_whole(
+            data.get("card_debounce_frames", ShowcaseOptions().card_debounce_frames),
+            f"{path}.card_debounce_frames", minimum=1, maximum=600),
+        max_width=max_width,
+        crf=_whole(data.get("crf", ShowcaseOptions().crf), f"{path}.crf",
+                   minimum=0, maximum=51),
+        preset=preset,
+        card_row_max_width=card_row_max_width,
+        holds=tuple(holds))
 
 
 def parse_config(payload: Any) -> DemoConfig:
@@ -303,12 +784,8 @@ def parse_config(payload: Any) -> DemoConfig:
 
     roi = None
     if data.get("roi") is not None:
-        raw_roi = data["roi"]
-        if not isinstance(raw_roi, (list, tuple)) or len(raw_roi) != 4:
-            raise DemoConfigError("roi must be [x, y, w, h] in source pixels")
-        roi = [_whole(v, f"roi[{i}]", minimum=0) for i, v in enumerate(raw_roi)]
-        if roi[2] <= 0 or roi[3] <= 0:
-            raise DemoConfigError("roi width and height must be positive")
+        roi = _parse_roi(data["roi"], "roi")
+    roi_keyframes = parse_roi_keyframes(data.get("roi_keyframes"), "roi_keyframes")
 
     seeds: Dict[str, Point] = {}
     for name, block in _named_blocks(_mapping(data.get("seeds"), "seeds"), "seeds",
@@ -412,7 +889,8 @@ def parse_config(payload: Any) -> DemoConfig:
             "timing.accept_variable_cadence"))
 
     render_block = _mapping(data.get("render"), "render")
-    _reject_unknown(render_block, ("max_width", "crf", "preset", "render"), "render")
+    _reject_unknown(render_block, ("max_width", "crf", "preset", "render", "stride"),
+                    "render")
     max_width_raw = render_block.get("max_width", DEFAULT_RENDER_MAX_WIDTH)
     max_width = None if max_width_raw is None else _whole(
         max_width_raw, "render.max_width", minimum=64)
@@ -423,7 +901,9 @@ def parse_config(payload: Any) -> DemoConfig:
         max_width=max_width,
         crf=_whole(render_block.get("crf", 20), "render.crf", minimum=0, maximum=51),
         preset=preset,
-        render=_boolean(render_block.get("render", True), "render.render"))
+        render=_boolean(render_block.get("render", True), "render.render"),
+        stride=_whole(render_block.get("stride", 1), "render.stride", minimum=1,
+                      maximum=48))
 
     handedness = _text(data.get("handedness", "right"), "handedness")
     if handedness not in ("right", "left"):
@@ -433,11 +913,18 @@ def parse_config(payload: Any) -> DemoConfig:
         schema_version=version,
         clip_path_hint=_text(data.get("clip_path_hint", ""), "clip_path_hint"),
         start_seconds=start_seconds, end_seconds=end_seconds, max_frames=max_frames,
-        roi=roi, seeds=seeds, keyframes=keyframes, targets=targets,
+        roi=roi, roi_keyframes=roi_keyframes, seeds=seeds, keyframes=keyframes,
+        targets=targets,
         corrections=corrections, interpolation=interpolation, timing=timing,
-        render=render, handedness=handedness,
+        manual_segments=parse_manual_segments(data.get("manual_segments"),
+                                             "manual_segments"),
+        render=render,
+        showcase=parse_showcase(data.get("showcase"), "showcase"),
+        handedness=handedness,
         allow_approx_phases=_boolean(data.get("allow_approx_phases", False),
                                      "allow_approx_phases"),
+        source_description=_text(data.get("source_description", ""),
+                                 "source_description"),
         notes=_text(data.get("notes", ""), "notes"),
         raw=dict(data))
 
@@ -491,16 +978,22 @@ class ResolvedConfig:
                                    "start_frame = floor(start_seconds*fps), "
                                    "end_frame = ceil(end_seconds*fps) - 1"),
             "roi_xywh": list(cfg.roi) if cfg.roi else None,
+            "roi_keyframes": [k.to_dict() for k in cfg.roi_keyframes],
+            "roi_envelope_xywh": roi_envelope_for(cfg),
             "seeds": {k: v.to_dict() for k, v in sorted(cfg.seeds.items())},
             "keyframes": {k: cfg.keyframes[k] for k in sorted(cfg.keyframes)},
             "targets": {k: v.to_dict() for k, v in sorted(cfg.targets.items())},
             "corrections": {k: [p.to_dict() for p in v]
                             for k, v in sorted(cfg.corrections.items())},
+            "manual_segments": {k: v.to_dict()
+                                for k, v in sorted(cfg.manual_segments.items())},
             "interpolation": cfg.interpolation.to_dict(),
             "timing": cfg.timing.to_dict(),
             "render": cfg.render.to_dict(),
+            "showcase": cfg.showcase.to_dict(),
             "handedness": cfg.handedness,
             "allow_approx_phases": cfg.allow_approx_phases,
+            "source_description": cfg.source_description,
             "warnings": list(self.warnings),
             "notes_from_config": cfg.notes,
             "raw_config": cfg.raw,
@@ -520,6 +1013,26 @@ class ResolvedConfig:
 def _frame_for_seconds(seconds: float, fps: float, *, upper: bool) -> int:
     value = float(seconds) * float(fps)
     return int(math.ceil(value)) if upper else int(math.floor(value))
+
+
+def roi_envelope_for(cfg: DemoConfig) -> Optional[List[int]]:
+    """The region the crop moves through, or the static ROI when there is no pan."""
+    from .showcase import roi_envelope
+    if cfg.roi_keyframes:
+        envelope = roi_envelope([k.to_dict() for k in cfg.roi_keyframes])
+        if envelope:
+            return envelope
+    return list(cfg.roi) if cfg.roi else None
+
+
+def effective_roi(cfg: DemoConfig, frame: int) -> Optional[List[int]]:
+    """The crop box for one SOURCE frame: interpolated when keyframes exist."""
+    if cfg.roi_keyframes:
+        from .showcase import interpolate_roi
+        box = interpolate_roi([k.to_dict() for k in cfg.roi_keyframes], frame)
+        if box:
+            return box
+    return list(cfg.roi) if cfg.roi else None
 
 
 def validate_config(cfg: DemoConfig, source: SourceProbe) -> ResolvedConfig:
@@ -594,6 +1107,40 @@ def validate_config(cfg: DemoConfig, source: SourceProbe) -> ResolvedConfig:
             f"truncated: lower the interval or raise max_frames deliberately.")
 
     # --- ROI against the source frame
+    if cfg.roi_keyframes:
+        for key in cfg.roi_keyframes:
+            x, y, w, h = key.roi
+            if not (start_frame <= key.frame <= end_frame):
+                raise DemoConfigError(
+                    f"roi_keyframes box at frame {key.frame} is outside the processed "
+                    f"interval [{start_frame}, {end_frame}]")
+            if x + w > source.width or y + h > source.height:
+                raise DemoConfigError(
+                    f"roi_keyframes box at frame {key.frame} "
+                    f"[x={x}, y={y}, w={w}, h={h}] does not fit inside the "
+                    f"{source.width}x{source.height} source frame")
+            if w * h < 16:
+                raise DemoConfigError(
+                    f"roi_keyframes box at frame {key.frame} is too small to contain "
+                    f"a golfer")
+        if not cfg.roi:
+            # The first operator box is the initial crop: not a substitute for one,
+            # but the value the operator already supplied for that frame.
+            cfg.roi = [int(v) for v in cfg.roi_keyframes[0].roi]
+            notes.append(
+                "no static roi was given, so the first roi_keyframes box "
+                f"{cfg.roi} is used as the initial crop and interpolated from there")
+        elif list(cfg.roi) != [int(v) for v in cfg.roi_keyframes[0].roi]:
+            warnings.append(
+                f"roi {list(cfg.roi)} differs from the first roi_keyframes box "
+                f"{list(cfg.roi_keyframes[0].roi)}; the per-frame interpolated boxes "
+                f"are what the body pass uses, and the static roi is only the fallback "
+                f"when no keyframe covers a frame")
+        notes.append(
+            f"{len(cfg.roi_keyframes)} operator ROI keyframes: the crop box is "
+            f"interpolated linearly in position and size between them and held constant "
+            f"outside them. This is operator crop geometry, not a pose, and it is "
+            f"recorded per frame in the provenance.")
     if cfg.roi:
         x, y, w, h = cfg.roi
         if x + w > source.width or y + h > source.height:
@@ -630,6 +1177,54 @@ def validate_config(cfg: DemoConfig, source: SourceProbe) -> ResolvedConfig:
         existing = list(cfg.corrections.get(name, []))
         if existing:
             cfg.corrections[name] = sorted(existing, key=lambda p: p.frame)
+
+    # --- manual anchor segments: operator-placed presentation geometry
+    for name in sorted(cfg.manual_segments):
+        manual = cfg.manual_segments[name]
+        for segment in manual.segments:
+            for anchor in segment.anchors:
+                _check_point(Point(anchor.frame, anchor.x, anchor.y, anchor.note),
+                             f"manual_segments.{name}.{segment.name}"
+                             f"[frame={anchor.frame}]", source, start_frame, end_frame)
+        for first, last in manual.hide_frames:
+            if not (start_frame <= first <= last <= end_frame):
+                raise DemoConfigError(
+                    f"manual_segments.{name}.hide_frames [{first}, {last}] is outside "
+                    f"the processed interval [{start_frame}, {end_frame}]")
+        stop = cfg.target(name).track_until_frame
+        if stop is not None:
+            for segment in manual.segments:
+                for anchor in segment.anchors:
+                    if anchor.frame > stop:
+                        raise DemoConfigError(
+                            f"manual_segments.{name}.{segment.name} anchors frame "
+                            f"{anchor.frame}, past targets.{name}.track_until_frame = "
+                            f"{stop}: a stop frame ends the target's scope, so an anchor "
+                            f"past it is contradictory")
+        if manual.replace_automatic and cfg.corrections.get(name):
+            warnings.append(
+                f"manual_segments.{name}.replace_automatic is true, so the automatic "
+                f"track for {name} is replaced by the operator's own segments; the "
+                f"{len(cfg.corrections[name])} correction(s) for {name} are still "
+                f"recorded as operator input but no longer steer anything")
+        notes.append(
+            f"manual_segments.{name}: {len(manual.segments)} operator-anchored "
+            f"segment(s), {sum(len(s.anchors) for s in manual.segments)} anchor(s); "
+            f"frames between two anchors of the same segment are linearly interpolated "
+            f"and labelled derived, and no point outside the segments is added by this "
+            f"block."
+            + (" Every frame outside them is missing, because the automatic track for "
+               "this target was replaced." if manual.replace_automatic else
+               " Outside them the target is the automatic track's own points, "
+               "unchanged.")
+            + (f" Author: {manual.author}." if manual.author else "")
+            + (f" Declared unusable frames: {manual.hide_frames}."
+               if manual.hide_frames else "")
+            + ("" if manual.trail == "all" else
+               " The trail for this target is drawn only inside these segments.")
+            + ("" if manual.trail_from_frame is None else
+               f" The trail is withheld before source frame {manual.trail_from_frame} "
+               f"(the marker is not)."))
 
     present = [(phase, cfg.keyframes[phase]) for phase in PHASE_ORDER
                if phase in cfg.keyframes]
@@ -697,7 +1292,11 @@ def validate_config(cfg: DemoConfig, source: SourceProbe) -> ResolvedConfig:
                     f"so the target would be out of scope before automatic matching "
                     f"stopped; the two bounds are contradictory")
             if not any(point.frame > automatic
-                       for point in cfg.corrections.get(name, [])):
+                       for point in cfg.corrections.get(name, [])) \
+                    and not any(anchor.frame > automatic
+                                for segment in cfg.manual_segments.get(
+                                    name, ManualSegments()).segments
+                                for anchor in segment.anchors):
                 warnings.append(
                     f"targets.{name}.automatic_until_frame = {automatic} has no "
                     f"operator correction after it: past that frame this target will "

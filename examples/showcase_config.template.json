@@ -1,0 +1,185 @@
+{
+  "_comment": [
+    "Fairway OS SHOWCASE config TEMPLATE. This is the opt-in presentation artifact",
+    "set (showcase_*.mp4/png/md/json). The showcase renderer fills the picture with",
+    "the footage and draws translucent cards ON it; the demo renderer (showcase",
+    "enabled=false) keeps its chrome beside the picture in an external gutter.",
+    "EVERY VALUE BELOW IS ILLUSTRATIVE. Replace the interval, ROI, seeds, phases and",
+    "corrections with your own clip's numbers (demo-setup writes the ROI, seeds and",
+    "phases for you). Frame indices are zero-based SOURCE frames;",
+    "interval.end_seconds is EXCLUSIVE. Keys beginning with an underscore are ignored",
+    "by the schema, so a config can explain itself.",
+    "Read docs/demo-mode.md for the semantics of every field."
+  ],
+  "schema_version": "fairwayos-demo-config.v1",
+  "clip_path_hint": "CLIP.mp4",
+  "interval": {
+    "start_seconds": 2.0229,
+    "end_seconds": 49.0784,
+    "max_frames": 1200
+  },
+  "timing": {
+    "source_cadence_caveat": "illustrative: source playback timeline; the clip may be a replay, a slow-motion capture or a re-timed copy, so container cadence locates frames in the source timeline and is never treated as measured action time",
+    "nominal_fps_trusted": false,
+    "accept_variable_cadence": false
+  },
+  "roi": [1480, 280, 800, 1480],
+  "roi_keyframes": [
+    {
+      "frame": 48,
+      "roi": [1480, 280, 800, 1480],
+      "note": "illustrative: operator box, placed by a human at this frame"
+    },
+    {
+      "frame": 570,
+      "roi": [1300, 260, 800, 1480],
+      "note": "illustrative: the crop follows the camera pan, interpolated between boxes"
+    },
+    {
+      "frame": 1176,
+      "roi": [480, 100, 900, 1650],
+      "note": "illustrative: the last operator box; the crop is held constant after it"
+    }
+  ],
+  "seeds": {
+    "ball": {"frame": 48, "x": 2404.0, "y": 1667.0,
+             "note": "illustrative operator seed, approximate"},
+    "clubhead": {"frame": 48, "x": 2380.0, "y": 1641.0,
+                 "note": "illustrative operator seed"}
+  },
+  "keyframes": {
+    "address": 48,
+    "takeaway": 72,
+    "top": 570,
+    "downswing": 660,
+    "impact": 840,
+    "follow_through": 880,
+    "finish": 1128
+  },
+  "targets": {
+    "_note": [
+      "A correction is a restart point AND a statement: put one wherever the operator",
+      "can see the target again. Stretches with no anchor at all (offscreen, occluded)",
+      "stay missing, which is the honest way to leave a gap."
+    ],
+    "ball": {
+      "mode": "template",
+      "template_size": 41,
+      "search_radius": 60,
+      "min_score": 0.55,
+      "max_jump_px": 80.0,
+      "loss_frames": 3,
+      "direction": "forward",
+      "lk_refine": false,
+      "track_until_frame": 852,
+      "automatic_until_frame": 841
+    },
+    "clubhead": {
+      "mode": "template",
+      "template_size": 21,
+      "search_radius": 90,
+      "min_score": 0.55,
+      "max_jump_px": 120.0,
+      "loss_frames": 2,
+      "direction": "forward",
+      "lk_refine": false,
+      "track_until_frame": 852
+    }
+  },
+  "corrections": {
+    "ball": [
+      {"frame": 96, "x": 2398.0, "y": 1665.0, "note": "operator anchor"},
+      {"frame": 844, "x": 1839.0, "y": 1586.0, "note": "operator launch anchor"},
+      {"frame": 852, "x": 1892.0, "y": 1471.0, "note": "last verified launch frame"}
+    ],
+    "clubhead": [
+      {"frame": 432, "x": 1562.0, "y": 30.0, "note": "reseed after an offscreen gap"},
+      {"frame": 660, "x": 1456.0, "y": 193.0, "note": "reseed after an occlusion"}
+    ]
+  },
+  "interpolation": {"enabled": true, "max_gap_frames": 2},
+  "manual_segments": {
+    "_comment": [
+      "OPT-IN operator-anchored segments. Use these when the operator has visually",
+      "verified where the target is: they replace (replace_automatic) or overlay the",
+      "template track for that target. Frames between two anchors OF THE SAME SEGMENT",
+      "are linearly interpolated and labelled derived; a gap longer than",
+      "max_anchor_spacing_frames is refused, not filled; nothing outside the segments",
+      "is drawn or extrapolated. hide_frames are operator-declared unusable ranges.",
+      "trail 'segments_only' keeps that target's trail inside these segments (a trail",
+      "behind a stationary ball otherwise traces the camera pan). trail_from_frame",
+      "withholds the trail before a given source frame without touching the marker.",
+      "Anchors may also be written as [frame, x, y] lists."
+    ],
+    "clubhead": {
+      "author": "illustrative: operator visual inspection",
+      "replace_automatic": true,
+      "trail": "segments_only",
+      "segments": [
+        {
+          "name": "takeaway_visible",
+          "max_anchor_spacing_frames": 24,
+          "anchors": [[48, 2375.0, 1641.0], [72, 2343.0, 1608.0],
+                      [96, 2299.0, 1537.0]]
+        },
+        {
+          "name": "downswing_visible",
+          "max_anchor_spacing_frames": 12,
+          "anchors": [[660, 1456.0, 216.0], [672, 1424.0, 197.0],
+                      [684, 1384.0, 179.0]]
+        }
+      ]
+    },
+    "ball": {
+      "author": "illustrative: operator visual inspection",
+      "replace_automatic": false,
+      "trail": "segments_only",
+      "trail_from_frame": 842,
+      "hide_frames": [[839, 841]],
+      "segments": [
+        {
+          "name": "ground_contact",
+          "max_anchor_spacing_frames": 2,
+          "anchors": [[838, 1823.0, 1630.0]]
+        },
+        {
+          "name": "launch_visible",
+          "max_anchor_spacing_frames": 2,
+          "anchors": [[842, 1823.4, 1613.1], [844, 1838.6, 1582.8],
+                      [846, 1852.7, 1552.8]]
+        }
+      ]
+    }
+  },
+  "render": {
+    "max_width": 1920,
+    "crf": 18,
+    "preset": "medium",
+    "render": true,
+    "stride": 3
+  },
+  "showcase": {
+    "enabled": true,
+    "brand": "FAIRWAY OS",
+    "brand_sub": "SWING ANALYSIS",
+    "metrics": ["shoulder_tilt", "hip_tilt", "knee_flexion", "hand_rise"],
+    "disclosure": "OPERATOR-ASSISTED \u00b7 2D IMAGE-SPACE ESTIMATES",
+    "club_trail_points": 12,
+    "ball_trail_points": 10,
+    "impact_accent": true,
+    "impact_accent_span_frames": 12,
+    "card_debounce_frames": 8,
+    "max_width": 1920,
+    "crf": 18,
+    "preset": "medium",
+    "card_row_max_width": 1450,
+    "holds": [
+      {"frame": 852, "seconds": 0.6,
+       "label": "illustrative: hold on the last verified launch frame"}
+    ]
+  },
+  "handedness": "right",
+  "allow_approx_phases": false,
+  "source_description": "illustrative: operator's own description of the clip (who is in it, where it came from, what it is not). Recorded verbatim; the tool never identifies a person or a rights status itself",
+  "notes": "illustrative template values only - they are not measurements of any clip and must be replaced; operator notes for a real run are recorded in showcase_provenance.json"
+}

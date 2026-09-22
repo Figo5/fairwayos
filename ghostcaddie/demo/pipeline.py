@@ -32,10 +32,12 @@ from typing import (Any, Callable, Dict, List, Optional, Sequence, TYPE_CHECKING
 
 from . import DEMO_ANALYSIS_SCHEMA, DEMO_PROVENANCE_SCHEMA, DEMO_TOOL_VERSION
 from .analytics import (body_metrics, missingness_report, targets_summary)
-from .config import (PHASE_ORDER, ResolvedConfig, load_config, validate_config)
+from .config import (PHASE_ORDER, ResolvedConfig, load_config,
+                     roi_envelope_for, validate_config)
 from .errors import (DemoConfigError, DemoError, DemoRenderError, DemoSourceError)
 from .paths import (candidate_interpreters, out_paths, resolve_cv_interpreter,
-                    run_demo_worker, sha256_of)
+                    resolve_out_paths, run_demo_worker, showcase_still_path,
+                    sha256_of)
 from .phases import resolve_phases
 from .probe import SourceProbe, probe_source
 from .report import (render_report, render_summary, render_terminal_summary)
@@ -160,7 +162,7 @@ def verify_render(path: str, *, expected_frames: int, expected_fps: float,
 
 def build_spec(resolved: ResolvedConfig, source_sha256: str, out_dir: str,
                paths: Dict[str, Path], *, body_model, render_enabled: bool,
-               redact_path: bool) -> dict:
+               redact_path: bool, showcase_enabled: bool = False) -> dict:
     cfg = resolved.config
     return {
         "video": resolved.source.path,
@@ -172,9 +174,18 @@ def build_spec(resolved: ResolvedConfig, source_sha256: str, out_dir: str,
         "interval": {"start_frame": resolved.start_frame,
                      "end_frame": resolved.end_frame},
         "roi": list(cfg.roi) if cfg.roi else None,
+        # The moving crop: the boxes themselves, the region they move through (used
+        # for coverage measurement) and the operator's own note about who placed them.
+        "roi_keyframes": [k.to_dict() for k in cfg.roi_keyframes],
+        "roi_effective": roi_envelope_for(cfg),
+        "roi_author": (cfg.roi_keyframes[0].note if cfg.roi_keyframes else ""),
         "seeds": {name: point.to_dict() for name, point in cfg.seeds.items()},
         "corrections": {name: [p.to_dict() for p in points]
                         for name, points in cfg.corrections.items()},
+        # Opt-in operator-anchored presentation segments. Omitted blocks mean the
+        # classic behaviour, so an older config behaves exactly as it did.
+        "manual_segments": {name: block.to_dict()
+                            for name, block in cfg.manual_segments.items()},
         "targets": {name: {"options": options.to_dict(), "mode": options.mode}
                     for name, options in cfg.targets.items()},
         "interpolation": cfg.interpolation.to_dict(),
@@ -188,7 +199,13 @@ def build_spec(resolved: ResolvedConfig, source_sha256: str, out_dir: str,
                  "model_found": bool(getattr(body_model, "found", False))},
         "render": {"enabled": bool(render_enabled), "path": str(paths["annotated"]),
                    "max_width": cfg.render.max_width, "crf": cfg.render.crf,
-                   "preset": cfg.render.preset},
+                   "preset": cfg.render.preset,
+                   # The presentation style is decided here, once, so the worker draws
+                   # the style the orchestrator wrote the output contract for.
+                   "style": ("showcase" if showcase_enabled else "demo"),
+                   "stride": int(cfg.render.stride)},
+        "showcase": cfg.showcase.to_dict() if showcase_enabled else None,
+        "showcase_enabled": bool(showcase_enabled),
         "keyframes_dir": str(paths["keyframes_dir"]),
         "contact_sheet": str(paths["contact_sheet"]),
         "debug_dir": str(paths["debug_dir"]),
@@ -210,12 +227,17 @@ def _redact(path: str, redact: bool) -> str:
 def run_demo(video: str, config_path: str, out_dir: str, *,
              cv_python: Optional[str] = None, body_model_path: Optional[str] = None,
              render: Optional[bool] = None, summary: bool = True,
-             redact_path: bool = False,
+             redact_path: bool = False, showcase: Optional[bool] = None,
              probe_fn: Optional[Callable[[str], SourceProbe]] = None,
              worker_runner: Optional[Callable[[dict, str], dict]] = None,
              interpreter_resolver: Optional[Callable[[Optional[str]], dict]] = None
              ) -> DemoResult:
-    """Run the demo on one local clip. Returns the result; raises on any failure."""
+    """Run the demo on one local clip. Returns the result; raises on any failure.
+
+    ``showcase`` is a tri-state: ``None`` follows the config's ``showcase.enabled``,
+    ``True`` forces the showcase presentation on (with the block's defaults when the
+    config has none), ``False`` forces the demo renderer.
+    """
     from ghostcaddie.video.source_binding import bind_source, sha256_file
 
     src = Path(video).expanduser()
@@ -231,6 +253,9 @@ def run_demo(video: str, config_path: str, out_dir: str, *,
     cfg = config
     config_sha = sha256_file(config_file)
 
+    showcase_enabled = (bool(cfg.showcase.enabled) if showcase is None
+                        else bool(showcase))
+
     probe = (probe_fn or probe_source)(str(src))
     resolved = validate_config(config, probe)
 
@@ -239,7 +264,7 @@ def run_demo(video: str, config_path: str, out_dir: str, *,
 
     out = Path(out_dir).expanduser()
     out.mkdir(parents=True, exist_ok=True)
-    paths = out_paths(out)
+    paths = resolve_out_paths(out, showcase=showcase_enabled)
     paths["debug_dir"].mkdir(parents=True, exist_ok=True)
     paths["keyframes_dir"].mkdir(parents=True, exist_ok=True)
 
@@ -248,7 +273,8 @@ def run_demo(video: str, config_path: str, out_dir: str, *,
 
     render_enabled = config.render.render if render is None else bool(render)
     spec = build_spec(resolved, source_sha, str(out), paths, body_model=resolved_model,
-                      render_enabled=render_enabled, redact_path=redact_path)
+                      render_enabled=render_enabled, redact_path=redact_path,
+                      showcase_enabled=showcase_enabled)
 
     interpreter = (interpreter_resolver or resolve_cv_interpreter)(cv_python)
     runner = worker_runner or run_demo_worker
@@ -319,6 +345,9 @@ def run_demo(video: str, config_path: str, out_dir: str, *,
             "irregular_timestamps": probe.irregular_timestamps,
             "timestamp_stats": probe.timestamp_stats,
             "timing_caveat": cfg.timing.source_cadence_caveat,
+            # The operator's own description of what the clip is. Recorded rather than
+            # generated: the tool cannot identify a player or a rights status.
+            "description": cfg.source_description,
         },
         interval={
             "start_frame": resolved.start_frame, "end_frame": resolved.end_frame,
@@ -366,6 +395,8 @@ def run_demo(video: str, config_path: str, out_dir: str, *,
                  (worker.get("targets") or {}).items()},
         render=render_info,
         keyframes=keyframes_info,
+        presentation=_presentation_record(paths, cfg, render_info, keyframes_info,
+                                        showcase_enabled),
         limitations=limitations,
         warnings=list(resolved.warnings),
         notes=list(resolved.notes),
@@ -383,9 +414,20 @@ def run_demo(video: str, config_path: str, out_dir: str, *,
     analysis = result.to_dict()
     analysis["debug_refs"] = {"debug_dir": _redact(str(paths["debug_dir"]), redact_path)}
     _write_json(paths["analysis"], analysis)
-    paths["report"].write_text(render_report(result), encoding="utf-8")
-    if summary:
-        paths["summary"].write_text(render_summary(result), encoding="utf-8")
+    if showcase_enabled:
+        from .showcase_report import (render_linkedin_draft, render_showcase_report,
+                                      showcase_config_payload)
+        paths["report"].write_text(render_showcase_report(result), encoding="utf-8")
+        paths["linkedin"].write_text(render_linkedin_draft(result), encoding="utf-8")
+        # The run's own config, with the resolution it was bound to, written under an
+        # underscore key so the file still parses as a valid config and can be re-run.
+        _write_json(paths["config_copy"],
+                    showcase_config_payload(config, resolved, probe, source_sha,
+                                            spec, result))
+    else:
+        paths["report"].write_text(render_report(result), encoding="utf-8")
+        if summary:
+            paths["summary"].write_text(render_summary(result), encoding="utf-8")
 
     provenance = _provenance(result, resolved, probe, binding, interpreter, spec,
                              config_sha, config_file, source_sha, paths,
@@ -404,6 +446,90 @@ def run_demo(video: str, config_path: str, out_dir: str, *,
             + ". The report, analysis and provenance were written with this failure "
               "stated; no video is claimed.")
     return result
+
+
+def _presentation_record(paths: Dict[str, Path], cfg, render_info: dict,
+                         keyframes_info: dict, showcase_enabled: bool) -> dict:
+    """What the run produced and how it was presented, in one record.
+
+    The report, the analysis JSON and the provenance all read this instead of each
+    deriving the artifact list, so the three cannot disagree about which files exist
+    or which style the video carries.
+    """
+    from .showcase import METRICS
+
+    out_dir = paths["keyframes_dir"] if showcase_enabled else paths["keyframes_dir"].parent
+    names = ([paths[role].name for role in ("annotated", "report", "analysis",
+                                            "provenance", "config_copy", "linkedin",
+                                            "contact_sheet")]
+             if showcase_enabled else
+             [paths[role].name for role in ("annotated", "report", "analysis",
+                                            "provenance", "summary", "contact_sheet")])
+    record: Dict[str, Any] = {
+        "style": "showcase" if showcase_enabled else "demo",
+        "renderer": ("ghostcaddie.demo.render_showcase" if showcase_enabled
+                     else "ghostcaddie.demo.render"),
+        "output_dir": str(out_dir),
+        "output_names": names,
+        "output_paths": {role: str(path) for role, path in paths.items()
+                         if not hasattr(path, "is_dir") or not path.is_dir()},
+    }
+    if not showcase_enabled:
+        record["note"] = ("the demo renderer puts its chrome in a side column or an "
+                          "external gutter beside the picture; nothing in this run "
+                          "draws over the footage.")
+        return record
+
+    options = cfg.showcase
+    metrics = list(options.metrics)
+    record.update({
+        "brand": {"title": options.brand, "subtitle": options.brand_sub},
+        "disclosure": options.disclosure,
+        "phase_badge_rule": ("the badge names the span the frame is IN: the last "
+                             "operator phase marker at or before the frame. Before "
+                             "the first marker it is hidden rather than showing the "
+                             "next phase early."),
+        "cards": {
+            "video_metrics": metrics,
+            "still_metrics": metrics[:3],
+            "definitions": {name: {"label": METRICS[name]["label"],
+                                   "unit": METRICS[name]["unit"],
+                                   "space": METRICS[name]["space"],
+                                   "source": METRICS[name]["source"],
+                                   "description": METRICS[name]["description"]}
+                            for name in metrics if name in METRICS},
+            "placeholder": "-- (drawn dimmed; no value is held or invented)",
+        },
+        "chrome": {
+            "inside_picture": bool(render_info.get("chrome_inside_picture", True)),
+            "added_width_px": int(render_info.get("added_width_px") or 0),
+            "layout": render_info.get("layout") or {},
+            "layout_problems": render_info.get("layout_problems") or [],
+            "measured_coverage": render_info.get("chrome_coverage") or {},
+            "text_engine": render_info.get("text_engine") or {},
+        },
+        "stills": [{"phase": card.get("phase"), "path": card.get("path"),
+                    "frame": card.get("frame"), "label": card.get("label"),
+                    "metrics": card.get("metrics"),
+                    "unavailable_metrics": card.get("unavailable_metrics")}
+                   for card in (keyframes_info.get("cards") or [])],
+        "stills_missing": [{"phase": item.get("phase"), "path": item.get("path"),
+                            "reason": item.get("reason")}
+                           for item in (keyframes_info.get("missing") or [])],
+        "contact_sheet": keyframes_info.get("contact_sheet") or "",
+        "contact_sheet_panels": keyframes_info.get("contact_sheet_panels") or [],
+        "impact_accent_frames": render_info.get("impact_accent_frames") or [],
+        "trail_points": render_info.get("trail_points") or {},
+        "notes": [
+            "The picture fills the frame: no gutter, letterbox or sidebar was added.",
+            "Cards are translucent chrome drawn over the footage; the measured overlap "
+            "with the golfer region and with the drawn ball/club points is recorded "
+            "under chrome.measured_coverage rather than described as zero.",
+            "Card values are 2D image-space quantities; 2D projected shoulder and hip "
+            "tilt are labelled as 2D tilts and are not 3D turn measurements.",
+        ],
+    })
+    return record
 
 
 def _track_from_payload(name: str, payload: dict, resolved: ResolvedConfig):
@@ -533,11 +659,16 @@ def _provenance(result: DemoResult, resolved: ResolvedConfig, probe: SourceProbe
                 config_file: Path, source_sha: str, paths: Dict[str, Path],
                 verification: dict, redact_path: bool) -> dict:
     outputs = []
-    for role in ("annotated", "report", "analysis", "summary", "contact_sheet"):
-        path = paths[role]
-        if role == "contact_sheet" and not os.path.isfile(path):
-            continue
-        if not os.path.isfile(path):
+    showcase = bool(result.presentation.get("style") == "showcase")
+    # ``provenance`` is deliberately absent from both lists: this file is written
+    # AFTER these hashes are taken, so including it would record the previous run's
+    # hash (or none at all) as if it described this one.
+    roles = (("annotated", "report", "analysis", "config_copy", "linkedin",
+              "contact_sheet") if showcase else
+             ("annotated", "report", "analysis", "summary", "contact_sheet"))
+    for role in roles:
+        path = paths.get(role)
+        if path is None or not os.path.isfile(path):
             continue
         outputs.append({"role": role, "path": _redact(str(path), redact_path),
                         "bytes": os.path.getsize(path),
@@ -545,10 +676,20 @@ def _provenance(result: DemoResult, resolved: ResolvedConfig, probe: SourceProbe
     for card in (result.keyframes.get("cards") or []):
         if card.get("written"):
             path = Path(card["path"])
-            outputs.append({"role": f"keyframe:{card['phase']}",
+            outputs.append({"role": (f"still:{card['phase']}" if showcase
+                                     else f"keyframe:{card['phase']}"),
                             "path": _redact(str(path), redact_path),
                             "bytes": os.path.getsize(path) if path.is_file() else 0,
                             "sha256": sha256_of(path) if path.is_file() else ""})
+    if showcase:
+        for item in (result.keyframes.get("missing") or []):
+            path = Path(str(item.get("path")))
+            if not item.get("written") or not path.is_file():
+                continue
+            outputs.append({"role": f"still-unavailable:{item.get('phase')}",
+                            "path": _redact(str(path), redact_path),
+                            "bytes": os.path.getsize(path),
+                            "sha256": sha256_of(path)})
     cfg = resolved.config
     return {
         "schema_version": DEMO_PROVENANCE_SCHEMA,
@@ -559,6 +700,7 @@ def _provenance(result: DemoResult, resolved: ResolvedConfig, probe: SourceProbe
         "source": {"path": _redact(probe.path, redact_path),
                    "display_name": probe.display_name,
                    "sha256": source_sha,
+                   "description": cfg.source_description,
                    "probe": probe.to_dict()},
         "source_binding": binding,
         "config": {
@@ -572,6 +714,13 @@ def _provenance(result: DemoResult, resolved: ResolvedConfig, probe: SourceProbe
         "manual_input_records": {
             "origin": "operator",
             "roi_xywh": list(cfg.roi) if cfg.roi else None,
+            "roi_keyframes": [{"index": i, **key.to_dict(),
+                               "origin": "operator_crop_geometry",
+                               "author": (key.note or "operator"),
+                               "method": ("manual ROI boxes across a camera pan, "
+                                          "interpolated linearly in position and size")}
+                              for i, key in enumerate(cfg.roi_keyframes)],
+            "roi_effective_xywh": roi_envelope_for(cfg),
             "seeds": [{"target": name, **point.to_dict()}
                       for name, point in sorted(cfg.seeds.items())],
             "keyframes": [{"phase": phase, "frame": frame}
@@ -580,6 +729,9 @@ def _provenance(result: DemoResult, resolved: ResolvedConfig, probe: SourceProbe
             "corrections": [{"target": name, **point.to_dict()}
                             for name in sorted(cfg.corrections)
                             for point in cfg.corrections[name]],
+            "manual_anchor_segments": [{"target": name, **block.to_dict()}
+                                       for name, block in
+                                       sorted(cfg.manual_segments.items())],
             "interpolation": cfg.interpolation.to_dict(),
             "statement": ("Every entry above is operator input. No point in this run "
                           "was produced by an automatic detector, and no operator "
@@ -617,6 +769,7 @@ def _provenance(result: DemoResult, resolved: ResolvedConfig, probe: SourceProbe
             "downloads": "none",
         },
         "outputs": outputs,
+        "presentation": result.presentation,
         "spec": spec,
         "verification": verification,
         "render": result.render,
