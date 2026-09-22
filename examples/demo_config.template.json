@@ -1,0 +1,93 @@
+{
+  "_comment": [
+    "FairwayOS Demo Mode config TEMPLATE. Every value below is ILLUSTRATIVE and must",
+    "be replaced: these numbers are generic placeholders, NOT measurements of any",
+    "particular clip, and they describe nothing generally. Replace the interval, ROI,",
+    "seeds, phases and corrections with your own clip's values (demo-setup writes",
+    "them for you). See docs/demo-mode.md for the semantics of each field.",
+    "interval.end_seconds is EXCLUSIVE; frame indices are zero-based SOURCE frames.",
+    "Keys beginning with an underscore are ignored by the schema, so a config can",
+    "explain itself."
+  ],
+  "schema_version": "fairwayos-demo-config.v1",
+  "clip_path_hint": "CLIP.mp4",
+  "interval": {
+    "start_seconds": 0.8,
+    "end_seconds": 7.44,
+    "max_frames": 700
+  },
+  "timing": {
+    "source_cadence_caveat": "illustrative: source playback timeline; original action/capture speed unverified, replay or slow motion possible",
+    "nominal_fps_trusted": false,
+    "accept_variable_cadence": false
+  },
+  "roi": [640, 60, 760, 1080],
+  "seeds": {
+    "ball": {"frame": 24, "x": 700.0, "y": 900.0},
+    "clubhead": {"frame": 36, "x": 640.0, "y": 880.0}
+  },
+  "keyframes": {
+    "address": 24,
+    "takeaway": 36,
+    "top": 92,
+    "downswing": 106,
+    "impact": 118,
+    "follow_through": 126,
+    "finish": 176
+  },
+  "targets": {
+    "_why_automatic_until_frame": [
+      "A flight that outruns the template search (100-220 px per frame) is tracked by",
+      "operator corrections. automatic_until_frame stops the MATCHER there while still",
+      "honouring operator anchors past it, so no template match on a stretch the",
+      "operator took the tracker off can be published as an automatic observation."
+    ],
+    "ball": {
+      "mode": "template",
+      "template_size": 31,
+      "search_radius": 40,
+      "min_score": 0.5,
+      "max_jump_px": 60.0,
+      "loss_frames": 4,
+      "track_until_frame": 130,
+      "automatic_until_frame": 116,
+      "lk_refine": true,
+      "template_refresh_frames": 0,
+      "direction": "both"
+    },
+    "clubhead": {
+      "mode": "template",
+      "template_size": 41,
+      "search_radius": 90,
+      "min_score": 0.45,
+      "max_jump_px": 140.0,
+      "loss_frames": 3,
+      "track_until_frame": 130,
+      "lk_refine": true,
+      "template_refresh_frames": 0,
+      "direction": "both"
+    }
+  },
+  "corrections": {
+    "ball": [
+      {"frame": 118, "x": 860.0, "y": 780.0},
+      {"frame": 121, "x": 960.0, "y": 700.0}
+    ],
+    "clubhead": [
+      {"frame": 116, "x": 600.0, "y": 880.0}
+    ]
+  },
+  "interpolation": {
+    "enabled": true,
+    "max_gap_frames": 3
+  },
+  "render": {
+    "max_width": 1280,
+    "crf": 20,
+    "preset": "medium",
+    "render": true
+  },
+  "handedness": "right",
+  "allow_approx_phases": false,
+  "notes": "illustrative template values only - they are not measurements of any clip and must be replaced; operator notes for a real run are recorded in demo_provenance.json"
+}

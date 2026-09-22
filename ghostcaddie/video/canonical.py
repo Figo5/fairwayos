@@ -359,6 +359,15 @@ PHYSICAL_METRIC_SPECS = (
     ("launch_angle", "degrees", "ball layer unavailable, and no validated physical scale"),
     ("carry_distance", "m", "ball layer unavailable, and no validated physical scale"),
     ("apex_height", "m", "ball layer unavailable, and no validated physical scale"),
+    # Spin is listed explicitly rather than left absent, so that "spin is not in
+    # the output" cannot be misread as an oversight or as a metric that is
+    # merely waiting for a flag. It has no route to `supported` at all: nothing
+    # on this path observes impact, and no rotation measurement or spin
+    # calibration has ever been validated -- restoring a checkpoint, a
+    # nominal container FPS or a calibration flag does not change that.
+    ("spin_rate", "rpm",
+     "no impact is observed (ball and clubhead layers unavailable), and no "
+     "validated rotation measurement or spin calibration exists"),
 )
 
 NO_ACTION_TIME_NOTE = (

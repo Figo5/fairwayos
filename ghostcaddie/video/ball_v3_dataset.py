@@ -32,6 +32,7 @@ something real.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from dataclasses import dataclass
@@ -70,6 +71,19 @@ class FrameExample:
     proposed: bool
     width: int
     height: int
+    #: provenance. ``sequence_id`` is the unit of supervision: one synthetic
+    #: insertion, on one clip, in one generation round. Tracklets are grouped by
+    #: it, so two different insertions that happen to land on adjacent frame
+    #: numbers can never be linked into one track.
+    sequence_id: str = ""
+    round_index: int = 0
+    source_sha256: str = ""
+    split: str = ""
+    source_group: str = ""
+    background_ball_annotation: bool = False
+    #: how many candidates the proposal stage produced on this frame before the
+    #: frame budget trimmed the list that was stored
+    pool_size: int = 0
 
 
 def choose_competitors(count: int, exclude: int, keep: int,
@@ -96,13 +110,25 @@ def examples_from_sequence(frames: Sequence[np.ndarray], samples: Sequence[Any],
                            params: bp.ProposalParams, pose_for,
                            numeric_fn, rng: np.random.Generator,
                            list_size: int = LIST_SIZE,
-                           methods=None) -> Iterator[FrameExample]:
+                           methods=None, sequence_id: str = "",
+                           round_index: int = 0, source_sha256: str = "",
+                           split: str = "", source_group: str = "",
+                           background_ball_annotation: bool = False
+                           ) -> Iterator[FrameExample]:
     """Propose on the already-modified frames and pair the list with the answer."""
     import cv2
 
     per_frame, _info = bp.propose(frames, list(range(len(frames))), params=params,
                                   methods=methods or bp.METHOD_NAMES)
     height, width = frames[0].shape[:2]
+    provenance = {
+        "sequence_id": sequence_id,
+        "round_index": int(round_index),
+        "source_sha256": source_sha256,
+        "split": split,
+        "source_group": source_group,
+        "background_ball_annotation": bool(background_ball_annotation),
+    }
 
     previous_gray = None
     for position, (frame, sample) in enumerate(zip(frames, samples)):
@@ -146,7 +172,7 @@ def examples_from_sequence(frames: Sequence[np.ndarray], samples: Sequence[Any],
                                                 bctx.CHANNELS), np.uint8),
                                numeric=np.zeros((0, 1), np.float32),
                                target=None, truth=truth, proposed=False,
-                               width=width, height=height)
+                               width=width, height=height, **provenance)
             continue
 
         keep = choose_competitors(len(proposals),
@@ -161,14 +187,15 @@ def examples_from_sequence(frames: Sequence[np.ndarray], samples: Sequence[Any],
         target = order.index(target_slot) if target_slot is not None else None
 
         pose = pose_for(frame_indices[position])
-        stacks = np.stack([bctx.candidate_stack(frame, residual, p.x, p.y, p.radius)
-                           for p in chosen])
+        views = bctx.FrameViews(frame, residual)
+        stacks = views.stack_many([(p.x, p.y, p.radius) for p in chosen])
         numeric = np.stack([np.asarray(numeric_fn(p, pose, width, height),
                                        dtype=np.float32) for p in chosen])
         yield FrameExample(clip_id=clip_id, frame_index=frame_indices[position],
                            stacks=stacks, numeric=numeric, target=target,
                            truth=truth, proposed=truth is not None,
-                           width=width, height=height)
+                           width=width, height=height, pool_size=len(proposals),
+                           **provenance)
 
 
 def _phase_shift(previous_gray: np.ndarray, gray: np.ndarray) -> tuple[float, float]:
@@ -185,10 +212,18 @@ class ExampleWriter:
 
     A frame's candidate list is a few hundred kilobytes and there are thousands of
     frames, so the images go into one growing binary file and the index records
-    offsets. Nothing here is committed; the store lives under ``out/``.
+    offsets.
+
+    **One writer is one shard, and one shard is one synthetic sequence.** A shard
+    is only complete when ``close()`` has written ``manifest.json``; a reader
+    skips a directory without one, so an interrupted generation round loses the
+    shard it was in and nothing else. This is what makes a long generation run
+    resumable rather than all-or-nothing, and it is also what makes it impossible
+    for tracklet building to link two different insertions together: the grouping
+    key is the shard, not the frame number.
     """
 
-    def __init__(self, directory: Path) -> None:
+    def __init__(self, directory: Path, *, meta: Optional[dict] = None) -> None:
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.images = (self.directory / "stacks.u8").open("wb")
@@ -196,6 +231,8 @@ class ExampleWriter:
         self.offset = 0
         self.written = 0
         self.missed = 0
+        self.meta = dict(meta or {})
+        self._closed = False
 
     def add(self, example: FrameExample) -> None:
         if not example.proposed and example.truth is not None:
@@ -215,16 +252,37 @@ class ExampleWriter:
             "numeric": example.numeric.tolist(),
             "width": example.width,
             "height": example.height,
+            "sequence_id": example.sequence_id,
+            "round_index": example.round_index,
+            "source_sha256": example.source_sha256,
+            "split": example.split,
+            "source_group": example.source_group,
+            "background_ball_annotation": example.background_ball_annotation,
+            "pool_size": example.pool_size,
         }
         self.index.write(json.dumps(record) + "\n")
         self.offset += len(payload)
         self.written += 1
 
-    def close(self) -> dict:
+    def close(self, extra: Optional[dict] = None) -> dict:
+        if self._closed:
+            raise RuntimeError("this shard is already closed")
+        self.images.flush()
         self.images.close()
+        self.index.flush()
         self.index.close()
-        return {"lists": self.written, "proposal_misses": self.missed,
-                "bytes": self.offset}
+        self._closed = True
+        summary = {"lists": self.written, "proposal_misses": self.missed,
+                   "bytes": self.offset, **self.meta, **(extra or {})}
+        summary["stacks_sha256"] = hashlib.sha256(
+            (self.directory / "stacks.u8").read_bytes()).hexdigest()
+        summary["index_sha256"] = hashlib.sha256(
+            (self.directory / "index.jsonl").read_bytes()).hexdigest()
+        # written last: its presence is the shard's completeness marker
+        temporary = self.directory / "manifest.json.tmp"
+        temporary.write_text(json.dumps(summary, indent=1) + "\n", encoding="utf-8")
+        temporary.replace(self.directory / "manifest.json")
+        return summary
 
 
 class ExampleReader:
@@ -235,7 +293,15 @@ class ExampleReader:
         self.records = [json.loads(line) for line
                         in (self.directory / "index.jsonl").read_text("utf-8").splitlines()
                         if line.strip()]
-        self.blob = np.memmap(self.directory / "stacks.u8", dtype=np.uint8, mode="r")
+        blob = self.directory / "stacks.u8"
+        if self.records and blob.stat().st_size:
+            self.blob = np.memmap(blob, dtype=np.uint8, mode="r")
+        else:
+            # a shard can legitimately hold no lists -- every frame was a
+            # proposal miss, or the synthetic ball was never verified visible.
+            # An empty file cannot be memory-mapped, and refusing to read the
+            # shard would lose the record that it was generated and was empty.
+            self.blob = np.zeros(0, dtype=np.uint8)
         self.stride = bctx.GRID * bctx.GRID * bctx.CHANNELS
 
     def __len__(self) -> int:
@@ -253,17 +319,32 @@ class ExampleReader:
 
 class MultiReader:
     """Several stores read as one. Generation is slow and interruptible, so a
-    training run has to be able to consume whatever passes have completed."""
+    training run has to be able to consume whatever passes have completed.
+
+    A store without ``manifest.json`` is an interrupted shard and is skipped:
+    reading it would silently mix a partial sequence into training.
+    """
 
     def __init__(self, directories) -> None:
         if isinstance(directories, (str, Path)):
             directories = [directories]
         self.readers = [ExampleReader(Path(d)) for d in directories
-                        if (Path(d) / "index.jsonl").exists()]
+                        if (Path(d) / "index.jsonl").exists()
+                        and (Path(d) / "manifest.json").exists()]
+        self.skipped = [str(d) for d in directories
+                        if (Path(d) / "index.jsonl").exists()
+                        and not (Path(d) / "manifest.json").exists()]
         self.records = []
         for position, reader in enumerate(self.readers):
             for record in reader.records:
                 self.records.append({**record, "_store": position})
+
+    @classmethod
+    def from_root(cls, root) -> "MultiReader":
+        """Every complete shard under ``root``, in a deterministic order."""
+        root = Path(root)
+        shards = sorted(d for d in root.glob("*") if d.is_dir())
+        return cls(shards)
 
     def __len__(self) -> int:
         return len(self.records)

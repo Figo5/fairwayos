@@ -43,6 +43,7 @@ import cv2
 import numpy as np
 
 from .ball_candidates import Candidate2, FrameContext, _peaks, _suppress
+from . import ball_candidates as bc
 
 #: Ball radius as a fraction of the frame's short side. Spans a 3 px ball on a 4K
 #: wide tee shot up to a macro ball filling a tenth of the frame.
@@ -108,14 +109,72 @@ def _pyramid_level(colour: np.ndarray, radius: float) -> tuple[np.ndarray, float
     runtime (6.6 s/frame measured). It is also worse numerically: a large-radius
     Gaussian on a full-resolution frame is the same computation as a small one on
     a downsampled frame, only slower and more quantised.
+
+    This is the single-level entry point; ``_levels_for`` reuses one halving
+    pyramid across all eight scales so a small level is never built from the
+    largest image.
     """
-    if radius <= TARGET_RADIUS_PX:
-        return colour, 1.0
-    factor = TARGET_RADIUS_PX / radius
-    height = max(32, int(round(colour.shape[0] * factor)))
-    width = max(32, int(round(colour.shape[1] * factor)))
-    resized = cv2.resize(colour, (width, height), interpolation=cv2.INTER_AREA)
-    return resized, width / float(colour.shape[1])
+    levels = bc.ImagePyramid(colour)
+    factor = (TARGET_RADIUS_PX / radius) if radius > TARGET_RADIUS_PX else 1.0
+    return levels.at(factor)
+
+
+def candidates_local_distinctness(context: FrameContext, *,
+                                  scales: Sequence[float] = SCALES,
+                                  peaks_per_scale: int = 24,
+                                  limit: int = 96,
+                                  pyramid: bool = False) -> list[Candidate2]:
+    """Small, compact, locally-distinct regions at several ball scales.
+
+    Peaks are kept **per scale** and are not made to compete on score across
+    scales, because a cross-scale score comparison is exactly what let one busy
+    region spend the whole budget.
+
+    ``pyramid=False`` reproduces the original path, where every scale resized the
+    full working copy directly.
+    """
+    colour = context.colour
+    if colour is None or colour.size == 0:
+        return []
+    scale = float(context.scale or 1.0)
+    native_short = context.min_side or min(colour.shape[0], colour.shape[1])
+    levels = bc.ImagePyramid(colour, mode="shared" if pyramid else "direct")
+
+    out: list[Candidate2] = []
+    for fraction in scales:
+        native_radius = fraction * native_short
+        working_radius = native_radius / max(scale, 1e-6)
+        if working_radius < 1.0:
+            continue
+        factor = (TARGET_RADIUS_PX / working_radius
+                  if working_radius > TARGET_RADIUS_PX else 1.0)
+        level, level_scale = levels.at(factor)
+        if min(level.shape[:2]) < 16:
+            continue
+        radius_px = max(1, int(round(working_radius * level_scale)))
+        if radius_px * 2 >= min(level.shape[:2]):
+            continue
+        lab = cv2.cvtColor(level, cv2.COLOR_BGR2LAB).astype(np.float32)
+        response = _response(lab, radius_px)
+        response = cv2.GaussianBlur(response, (0, 0), max(0.8, radius_px * 0.5))
+        top = _robust_top(response)
+        if top <= 1e-6:
+            continue
+        # level pixels -> working pixels -> native pixels
+        to_native = 1.0 / max(level_scale, 1e-6) * scale
+        for x, y, value in _peaks(response, radius_px, peaks_per_scale):
+            out.append(Candidate2(
+                frame_index=context.index,
+                x=x * to_native, y=y * to_native,
+                radius=native_radius,
+                # Clipped at 1.0: "far above the 99.5th percentile" and "at it"
+                # are the same proposal-worthy fact, and this is an ordering
+                # strength for a budget, never a probability.
+                score=float(min(1.0, value / top)),
+                method="local_distinctness",
+                cues={"scale_fraction": fraction, "level_radius_px": radius_px,
+                      "level_scale": round(level_scale, 5)}))
+    return _suppress(out, limit)
 
 
 def _robust_top(response: np.ndarray) -> float:
@@ -132,53 +191,3 @@ def _robust_top(response: np.ndarray) -> float:
     if sample.size == 0:
         return 0.0
     return float(np.percentile(sample, 99.5))
-
-
-def candidates_local_distinctness(context: FrameContext, *,
-                                  scales: Sequence[float] = SCALES,
-                                  peaks_per_scale: int = 24,
-                                  limit: int = 96) -> list[Candidate2]:
-    """Small, compact, locally-distinct regions at several ball scales.
-
-    Peaks are kept **per scale** and are not made to compete on score across
-    scales, because a cross-scale score comparison is exactly what let one busy
-    region spend the whole budget.
-    """
-    colour = context.colour
-    if colour is None or colour.size == 0:
-        return []
-    scale = float(context.scale or 1.0)
-    native_short = context.min_side or min(colour.shape[0], colour.shape[1])
-
-    out: list[Candidate2] = []
-    for fraction in scales:
-        native_radius = fraction * native_short
-        working_radius = native_radius / max(scale, 1e-6)
-        if working_radius < 1.0:
-            continue
-        level, level_scale = _pyramid_level(colour, working_radius)
-        if min(level.shape[:2]) < 16:
-            continue
-        radius_px = max(1, int(round(working_radius * level_scale)))
-        if radius_px * 2 >= min(level.shape[:2]):
-            continue
-        lab = cv2.cvtColor(level, cv2.COLOR_BGR2LAB).astype(np.float32)
-        response = _response(lab, radius_px)
-        response = cv2.GaussianBlur(response, (0, 0), max(0.8, radius_px * 0.5))
-        top = _robust_top(response)
-        if top <= 1e-6:
-            continue
-        # working pixels per level pixel, then native pixels per working pixel
-        to_native = scale / max(level_scale, 1e-6)
-        for x, y, value in _peaks(response, radius_px, peaks_per_scale):
-            out.append(Candidate2(
-                frame_index=context.index,
-                x=x * to_native, y=y * to_native,
-                radius=native_radius,
-                # Clipped at 1.0: "far above the 99.5th percentile" and "at it"
-                # are the same proposal-worthy fact, and this is an ordering
-                # strength for a budget, never a probability.
-                score=float(min(1.0, value / top)),
-                method="local_distinctness",
-                cues={"scale_fraction": fraction, "level_radius_px": radius_px}))
-    return _suppress(out, limit)

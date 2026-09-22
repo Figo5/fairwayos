@@ -5,7 +5,7 @@ with no result renders its reason, never a plausible-looking figure.
 """
 
 PAGE = r"""<!doctype html><meta charset=utf-8>
-<title>FairwayOS upload &amp; review (research)</title>
+<title>FairwayOS upload &amp; review</title>
 <style>
 :root{--bg:#14161a;--fg:#e8e8ea;--dim:#9aa0a8;--ok:#6fd08c;--warn:#f0b451;--bad:#f07a7a;--line:#2a2e35}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);
@@ -39,9 +39,12 @@ pre{white-space:pre-wrap;word-break:break-all;color:var(--dim);font-size:11px;ma
 </style>
 <header>
   <h1>FairwayOS &mdash; upload &amp; review</h1>
-  <div class=sub>Local research tool. Video stays on this machine. Nothing is uploaded anywhere,
-  nothing is deployed. Results are pseudo-labels, not ground truth. No speed, carry, 3D or
-  outcome probability is produced.</div>
+  <div class=sub><b>Canonical</b> mode runs entirely on this machine: video stays local,
+  nothing is uploaded anywhere, no network request is made, nothing is deployed. Its
+  results are body-pose measurements — not ground truth, not pseudo-labels, and not
+  physical claims. The <b>research</b> modes are different and are labelled as such:
+  <b>fresh AI sends selected frames to an external AI service</b>, and research results
+  are pseudo-labels. No mode produces speed, carry, 3D or outcome probability.</div>
 </header>
 <main>
 <div>
@@ -121,8 +124,13 @@ pre{white-space:pre-wrap;word-break:break-all;color:var(--dim);font-size:11px;ma
     <table id=targets><tr><td class=reason>run a job to see target states</td></tr></table>
   </div>
   <div class=card style="margin-top:12px">
-    <h2>runtime readiness</h2>
+    <h2>research dependency readiness</h2>
     <div id=ready class=reason>&hellip;</div>
+    <div class=reason style="margin-top:6px">Dependency readiness only, and it covers the
+    <b>research</b> targets as well as the body worker. A present model file or a reviewed
+    seed does <b>not</b> enable ball or clubhead in canonical mode: those layers are
+    unavailable by construction, and no configuration turns them on. Readiness is not a
+    tracking claim.</div>
   </div>
   <div class=card style="margin-top:12px">
     <h2>raw result</h2><pre id=raw></pre>
@@ -154,6 +162,21 @@ async function loadReady(){
 
 function renderTargets(res){
   if(!res){$('#targets').innerHTML='<tr><td class=reason>no result yet</td></tr>';return}
+  // A canonical result carries perception LAYERS (body/ball/clubhead) and no
+  // research `targets`, so reading res.targets blindly made every SUCCESSFUL
+  // canonical job throw a TypeError here -- which aborted poll() before the raw
+  // panel, the download button and the rendered playback were ever updated.
+  if(res.layers&&!res.targets){
+    const cls={'supported':'t-observed','partial':'t-not_run',
+               'ambiguous':'t-not_run','unavailable':'t-unavailable','failed':'t-blocked'};
+    $('#targets').innerHTML=Object.entries(res.layers).map(([k,l])=>
+      `<tr><td><b>${k}</b> <span class=${cls[l.state]||'t-unavailable'}>${l.state}</span>
+       <div class=reason>method: ${l.method||'none'}${(l.limitations&&l.limitations[0])?' — '+l.limitations[0]:''}</div></td></tr>`).join('')
+     +`<tr><td><b>physical metrics</b> <span class=t-unavailable>unavailable</span>
+        <div class=reason>${res.note||''}</div></td></tr>`;
+    return;
+  }
+  if(!res.targets){$('#targets').innerHTML='<tr><td class=reason>result carries no target or layer states</td></tr>';return}
   $('#targets').innerHTML=Object.entries(res.targets).map(([k,t])=>{
     let extra='';
     if(t.result){extra=`<div class=reason>frames analysed ${t.result.frames_analysed},
@@ -180,7 +203,8 @@ async function poll(){
     renderTargets(j.result);
     $('#raw').textContent=j.result?JSON.stringify(j.result,null,1):'';
     $('#dl').disabled=!j.result;
-    $('#resultVid').src=(j.result&&j.result.outputs&&j.result.outputs.video)?'/result-video?job='+JOB:'';
+    $('#resultVid').src=(j.result&&j.result.outputs
+      &&(j.result.outputs.video||j.result.outputs.annotated_video))?'/result-video?job='+JOB:'';
     $('#delMedia').disabled=!JOB;
     if(['done','failed','cancelled'].includes(j.state)){clearInterval(POLL);POLL=null;$('#cancel').disabled=true}
   }catch(e){$('#jobErr').textContent=e.message}

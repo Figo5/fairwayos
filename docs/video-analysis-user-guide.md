@@ -9,6 +9,17 @@ The audit behind these boundaries is
 preserved unchanged. The measured behaviour of this workflow on the local clip
 corpus is in [`canonical-validation-sweep.md`](canonical-validation-sweep.md).
 
+**Capability boundary, in one line.** This workflow reports **body pose only, where
+the golfer is identified**, plus the annotated video and the report. It reports
+**no ball, no clubhead, and no physical metric of any kind — including spin**. That
+is not a maturity statement: every one of those routes has been tried and either
+falsified or withdrawn, and the reasons are printed on every run. The 2026-09-21 v3
+ball-tracker pass is closed as **`FAILED_TO_GENERALIZE`** (development evidence;
+0 of 185 labelled frames recovered), not promoted, and its sealed final test was
+**not run** — see
+[`ball-tracker-v3-results.md`](ball-tracker-v3-results.md). Summary of the finished
+product pass: [`fairway-os-completion.md`](fairway-os-completion.md).
+
 ---
 
 ## 1. WHAT WORKS TODAY
@@ -30,12 +41,21 @@ corpus is in [`canonical-validation-sweep.md`](canonical-validation-sweep.md).
 |---|---|
 | Automatic ball tracking | **UNAVAILABLE** — every route is withdrawn or falsified |
 | Clubhead tracking | **UNAVAILABLE** — blocked at the data layer, not the code layer |
-| Ball speed, clubhead speed, launch angle, carry, apex | **UNAVAILABLE** — no validated calibration |
+| Ball speed, clubhead speed, launch angle, carry, apex, **spin (rpm)** | **UNAVAILABLE** — no validated calibration; the `supported` list is empty by construction |
 | Any 3D quantity | **UNAVAILABLE** — single uncalibrated camera |
 | Swing phase, club plane, kinematic sequence | not implemented, not claimed |
 
 These are not "coming soon" placeholders. They are states the workflow reports on
-every run, with the reason attached. No flag turns them on.
+every run, with the reason attached. No flag turns them on — not a container-FPS
+value, not a calibration flag, not restoring a research checkpoint. Spin is listed
+explicitly, in rpm, rather than omitted, so that its absence cannot read as an
+oversight or as a metric waiting for a switch.
+
+**This is the whole capability set.** On a real clip the workflow will report a
+supported body layer with 2D angles, or decline (`ambiguous` / `unavailable`) when
+it cannot identify the golfer. It will never report a ball, a club, or a physical
+number. If you need those, this is not the tool, and no amount of re-running it
+changes that.
 
 ## 3. WHAT IS EXPERIMENTAL
 
@@ -51,6 +71,17 @@ Research-only. Never reached from the canonical path, never a fallback:
   golfer's shirt for fifteen frames. Reachable only through `tools/ball_research.py`;
   the canonical ball layer is untouched. Evidence:
   [`ball-tracking-results.md`](ball-tracking-results.md).
+- `ball_v3_*.py`, `tools/ball_v3_train.py`, `tools/ball_v3_validate.py`,
+  `tools/ball_v3_bench.py` — the 2026-09-21 v3 pass (blob proposals → context
+  features → listwise tracklet ranker). Closed as **`FAILED_TO_GENERALIZE`** on
+  development evidence: **0 of 185** human-labelled ball-visible frames recovered
+  in all six validation variants, including the full model. No held-out accuracy
+  claim exists, the sealed final test was **not run**, and nothing was promoted.
+  `tests/test_ball_v3_isolation.py` fails if any of it becomes reachable from the
+  canonical path. Reachable only through `tools/ball_v3_*.py`. Evidence:
+  [`ball-tracker-v3-results.md`](ball-tracker-v3-results.md). **Do not reopen this
+  line on the existing corpus**; it is development-consumed and cannot support
+  further tuning or an improvement claim.
 - `region_tracker_mil.py`, `mil_overlay.py`, `clubhead_methods.py` — transfer FAILED
   with frozen settings; the baseline's extra frames are wrong frames.
 - `BallTapirAdapter` (BootsTAPIR) — falsified for transfer under a hash-bound rerun.
@@ -246,8 +277,11 @@ renderer draws nothing for them: no stale placeholders, no retained trails, no
 "last known" points.
 
 Physical metrics (`ball_speed`, `clubhead_speed`, `launch_angle`, `carry_distance`,
-`apex_height`) are unavailable, each with its own reason — no validated physical
-scale, no validated action-time calibration, or the ball layer being unavailable.
+`apex_height`, `spin_rate`) are unavailable, each with its own reason — no validated
+physical scale, no validated action-time calibration, or the ball layer being
+unavailable. `spin_rate` is in **rpm** and its reason says what is missing: nothing
+on this path observes impact, and no validated rotation measurement or spin
+calibration exists.
 
 Nominal container FPS is **not** accepted as action time. A speed derived from it
 would inherit any capture/container rate mismatch as a silent scale error.
@@ -257,15 +291,58 @@ would inherit any capture/container rate mismatch as a silent scale error.
 ## 9. Upload UI
 
 ```bash
-.venv/bin/python3 -m ghostcaddie.upload.server --root /tmp/fairwayos-uploads
+.venv/bin/python3 -m ghostcaddie.upload.server --root /tmp/fairwayos-uploads --host 127.0.0.1 --port 8790
 ```
 
 Binds `127.0.0.1` only. **Analyse (canonical)** posts `analysis=canonical`, which
 calls `ghostcaddie.video.canonical.analyze_video` — the same function the CLI calls.
-The service is a wrapper, not a second implementation.
+The service is a wrapper, not a second implementation: layer states, metric
+sufficiency, the output contract and the report all come from that module, so the
+UI and the CLI cannot drift apart.
 
-The research modes (`fresh_ai`) are separately labelled. Canonical mode never falls
-back to them; an unknown mode is refused rather than defaulted.
+The research modes (`fresh_ai`, `legacy_seeded`) are separately labelled and
+**opt-in**. Canonical mode never falls back to them; an unknown mode is refused
+rather than defaulted; `fresh_ai` additionally requires an explicit native frame
+interval and is the only mode that touches the network.
+
+Endpoints that matter for review:
+
+| Endpoint | What it serves |
+|---|---|
+| `GET /` | the review page (carries the per-launch CSRF token as `const TOKEN=…`) |
+| `GET /ready` | **dependency** readiness per target — never a tracking claim |
+| `GET /jobs/<id>` | job state, progress, error, the full result document, retention state |
+| `GET /video?job=…` | the uploaded source (gated by retention) |
+| `GET /frame?job=…&n=N` | one exact **native** frame, with `X-Source-Sha256`, `X-Native-*`, `X-Requested-Frame`, `X-Decoded-Frame` |
+| `GET /result-video?job=…` | the rendered annotated video (gated by retention) |
+| `POST /jobs/<id>/media/delete` | drop the uploaded media (needs `X-FairwayOS-Token`) |
+
+State-changing requests need the header `X-FairwayOS-Token`; without it the server
+answers `403` rather than acting.
+
+`GET /video` and `GET /result-video` honour a single HTTP byte range, because a
+media element may refuse to start against a server that cannot seek: a valid
+`Range` gets `206` with `Content-Range` and exactly those bytes, a plain or
+unparsable request gets a normal `200`, and an unsatisfiable one gets
+`416` with `Content-Range: bytes */N`. Job lookup and the retention deadline are
+always checked **before** any byte is served, so a ranged request cannot read media
+that a plain request could not.
+
+### Retention, exactly
+
+- Uploaded media is retained for **3600 s** (`DEFAULT_MEDIA_RETENTION_SECONDS`),
+  measured from upload, and the deadline is reported as `media_retention.expires_at`
+  on every `GET /jobs/<id>` — the server re-checks it on every access, so waiting can
+  never keep media alive indefinitely.
+- `POST /jobs/<id>/media/delete` deletes the **uploaded copy** and reports
+  `bytes_deleted: true`. A file the operator pointed at in the import directory is
+  theirs: access is revoked, the file is never deleted.
+- After deletion, `/video`, `/frame` and `/result-video` answer **`410`** with the
+  retention record attached. The job result document and the on-disk canonical
+  artifacts under the job directory remain, and `GET /jobs/<id>` still returns them —
+  **a refresh never silently loses or fabricates a result**.
+- The server is for review on one machine. It is not a multi-user service and it is
+  not part of the canonical CLI path.
 
 ---
 

@@ -293,6 +293,12 @@ def _build_parser() -> argparse.ArgumentParser:
     models_p = sub.add_parser(
         "models", help="Show where model files are looked for and which are present.")
     models_p.add_argument("--json", action="store_true")
+    # Demo mode is a separate, operator-assisted namespace (ghostcaddie.demo). It is
+    # registered here so `ghostcaddie --help` shows it, but it is defined in its own
+    # module and its CV work is dispatched out of process: nothing canonical imports
+    # it and no canonical behaviour depends on it.
+    from .demo import cli as demo_cli
+    demo_cli.register(sub)
     return parser
 
 
@@ -366,6 +372,11 @@ def main(argv=None) -> None:
 
     if args.command == "analyze-video":
         _run_canonical_video_command(args)
+        return
+
+    if args.command in ("demo-video", "demo-setup"):
+        from .demo import cli as demo_cli
+        demo_cli.dispatch(args, argv)
         return
 
     if args.command == "models":

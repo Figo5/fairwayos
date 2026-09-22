@@ -42,6 +42,21 @@ from . import ball_v3_ranker as brank
 from . import ball_v3_tracklets as btrk
 
 VERSION = "ball_tracker_v3_context"
+#: Bumped whenever ``extract_frames`` changes shape or meaning, so a stale on-disk
+#: cache cannot be silently reused across a code change. It is one input to
+#: :func:`extraction_fingerprint`, which is what a cache file is actually keyed by.
+EXTRACTION_VERSION = 1
+
+#: The subset of ``extract_frames``' timings that a cache hit inherits from the
+#: run that *built* the extraction. A run reusing a cached extraction must report
+#: these as inherited, never as its own measured runtime.
+TIMING_KEYS_FROM_EXTRACTION = ("motion_s", "proposals_s", "ranking_s")
+
+#: The source files whose contents decide what an extraction means. Any edit to
+#: one of these changes the fingerprint, so a cache built before the edit cannot
+#: be reused after it.
+PREPROCESSING_MODULES = ("ball_v3_body", "ball_v3_blobs", "ball_v3_context",
+                         "ball_v3_proposals", "ball_v3_ranker", "ball_v3_tracker")
 
 OBSERVED = "OBSERVED"
 AMBIGUOUS = "AMBIGUOUS"
@@ -149,13 +164,257 @@ def camera_shifts(frames: Sequence[np.ndarray], indices: Sequence[int]
     return shifts, residuals
 
 
+def file_sha256(path) -> str:
+    """SHA256 of a file's bytes, streamed so a large video is not held in memory."""
+    import hashlib
+
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def pose_digest(poses: Optional[Mapping[int, Mapping]]) -> str:
+    """Digest of the *selected* pose data actually handed to the ranker.
+
+    Not the body-input mode: two runs can both say "body" and still feed the
+    ranker different poses (a different cache, a different frame subset), and
+    those produce different ranker probabilities.
+    """
+    import hashlib
+    import json as _json
+
+    canonical = _json.dumps(
+        {str(index): {str(k): v for k, v in sorted((pose or {}).items())}
+         for index, pose in sorted((poses or {}).items())},
+        sort_keys=True, default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def extraction_fingerprint(*, source_sha256: str, indices: Sequence[int],
+                           ranker_sha256: str, proposal_params: Any,
+                           tracker_params: Any, body_mode: str,
+                           poses_digest: str) -> dict:
+    """Everything an extraction depends on, as one digest plus its parts.
+
+    The old cache key was ``clip_id__first_index__count__body|nobody__vN``. It
+    bound no source digest, no ranker weights, no parameters and only the first
+    index, so a different stride over the same endpoints with a different
+    ``top_k`` reused the same file and silently scored another configuration.
+    This binds:
+
+    * the source media's SHA256 (the pixels, not the filename);
+    * the ORDERED frame indices in full;
+    * the ranker weights' SHA256;
+    * the proposal *and* tracker parameters, values included (so ``top_k`` and any
+      generator knob is inside the key);
+    * the digests of the code and preprocessing that builds an extraction;
+    * the body-input mode *and* the selected poses' own digest;
+    * ``EXTRACTION_VERSION``.
+
+    A cache file carries the fingerprint it was written under and is refused if
+    it disagrees with the fingerprint of the call, so a stale entry is an error,
+    never a silent reuse.
+    """
+    import hashlib
+    import json as _json
+
+    components = {
+        "extraction_version": EXTRACTION_VERSION,
+        "source_sha256": source_sha256,
+        "indices": [int(i) for i in indices],
+        "ranker_sha256": ranker_sha256,
+        "proposal_params": _canonical_params(proposal_params),
+        "tracker_params": _canonical_params(tracker_params),
+        "body_mode": body_mode,
+        "poses_digest": poses_digest,
+        "code_digest": preprocessing_digest(),
+    }
+    digest = hashlib.sha256(_json.dumps(components, sort_keys=True).encode(
+        "utf-8")).hexdigest()
+    return {"fingerprint": digest, "components": components}
+
+
+def _canonical_params(params: Any) -> dict:
+    if params is None:
+        return {}
+    values = params if isinstance(params, Mapping) else vars(params)
+    return {str(k): v for k, v in sorted(values.items())}
+
+
+def preprocessing_digest() -> str:
+    """Digest of the code that decides what an extraction contains."""
+    import hashlib
+    from pathlib import Path as _Path
+
+    here = _Path(__file__).resolve().parent
+    digest = hashlib.sha256()
+    for name in PREPROCESSING_MODULES:
+        path = here / f"{name}.py"
+        digest.update(name.encode("utf-8"))
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def extract_frames(ranker: Any, frames: Sequence[np.ndarray],
+                   indices: Sequence[int], *,
+                   poses: Optional[Mapping[int, Mapping]] = None,
+                   params: Optional[TrackerParams] = None,
+                   proposal_params: Optional[bp.ProposalParams] = None) -> dict:
+    """Everything the tracker computes that the temporal model cannot change.
+
+    Camera motion, the proposal pool, the context stacks, the ranker
+    probabilities and the body geometry are all decided per frame by the ranker
+    and the generators. An ablation of the *tracklet* model cannot alter any of
+    them, so recomputing them per variant is pure waste -- and at 0.74 s/frame it
+    is the difference between measuring three variants and measuring eight.
+
+    The result is JSON-serialisable so it can be cached on disk. It records
+    ``body_inputs`` because the one variant that *does* change the ranker's inputs
+    (feeding it no poses at all) must not be allowed to reuse a cache built with
+    poses; ``track_ball_v3`` refuses that combination rather than silently
+    scoring stale probabilities.
+    """
+    import time
+
+    if len(frames) != len(indices):
+        raise ValueError("frames and indices must be the same length")
+    if not frames:
+        raise ValueError("at least one frame is required")
+    params = params or TrackerParams()
+    proposal_params = proposal_params or bp.ProposalParams()
+    poses = poses or {}
+    device = brank.device()
+    timings: dict[str, float] = {}
+    height, width = frames[0].shape[:2]
+
+    started = time.time()
+    shifts, residuals = camera_shifts(frames, indices)
+    timings["motion_s"] = round(time.time() - started, 3)
+
+    started = time.time()
+    per_frame_proposals, info = bp.propose(frames, indices, params=proposal_params)
+    timings["proposals_s"] = round(time.time() - started, 3)
+
+    started = time.time()
+    short_side = max(1, min(width, height))
+    per_frame: dict[str, dict] = {}
+    for position, index in enumerate(indices):
+        proposals = per_frame_proposals.get(index) or []
+        pose = poses.get(index)
+        centre = bbody.torso_centre(pose)
+        entry: dict = {
+            "pool_size": len(proposals),
+            "shift": [float(shifts[index][0]), float(shifts[index][1])],
+            "torso_centre": None if centre is None else [float(centre[0]),
+                                                        float(centre[1])],
+            # recorded, never inferred from a zero body vector
+            "body_available": bool(len(bbody.visible_points(pose)) >= 4),
+            "null_probability": 1.0, "margin": 0.0,
+            "probabilities": [], "candidates": [],
+        }
+        if proposals:
+            views = bctx.FrameViews(frames[position], residuals[position])
+            stacks = views.stack_many([(p.x, p.y, p.radius) for p in proposals])
+            numeric = np.stack([
+                np.asarray(brank.numeric_features(p, pose, width, height),
+                           dtype=np.float32) for p in proposals])
+            result = brank.rank_frame(ranker, stacks, numeric, device=device)
+            order = np.argsort(-result["probabilities"])[:params.top_k]
+            entry["null_probability"] = float(result["null_probability"])
+            entry["margin"] = float(result["margin"])
+            for rank, slot in enumerate(order):
+                slot = int(slot)
+                proposal = proposals[slot]
+                body = bbody.features(pose, proposal.x, proposal.y,
+                                      proposal.radius)
+                scores = getattr(proposal, "method_scores", {}) or {}
+                entry["candidates"].append({
+                    "x": float(proposal.x), "y": float(proposal.y),
+                    "radius": float(proposal.radius),
+                    "probability": float(result["probabilities"][slot]),
+                    "margin": float(result["margin"]) if rank == 0 else 0.0,
+                    "is_top1": bool(rank == 0),
+                    "inside_torso": float(
+                        body[bbody.FEATURE_NAMES.index("inside_torso")]),
+                    "distance_to_hands": float(body[bbody.FEATURE_NAMES.index(
+                        "distance_to_hands_over_radius")] * 200.0),
+                    "chroma_score": float(scores.get("local_distinctness", -1.0)),
+                    "brightness_score": float(scores.get("brightness_cue", -1.0)),
+                    "radius_over_short_side": float(proposal.radius) / short_side,
+                    "appearance": [float(v) for v in _stack_appearance(stacks[slot])],
+                })
+            entry["probabilities"] = [float(result["probabilities"][int(s)])
+                                      for s in order]
+        per_frame[str(index)] = entry
+    timings["ranking_s"] = round(time.time() - started, 3)
+
+    return {
+        "version": EXTRACTION_VERSION,
+        "body_inputs": bool(poses),
+        "short_side": short_side,
+        "info": info,
+        "timings": timings,
+        "shifts": {str(k): [float(v[0]), float(v[1])] for k, v in shifts.items()},
+        "frames": per_frame,
+    }
+
+
+def _nodes_from_extraction(extraction: Mapping, indices: Sequence[int]
+                           ) -> tuple[dict[int, dict], dict[int, list], dict[int, int]]:
+    """Rebuild the tracker's per-frame node pools from an extraction."""
+    ranked: dict[int, dict] = {}
+    nodes_by_frame: dict[int, list] = {}
+    pool_sizes: dict[int, int] = {}
+    for index in indices:
+        entry = extraction["frames"].get(str(index)) or {}
+        pool_sizes[index] = int(entry.get("pool_size") or 0)
+        ranked[index] = {
+            "probabilities": np.asarray(entry.get("probabilities") or [],
+                                        dtype=np.float32),
+            "null_probability": float(entry.get("null_probability", 1.0)),
+            "margin": float(entry.get("margin", 0.0)),
+        }
+        raw_centre = entry.get("torso_centre")
+        centre = (None if raw_centre is None
+                  else (float(raw_centre[0]), float(raw_centre[1])))
+        body_available = bool(entry.get("body_available", False))
+        nodes = []
+        for candidate in entry.get("candidates") or []:
+            appearance = candidate.get("appearance")
+            nodes.append(btrk.Node(
+                frame_index=index, x=candidate["x"], y=candidate["y"],
+                radius=candidate["radius"],
+                probability=candidate["probability"],
+                margin=candidate.get("margin", 0.0),
+                is_top1=bool(candidate.get("is_top1")),
+                inside_torso=candidate.get("inside_torso", 0.0),
+                distance_to_hands=candidate.get("distance_to_hands", 0.0),
+                torso_centre=centre,
+                chroma_score=candidate.get("chroma_score", -1.0),
+                brightness_score=candidate.get("brightness_score", -1.0),
+                radius_over_short_side=candidate.get("radius_over_short_side", -1.0),
+                appearance=(None if appearance is None else tuple(appearance)),
+                body_available=body_available))
+        nodes_by_frame[index] = nodes
+    return ranked, nodes_by_frame, pool_sizes
+
+
 def track_ball_v3(frames: Sequence[np.ndarray], indices: Sequence[int], *,
                   ranker: Any, discriminator: Any = None,
                   poses: Optional[Mapping[int, Mapping]] = None,
                   params: Optional[TrackerParams] = None,
                   proposal_params: Optional[bp.ProposalParams] = None,
-                  provenance: Optional[dict] = None) -> TrackResult:
-    """Run the whole pipeline over consecutive frames. Local only, no network."""
+                  provenance: Optional[dict] = None,
+                  extraction: Optional[dict] = None) -> TrackResult:
+    """Run the whole pipeline over consecutive frames. Local only, no network.
+
+    ``extraction`` is an optional cached result of :func:`extract_frames`. Passing
+    it skips decode-adjacent work that does not depend on the temporal model, so
+    the same frames can be re-decided under several ablation variants without
+    re-running proposals and the ranker each time.
+    """
     import time
 
     if len(frames) != len(indices):
@@ -168,56 +427,35 @@ def track_ball_v3(frames: Sequence[np.ndarray], indices: Sequence[int], *,
     device = brank.device()
     timings: dict[str, float] = {}
 
-    height, width = frames[0].shape[:2]
-    started = time.time()
-    shifts, residuals = camera_shifts(frames, indices)
-    timings["motion_s"] = round(time.time() - started, 3)
+    if extraction is None:
+        extraction = extract_frames(ranker, frames, indices, poses=poses,
+                                    params=params,
+                                    proposal_params=proposal_params)
+    else:
+        # Reusing a cached extraction. Everything that does not depend on the
+        # temporal model -- camera motion, proposals, context stacks, ranker
+        # probabilities, body geometry -- is already in the dict, so only
+        # association and the tracklet model rerun. This is what makes eight
+        # ablation variants affordable instead of eight full passes; the
+        # alternative was measuring only the variants that fit in the budget.
+        if bool(extraction.get("body_inputs")) != bool(poses):
+            raise ValueError(
+                "cached extraction was built with different body inputs than "
+                "this call supplies; ranker probabilities would be stale")
+        timings["extraction_reused"] = 1.0
+    assert extraction is not None
 
-    started = time.time()
-    per_frame_proposals, info = bp.propose(frames, indices, params=proposal_params)
-    timings["proposals_s"] = round(time.time() - started, 3)
-
-    started = time.time()
-    ranked: dict[int, dict] = {}
-    nodes_by_frame: dict[int, list[btrk.Node]] = {}
-    for position, index in enumerate(indices):
-        proposals = per_frame_proposals.get(index) or []
-        if not proposals:
-            ranked[index] = {"best": None, "null_probability": 1.0, "margin": 0.0,
-                             "probabilities": np.zeros(0)}
-            nodes_by_frame[index] = []
-            continue
-        pose = poses.get(index)
-        stacks = np.stack([
-            bctx.candidate_stack(frames[position], residuals[position],
-                                 p.x, p.y, p.radius) for p in proposals])
-        numeric = np.stack([
-            np.asarray(brank.numeric_features(p, pose, width, height),
-                       dtype=np.float32) for p in proposals])
-        result = brank.rank_frame(ranker, stacks, numeric, device=device)
-        ranked[index] = result
-        order = np.argsort(-result["probabilities"])[:params.top_k]
-        centre = bbody.torso_centre(pose)
-        nodes = []
-        for rank, slot in enumerate(order):
-            proposal = proposals[int(slot)]
-            body = bbody.features(pose, proposal.x, proposal.y, proposal.radius)
-            nodes.append(btrk.Node(
-                frame_index=index, x=proposal.x, y=proposal.y,
-                radius=proposal.radius,
-                probability=float(result["probabilities"][int(slot)]),
-                margin=result["margin"] if rank == 0 else 0.0,
-                is_top1=rank == 0,
-                inside_torso=body[bbody.FEATURE_NAMES.index("inside_torso")],
-                distance_to_hands=body[
-                    bbody.FEATURE_NAMES.index("distance_to_hands_over_radius")] * 200.0,
-                torso_centre=centre))
-        nodes_by_frame[index] = nodes
-    timings["ranking_s"] = round(time.time() - started, 3)
+    info = extraction.get("info") or {}
+    shifts = {int(key): (float(value[0]), float(value[1]))
+              for key, value in extraction["shifts"].items()}
+    ranked, nodes_by_frame, pool_sizes = _nodes_from_extraction(
+        extraction, indices)
+    timings.update({k: v for k, v in (extraction.get("timings") or {}).items()})
 
     started = time.time()
     tracklets = btrk.build_tracklets(nodes_by_frame, shifts, top_k=params.top_k,
-                                     min_length=max(2, params.min_support - 1))
+                                     min_length=max(2, params.min_support - 1),
+                                     pool_sizes=pool_sizes)
     scored = []
     for track in tracklets:
         features = btrk.tracklet_features(track, window=len(indices),
@@ -308,6 +546,20 @@ def track_ball_v3(frames: Sequence[np.ndarray], indices: Sequence[int], *,
                        rejection_reasons=reasons, timings=timings)
 
 
+def _stack_appearance(stack: np.ndarray) -> tuple[float, float, float]:
+    """Three scalar statistics of a candidate's own stored view.
+
+    ``candidate_stack`` lays out tight BGR (0:3), context BGR (3:6) and the
+    motion residual (6). The tight crop is the candidate itself, so its mean and
+    spread describe the object; the context crop's spread describes how busy the
+    scene around it is. This is a summary, not a learned embedding -- the ranker
+    already reads the same crops through a CNN.
+    """
+    tight = stack[..., :3].astype(np.float32)
+    context = stack[..., 3:6].astype(np.float32)
+    return (float(tight.mean()), float(tight.std()), float(context.std()))
+
+
 def _track_probability(discriminator: Any, features: Sequence[float],
                        device: Any) -> float:
     """The tracklet model's answer, or an explicit heuristic when it is absent.
@@ -315,6 +567,11 @@ def _track_probability(discriminator: Any, features: Sequence[float],
     The fallback is stated rather than hidden because an ablation runs with the
     discriminator removed, and a silent 1.0 there would make the ablation
     meaningless.
+
+    The tensor is placed on the *discriminator's own* device rather than on the
+    tracker's: ``load_discriminator`` returns a CPU model, and sending an MPS
+    tensor into a CPU convolution raises rather than silently falling back. That
+    is a real failure this pass hit, so the placement is derived from the weights.
     """
     if discriminator is None:
         named = dict(zip(btrk.FEATURE_NAMES, features))
@@ -322,9 +579,10 @@ def _track_probability(discriminator: Any, features: Sequence[float],
             0.5 * named["mean_rank_probability"] + 0.3 * named["top1_fraction"]
             + 0.2 * (1.0 - named["static_fraction"]), 0.0, 1.0))
     import torch
+    parameter = next(discriminator.parameters())
     with torch.no_grad():
         tensor = torch.from_numpy(
-            np.asarray([features], dtype=np.float32)).to(device)
+            np.asarray([features], dtype=np.float32)).to(parameter.device)
         return float(torch.sigmoid(discriminator(tensor)).cpu().numpy()[0])
 
 

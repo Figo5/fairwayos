@@ -398,6 +398,42 @@ def _run_seeded(store: JobStore, job_id: str, video, bundle):
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 
 
+def _digits(s: str):
+    """Strict decimal parse: no sign, no underscore, no unicode digits."""
+    return int(s) if s.isascii() and s.isdigit() else None
+
+
+def parse_byte_range(header: str | None, size: int):
+    """One RFC 9110 byte range against a known size.
+
+    Returns ``(start, end)`` inclusive for a satisfiable single range,
+    ``"unsatisfiable"`` for a 416, or ``None`` to serve the whole entity. A
+    server MAY ignore a Range it does not understand, so a malformed or
+    multi-range header degrades to a normal 200 rather than an error.
+    """
+    if not header:
+        return None
+    header = header.strip()
+    if not header.startswith("bytes=") or "," in header:
+        return None
+    first, sep, last = header[len("bytes="):].strip().partition("-")
+    if not sep:
+        return None
+    first, last = first.strip(), last.strip()
+    if not first:                       # suffix form: bytes=-N, the last N bytes
+        n = _digits(last)
+        if n is None:
+            return None
+        return "unsatisfiable" if (n <= 0 or size == 0) else (max(0, size - n), size - 1)
+    start = _digits(first)
+    end = size - 1 if not last else _digits(last)
+    if start is None or end is None:
+        return None
+    if start >= size or end < start:
+        return "unsatisfiable"
+    return start, min(end, size - 1)
+
+
 class Handler(BaseHTTPRequestHandler):
     store: JobStore = None
     limits: VideoLimits = None
@@ -586,17 +622,7 @@ class Handler(BaseHTTPRequestHandler):
         if not st["retained"]:
             return self._send(410, {"error": "media is no longer available",
                                     "media_retention": st})
-        size = os.path.getsize(src.path)
-        self.send_response(200)
-        self.send_header("Content-Type", "video/mp4")
-        self.send_header("Content-Length", str(size))
-        self.send_header("Accept-Ranges", "none")
-        self.end_headers()
-        with open(src.path, "rb") as fh:
-            while True:
-                b = fh.read(1 << 20)
-                if not b: break
-                self.wfile.write(b)
+        self._serve_media(src.path)
 
     def _serve_result_video(self):
         q = self._qs()
@@ -611,17 +637,56 @@ class Handler(BaseHTTPRequestHandler):
         path = self.store.result_video(job.id)
         if not path or not os.path.isfile(path):
             return self._send(404, {"error": "no rendered result video for this job"})
+        self._serve_media(path)
+
+    def _serve_media(self, path, ctype="video/mp4"):
+        """Stream a media file, honouring a single HTTP byte range.
+
+        Callers MUST have already resolved the job, enforced retention and
+        established the path: this does no access control of its own.
+
+        Why ranges at all: the endpoints previously answered every request with
+        `200 Accept-Ranges: none`, which a media element is entitled to treat as
+        "cannot seek, do not start". Both the source clip (moov first) and the
+        rendered clip (moov last) failed identically in the primary's QA, so
+        atom order does not explain it and range support is the standard thing
+        that was missing. This is an interoperability fix, NOT a proven cure for
+        the black-frame capture, which remains unverified until a real browser
+        retest.
+        """
         size = os.path.getsize(path)
-        self.send_response(200)
-        self.send_header("Content-Type", "video/mp4")
-        self.send_header("Content-Length", str(size))
-        self.send_header("Accept-Ranges", "none")
+        rng = parse_byte_range(self.headers.get("Range"), size)
+        if rng == "unsatisfiable":
+            self.send_response(416)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Range", f"bytes */{size}")
+            self.send_header("Content-Length", "0")
+            self.send_header("Accept-Ranges", "bytes")
+            self.end_headers()
+            return
+        if rng is None:
+            start, end = 0, size - 1
+            self.send_response(200)
+        else:
+            start, end = rng
+            self.send_response(206)
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(max(0, end - start + 1)))
+        self.send_header("Accept-Ranges", "bytes")
         self.end_headers()
-        with open(path, "rb") as fh:
-            while True:
-                b = fh.read(1 << 20)
-                if not b: break
-                self.wfile.write(b)
+        remaining = max(0, end - start + 1)
+        try:
+            with open(path, "rb") as fh:
+                fh.seek(start)
+                while remaining > 0:
+                    b = fh.read(min(1 << 20, remaining))
+                    if not b:
+                        break
+                    self.wfile.write(b)
+                    remaining -= len(b)
+        except (BrokenPipeError, ConnectionResetError):
+            pass    # the player seeked away or the tab closed; not a server error
 
     def do_POST(self):
         if not self._guard(mutating=True):

@@ -14,6 +14,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -79,6 +80,94 @@ class FinalTestStaysSealed(unittest.TestCase):
         self.assertIn("generators", base["configuration"])
 
 
+class ValidatorEntryPointStaysSealed(unittest.TestCase):
+    """The validator's *entry point* must refuse a sealed clip before any read.
+
+    The existing isolation test calls ``assert_not_final_test`` directly with
+    recording stand-ins installed, which proves the guard itself touches nothing.
+    It does not prove that the real ``main`` calls the guard *first*: a guard that
+    runs after the decode is reached would pass that test and still decode a
+    sealed clip. This one drives ``main`` with a mocked run list whose only entry
+    is a sealed clip **id and metadata only** -- no media is read to build it --
+    while the decoder, the body cache and the model loader are recording
+    stand-ins.
+    """
+
+    def setUp(self) -> None:
+        self.tool = load_tool("ball_v3_validate")
+
+    def _install(self, touched: list):
+        import cv2
+        from ghostcaddie.video import ball_v3_body as bbody
+        from ghostcaddie.video import ball_v3_ranker as brank
+        real = (cv2.VideoCapture, bbody.BodyCache.pose, brank.load_ranker)
+
+        def capture(*args, **kwargs):
+            touched.append(f"decode:{args[:1]}")
+            raise AssertionError("decode reached for a sealed clip")
+
+        def pose(self, *args, **kwargs):
+            touched.append(f"body_cache:{args[:1]}")
+            raise AssertionError("body cache reached for a sealed clip")
+
+        def loader(*args, **kwargs):
+            touched.append("model_loader")
+            raise AssertionError("model loader reached for a sealed clip")
+
+        cv2.VideoCapture = capture
+        bbody.BodyCache.pose = pose
+        brank.load_ranker = loader
+        return real
+
+    def _restore(self, real) -> None:
+        import cv2
+        from ghostcaddie.video import ball_v3_body as bbody
+        from ghostcaddie.video import ball_v3_ranker as brank
+        cv2.VideoCapture, bbody.BodyCache.pose, brank.load_ranker = real
+
+    def mocked_run(self, clip_id: str) -> dict:
+        return {"clip_id": clip_id, "media": Path("/nonexistent/sealed_clip.mp4"),
+                "indices": list(range(15)), "labels": {}, "labelled": True,
+                "family": clip_id}
+
+    def test_main_refuses_a_sealed_clip_before_any_media_or_cache_read(self):
+        sealed = sorted(self.tool.sealed_clip_ids())
+        self.assertTrue(sealed, "no sealed clip ids to test against")
+        touched: list[str] = []
+        real_runs = self.tool.legacy_runs
+        real = self._install(touched)
+        self.tool.legacy_runs = lambda limit: [self.mocked_run(sealed[0])]
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory) / "out.json"
+            try:
+                with self.assertRaises(SystemExit) as caught:
+                    self.tool.main(["legacy", "--out", str(out),
+                                    "--frames-per-run", "15"])
+            finally:
+                self.tool.legacy_runs = real_runs
+                self._restore(real)
+            self.assertIn("sealed", str(caught.exception))
+            self.assertEqual(touched, [],
+                             f"the guard fired too late: {touched}")
+            self.assertFalse(out.exists(), "main wrote an artifact anyway")
+
+    def test_the_same_mock_without_a_sealed_id_does_reach_the_decoder(self):
+        """The control: the stand-ins are wired, so the test above can fail."""
+        touched: list[str] = []
+        real_runs = self.tool.legacy_runs
+        real = self._install(touched)
+        self.tool.legacy_runs = lambda limit: [
+            self.mocked_run("synthetic_clip_that_is_not_in_any_split")]
+        try:
+            with self.assertRaises(AssertionError):
+                self.tool.main(["legacy", "--out",
+                                str(Path(tempfile.gettempdir()) / "unused.json")])
+        finally:
+            self.tool.legacy_runs = real_runs
+            self._restore(real)
+        self.assertTrue(touched, "the decoder stand-in was never reached")
+
+
 class TrainingCannotSeeTheEvaluationCorpus(unittest.TestCase):
     def test_the_trainer_only_reads_v2_train_clips(self):
         tool = load_tool("ball_v3_train")
@@ -88,11 +177,75 @@ class TrainingCannotSeeTheEvaluationCorpus(unittest.TestCase):
         for clip in tool.train_clips():
             self.assertIn(clip["clip_id"], allowed)
 
-    def test_no_training_code_mentions_the_v3_evaluation_corpus(self):
+    def test_a_sealed_clip_is_refused_before_any_media_or_cache_access(self):
+        """Behavioural, not textual.
+
+        The check this replaces asserted that a substring appeared somewhere in a
+        source file, and only looked at the first occurrence. That passes as soon
+        as the right words are anywhere in the file, which is not the property
+        that matters. This one installs recording stand-ins for the three things
+        that could actually consume the corpus -- video decode, the body cache and
+        the stored feature lists -- and asserts the guard fires before any of them
+        is reached.
+        """
+        import cv2
+        from ghostcaddie.video import ball_v3_body as bbody
+        from ghostcaddie.video import ball_v3_dataset as bdata
+        tool = load_tool("ball_v3_train")
+        sealed = sorted(tool.sealed_clip_ids())
+        self.assertTrue(sealed, "no sealed clip ids to test against")
+        touched: list[str] = []
+        real_capture = cv2.VideoCapture
+        real_pose = bbody.BodyCache.pose
+        real_reader = bdata.ExampleReader
+
+        def capture(*args, **kwargs):
+            touched.append(f"decode:{args[:1]}")
+            raise AssertionError("decode reached for a sealed clip")
+
+        def pose(self, *args, **kwargs):
+            touched.append(f"body_cache:{args[:1]}")
+            raise AssertionError("body cache reached for a sealed clip")
+
+        def reader(*args, **kwargs):
+            touched.append("feature_store")
+            raise AssertionError("feature store reached for a sealed clip")
+
+        cv2.VideoCapture = capture
+        bbody.BodyCache.pose = pose
+        bdata.ExampleReader = reader
+        try:
+            for clip_id in sealed:
+                with self.assertRaises(SystemExit):
+                    tool.assert_not_evaluation([clip_id])
+        finally:
+            cv2.VideoCapture = real_capture
+            bbody.BodyCache.pose = real_pose
+            bdata.ExampleReader = real_reader
+        self.assertEqual(touched, [])
+
+    def test_the_guard_is_not_a_blanket_refusal(self):
+        """A made-up id passes, so the test above is about the sealed clips and
+        not about a guard that refuses everything."""
+        tool = load_tool("ball_v3_train")
+        tool.assert_not_evaluation(["synthetic_clip_that_is_not_in_any_split"])
+        with self.assertRaises(SystemExit):
+            tool.assert_not_evaluation(
+                ["synthetic_clip_that_is_not_in_any_split"] +
+                [sorted(tool.sealed_clip_ids())[0]])
+
+    def test_training_never_resolves_media_for_a_sealed_clip(self):
+        tool = load_tool("ball_v3_train")
+        sealed = tool.sealed_clip_ids()
+        for clip in tool.train_clips():
+            self.assertNotIn(clip["clip_id"], sealed)
+            self.assertNotIn("ball_dataset_v3_eval", str(clip.get("media", "")))
         source = (ROOT / "tools" / "ball_v3_train.py").read_text("utf-8")
-        self.assertNotIn("ball_dataset_v3_eval", source,
-                         "the trainer must not be able to reach the evaluation "
-                         "corpus at all")
+        for line in source.splitlines():
+            if "ball_dataset_v3_eval" in line:
+                self.assertIn("split", line.lower(),
+                              "only the frozen split may be named in the "
+                              f"trainer: {line.strip()}")
 
 
 class CanonicalStaysIsolated(unittest.TestCase):

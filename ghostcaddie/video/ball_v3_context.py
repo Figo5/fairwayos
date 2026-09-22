@@ -127,6 +127,64 @@ def stack_batch(frame: np.ndarray, residual: Optional[np.ndarray],
                      for x, y, radius in positions])
 
 
+#: A crop wider than this is taken from a downsampled view instead of from the
+#: full-resolution frame. The context window is 32 ball radii, so a 40 px ball
+#: asks for a 1280 px crop that INTER_AREA then averages down to 64 -- and that
+#: resize, not the network, was the most expensive thing downstream of the
+#: proposal stage (measured 10.5 ms per candidate). Averaging a 1280 px window to
+#: 64 is the same operation as averaging a 128 px window to 64, only twenty times
+#: the pixels, so the crop is taken from a level that is already about twice the
+#: output grid.
+CONTEXT_LEVEL_PX = 2 * GRID
+
+
+class FrameViews:
+    """The two-scale crops for many candidates on one frame, sharing one pyramid.
+
+    ``candidate_stack`` rebuilds its crops from the full-resolution frame for
+    every candidate. On a 4K clip with a couple of hundred candidates that is
+    several hundred million pixels of resampling per frame, almost all of it
+    thrown away. This holds the downsampled views instead, so a candidate only
+    pays for the pixels its crop actually needs.
+    """
+
+    __slots__ = ("frame", "residual", "_frame_levels", "_residual_levels")
+
+    def __init__(self, frame: np.ndarray,
+                 residual: Optional[np.ndarray] = None) -> None:
+        from . import ball_candidates as bc
+        self.frame = frame
+        self.residual = residual
+        self._frame_levels = bc.ImagePyramid(frame)
+        self._residual_levels = (bc.ImagePyramid(residual)
+                                 if residual is not None else None)
+
+    def _crop(self, levels, x: float, y: float, size_px: int) -> np.ndarray:
+        factor = min(1.0, CONTEXT_LEVEL_PX / float(max(2, size_px)))
+        level, scale = levels.at(factor)
+        return _resample(_window(level, x * scale, y * scale,
+                                 max(2, int(round(size_px * scale)))))
+
+    def stack(self, x: float, y: float, radius: float) -> np.ndarray:
+        radius = max(1.0, float(radius))
+        tight_px = max(MIN_TIGHT_PX, int(round(TIGHT_RADII * radius)))
+        context_px = max(MIN_CONTEXT_PX, int(round(CONTEXT_RADII * radius)))
+        tight = self._crop(self._frame_levels, x, y, tight_px)
+        context = self._crop(self._frame_levels, x, y, context_px)
+        if self._residual_levels is None:
+            motion = np.zeros((GRID, GRID), dtype=np.uint8)
+        else:
+            motion = self._crop(self._residual_levels, x, y, context_px)
+            if motion.ndim == 3:
+                motion = motion[..., 0]
+        return np.dstack([tight, context, motion[..., None]]).astype(np.uint8)
+
+    def stack_many(self, positions) -> np.ndarray:
+        if not len(positions):
+            return np.zeros((0, GRID, GRID, CHANNELS), dtype=np.uint8)
+        return np.stack([self.stack(x, y, radius) for x, y, radius in positions])
+
+
 def geometry_features(x: float, y: float, radius: float, width: int, height: int
                       ) -> list[float]:
     """Scale and position, normalised so the network is not handed raw pixels.

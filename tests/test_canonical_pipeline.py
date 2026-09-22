@@ -179,11 +179,32 @@ class PhysicalMetricsTests(unittest.TestCase):
         self.assertEqual(m["supported"], [])
         names = {x.name for x in m["unavailable"]}
         self.assertEqual(names, {"ball_speed", "clubhead_speed", "launch_angle",
-                                 "carry_distance", "apex_height"})
+                                 "carry_distance", "apex_height", "spin_rate"})
         for metric in m["unavailable"]:
             self.assertEqual(metric.state, MetricState.UNAVAILABLE)
             self.assertIsNone(metric.median)
             self.assertTrue(metric.reason.strip())
+
+    def test_spin_is_an_explicit_unavailable_contract_entry_in_rpm(self):
+        """Spin must be DECLARED unavailable, not silently absent.
+
+        An omitted metric reads as an oversight, or as something a flag could
+        unlock. It is stated in the output in its own unit, with a reason naming
+        the missing measurement, and it stays out of `supported` under every
+        calibration the canonical path accepts.
+        """
+        spin = next(x for x in physical_metrics(None)["unavailable"]
+                    if x.name == "spin_rate")
+        self.assertEqual(spin.unit, "rpm")
+        self.assertEqual(spin.space, "physical")
+        self.assertEqual(spin.state, MetricState.UNAVAILABLE)
+        self.assertIsNone(spin.median)
+        self.assertIn("no validated rotation measurement or spin calibration",
+                      spin.reason)
+        unlocked = physical_metrics({"validated_physical_scale": True,
+                                     "validated_action_time": True})
+        self.assertEqual(unlocked["supported"], [])
+        self.assertIn("spin_rate", {x.name for x in unlocked["unavailable"]})
 
     def test_nominal_fps_is_never_accepted_as_action_time(self):
         for metric in physical_metrics(None)["unavailable"]:

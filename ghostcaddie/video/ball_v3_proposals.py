@@ -49,10 +49,16 @@ from . import ball_v3_blobs as bblobs
 class ProposalParams:
     """The proposal stage's whole decision surface.
 
-    Defaults are set from the recall sweep in ``docs/ball-tracker-v3-results.md``;
-    the gate they were chosen against is ball-proposal rate on the legacy
-    human-labelled corpus, which is development-consumed and never reported as
-    accuracy.
+    Defaults are set from the recall sweep recorded in
+    ``out/ball_tracker_v3/proposal_methods.json`` and
+    ``out/ball_tracker_v3/proposal_recall.json``; the gate they were chosen
+    against is ball-proposal rate on the legacy human-labelled corpus, which is
+    development-consumed and never reported as accuracy.
+
+    (An earlier revision of this docstring pointed at
+    ``docs/ball-tracker-v3-results.md``, which was never written. The numbers it
+    meant are the two JSON artifacts named above; see
+    ``docs/ball-tracker-v3-worker-pass-1.md`` §12.)
     """
 
     #: Peaks kept per generator before the frame budget is applied. v2 used 16.
@@ -69,6 +75,11 @@ class ProposalParams:
     dedupe_radii: float = 1.0
     #: Deliberately zero. v2's 0.25 cost a measured 3x in ball recall.
     min_score: float = 0.0
+    #: Run the scale-space generators on a downsampled pyramid. ``False`` is the
+    #: original full-resolution path, kept so the before/after in
+    #: ``docs/ball-tracker-v3-worker-pass-1.md`` can be re-measured rather than
+    #: believed. It changes compute, not the decision surface.
+    pyramid: bool = True
 
 
 @dataclass
@@ -167,6 +178,18 @@ GENERATORS = dict(bc.GENERATORS,
 METHOD_NAMES = ("local_distinctness", "brightness_cue")
 
 
+#: Generators that read ``FrameContext.motion``. When none of the requested
+#: methods is in here the phase correlation is never run: it measured 0.028
+#: s/frame on a 2880-px working copy, more than the whole local_distinctness
+#: generator, and the two colour-based generators do not look at it.
+MOTION_METHODS = frozenset({"frame_difference", "flow_residual"})
+
+#: Generators with a ``pyramid`` switch. The two motion generators have none:
+#: they are not scale-space filters.
+PYRAMID_METHODS = frozenset({"radial_symmetry", "local_contrast",
+                             "brightness_cue", "local_distinctness"})
+
+
 def propose(frames: Sequence[np.ndarray], indices: Sequence[int], *,
             params: Optional[ProposalParams] = None,
             methods: Sequence[str] = METHOD_NAMES
@@ -180,14 +203,17 @@ def propose(frames: Sequence[np.ndarray], indices: Sequence[int], *,
     unknown = [name for name in methods if name not in GENERATORS]
     if unknown:
         raise ValueError(f"unknown candidate methods: {unknown}")
-    contexts, info = bc.build_contexts(frames, indices,
-                                       max_side=params.work_max_side)
+    contexts, info = bc.build_contexts(
+        frames, indices, max_side=params.work_max_side,
+        motion="eager" if MOTION_METHODS.intersection(methods) else "lazy")
     raw: dict[int, list[bc.Candidate2]] = {index: [] for index in indices}
     for name in methods:
         generator = GENERATORS[name]
+        kwargs: dict = {"limit": params.per_method_limit}
+        if name in PYRAMID_METHODS:
+            kwargs["pyramid"] = params.pyramid
         for context in contexts:
-            for candidate in generator(context,
-                                       limit=params.per_method_limit):
+            for candidate in generator(context, **kwargs):
                 if candidate.score > params.min_score:
                     raw[context.index].append(candidate)
     per_frame = {index: propose_frame(raw.get(index, []), params)
@@ -198,6 +224,7 @@ def propose(frames: Sequence[np.ndarray], indices: Sequence[int], *,
         "work_max_side": params.work_max_side,
         "max_per_frame": params.max_per_frame,
         "min_score": params.min_score,
+        "pyramid": params.pyramid,
         "mean_raw_candidates": round(
             float(np.mean([len(raw.get(i, [])) for i in indices])), 2),
         "mean_proposals": round(

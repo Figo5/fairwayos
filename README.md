@@ -1,14 +1,60 @@
 # FairwayOS
 
-FairwayOS is a golf shot-analytics engine vertical slice. Raw shot data → stable top-down
-coordinate system → dispersion modeling → expected-strokes calculation →
-prescriptive "what should have happened" output → annotated SVG overlay.
+FairwayOS is a local golf video product workbench: two strictly separate modes over
+one codebase — a **strict canonical analysis** pipeline and an **operator-assisted
+Demo Mode** that turns one chosen clip into a presentable artifact set. Nothing is
+uploaded, no remote inference is required, and the two answer different questions.
 
-**Project boundary:** FairwayOS is an analytics engine prototype, not a consumer
-app and not a replacement for ShotLink / TrackMan / TOURCAST. All data is
-synthetic/fictional — no real player names, no real tournament data, no
-scraped Tour data. Adapters are the future integration seam for those
-systems.
+**Strict canonical mode (`analyze-video`).** What can this system find *on its own*?
+Body pose only, and only where the golfer can be identified; `ball`, `clubhead` and
+every physical metric are reported `UNAVAILABLE` on every run, with the reason
+attached. The source is hashed and bound before any model loads, and the pipeline
+declines rather than guessing.
+
+**Demo Mode (`demo-video`).** Can an operator *show* one swing clearly? An operator
+draws a region, marks the ball, club and phases; the demo tracks those seeded points,
+measures 2D image-space body quantities inside that region, and renders an annotated
+video, keyframe cards and a report. Seeded and corrected points are never called
+detections, and the mode still produces no physical metric.
+
+```bash
+# Demo Mode: operator-assisted, selected clip (local only)
+.venv/bin/python3 -m ghostcaddie demo-setup CLIP.mp4 --out demo_config.json  # optional picker
+.venv/bin/python3 -m ghostcaddie demo-video CLIP.mp4 --config demo_config.json --out demo_out/
+
+# Strict canonical mode: what the system can find on its own
+.venv/bin/python3 -m ghostcaddie analyze-video CLIP.mp4 --out OUTPUT_DIR
+```
+
+| | Canonical (`analyze-video`) | Demo (`demo-video`) |
+|---|---|---|
+| Question | what can the system detect **on its own**? | can an operator show one chosen swing clearly? |
+| Body | conditional 2D pose; `ambiguous`/`unavailable` when the golfer cannot be identified | same body pipeline; an operator ROI may say *which* golfer |
+| Ball / clubhead | `UNAVAILABLE` — every route is withdrawn or falsified | operator-seeded, operator-corrected 2D image-space tracks, labelled as such everywhere |
+| Physical metrics | `UNAVAILABLE` | still `UNAVAILABLE` — pixel/image-space only |
+| Seeds, corrections, interpolation | never | expected, bounded, and recorded in `demo_provenance.json` |
+| Failure mode | declines | declines *and* says what the operator would have to supply |
+
+Demo Mode is a portfolio and presentation tool, not a perception claim. Interpolated
+points are drawn dashed and counted separately; every rendered frame says
+**OPERATOR-ASSISTED / EXPERIMENTAL / 2D IMAGE-SPACE**. The v3 ball research stays closed
+here: Demo Mode does not train, benchmark, evaluate a held-out split or promote
+anything.
+
+Guides: [`docs/demo-mode.md`](docs/demo-mode.md) (Demo Mode) and
+[`docs/video-analysis-user-guide.md`](docs/video-analysis-user-guide.md) (canonical).
+Template config: [`examples/demo_config.template.json`](examples/demo_config.template.json).
+
+## Project boundary and data disclaimer
+
+FairwayOS is an analytics-engine prototype, not a consumer app and not a replacement
+for ShotLink / TrackMan / TOURCAST. The **shot-analytics fixtures and provider samples
+are synthetic/fictional** — no real player names, no real tournament data, no scraped
+Tour data. That synthetic-data statement covers the analytic fixtures
+(`data/sample_*`, `data/providers/*`, `data/scenarios/*`) only. The **video** side is
+different and is stated separately: the clips used for local video work are **local
+stock clips, kept out of Git and referenced by source SHA-256**; no media is committed
+to this repository.
 
 **Data disclaimer:** FairwayOS output is not sourced from ShotLink, TrackMan, TOURCAST,
 or any official PGA TOUR system, and is not for competitive or broadcast use.
@@ -16,15 +62,6 @@ or any official PGA TOUR system, and is not for competitive or broadcast use.
 **Compatibility:** FairwayOS is the public project name. The internal
 `ghostcaddie` Python package, imports, CLI commands, and schema identifiers are
 preserved for compatibility. See [`docs/fairwayos-compatibility.md`](docs/fairwayos-compatibility.md).
-
-## Run
-
-```bash
-python3 -m ghostcaddie run --shot data/sample_shot.json --course data/sample_hole.json --player data/sample_player.json --out out/
-```
-
-Writes `out/recommendation.json` and `out/overlay.svg`, and prints a terminal
-summary.
 
 ## Canonical local video analysis
 
@@ -39,7 +76,7 @@ OUTPUT_DIR/
   annotated.mp4   report.md   analysis.json   provenance.json   diagnostics.json
 ```
 
-No network calls, no external AI service, no seeded fallback, no experimental
+No network calls, no remote inference, no seeded fallback, no experimental
 tracker cascade. The source is hashed and bound before any model is loaded, and
 processing is bounded in frames and wall time.
 
@@ -50,7 +87,7 @@ processing is bounded in frames and wall time.
 | **body** | 2D image-space pose, **only where the golfer can be identified** — otherwise `ambiguous` or `unavailable` |
 | **ball** | `UNAVAILABLE` — every route is withdrawn or falsified |
 | **clubhead** | `UNAVAILABLE` — blocked at the data layer, not the code layer |
-| **physical metrics** (speed, launch, carry, apex) | `UNAVAILABLE` — no validated calibration |
+| **physical metrics** (ball speed, clubhead speed, launch, carry, apex, spin) | `UNAVAILABLE` — no validated calibration; each is listed explicitly in the output in its own unit with its own reason |
 
 MoveNet is a single-pose model, so a whole-frame result is not evidence about *who*
 was detected. The workflow proposes a body, challenges it by re-running with that
@@ -64,6 +101,19 @@ Full operator guide: [`docs/video-analysis-user-guide.md`](docs/video-analysis-u
 Evidence: [`docs/canonical-video-pipeline-audit.md`](docs/canonical-video-pipeline-audit.md).
 Measured behaviour on the local corpus:
 [`docs/canonical-validation-sweep.md`](docs/canonical-validation-sweep.md).
+
+## Legacy shot analytics (engine vertical slice)
+
+The original FairwayOS slice: raw shot data → stable top-down coordinate system →
+dispersion modeling → expected-strokes calculation → prescriptive "what should have
+happened" output → annotated SVG overlay. It is still the whole shot-analytics engine,
+and it is unrelated to the video modes above.
+
+```bash
+python3 -m ghostcaddie run --shot data/sample_shot.json --course data/sample_hole.json --player data/sample_player.json --out out/
+```
+
+Writes `out/recommendation.json` and `out/overlay.svg`, and prints a terminal summary.
 
 ## Ball-tracking research (2026-09-18)
 
@@ -118,12 +168,42 @@ labels after a control experiment showed ball-scale review was unreliable in bot
 directions (documented in
 [`docs/ball-annotation-guide.md`](docs/ball-annotation-guide.md#5-verify-every-label-by-rendering-it-back-onto-its-own-pixels)).
 Labelling is the blocking task, and the tool for it is
-`tools/ball_annotate_web.py`. **Final test has not been evaluated: NO.**
+`tools/ball_annotate_web.py`. **Final test has not been evaluated: NO — and, after
+the v3 pass below, it stays unevaluated by decision, not by omission.**
 
 Media is not committed and the corpus is not a benchmark until it has labels and
 an untouched final test. Canonical ball detection remains `UNAVAILABLE`.
 
 Tooling and statistics: [`docs/ball-dataset-v2-status.md`](docs/ball-dataset-v2-status.md).
+
+## Ball-tracker v3 — closed, not promoted (2026-09-21)
+
+**Status: `FAILED_TO_GENERALIZE`, on development evidence. No promotion. No
+canonical ball integration. The v3 final test remains SEALED / NOT RUN.**
+
+The v3 architecture (blob proposals → context features → listwise tracklet ranker)
+recovered **0 of 185** human-labelled ball-visible frames on `legacy` in all six
+validation variants, including the full model. The only real-labelled corpus in the
+repository is development-consumed, so that is a statement about the development
+evidence and **not a held-out accuracy claim** — no clean held-out accuracy figure
+exists for v3 and none is claimed.
+
+Why the sealed final test was not spent: the tracker never cleared review
+readiness, so evaluating it on the untouched 10-clip final test would consume
+irreplaceable evidence to confirm an already-negative result. It stays sealed.
+The archived research snapshot is **archive provenance, not a promotion freeze**.
+
+Canonical states are unchanged and are enforced by tests: `ball` is `UNAVAILABLE`
+with `method: none`, `CLUBHEAD` is `UNAVAILABLE`, and **every physical metric —
+ball speed, clubhead speed, launch, carry, apex and spin — is `UNAVAILABLE`**
+(no calibration, no validated action time). No further ball research loop is
+planned on this corpus.
+
+Authoritative evidence: [`docs/ball-tracker-v3-results.md`](docs/ball-tracker-v3-results.md)
+(matrix, corrected AUC, timing provenance, seal audit, correction ledger).
+Independent review provenance: `reviewer-1/2/3-report.md` in the orchestration
+evidence root listed in [`docs/fairway-os-completion.md`](docs/fairway-os-completion.md).
+Superseded worker narrative: [`docs/ball-tracker-v3-worker-pass-1.md`](docs/ball-tracker-v3-worker-pass-1.md).
 
 ## Test
 

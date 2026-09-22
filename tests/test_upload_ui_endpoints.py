@@ -53,6 +53,34 @@ class UIEndpointTests(unittest.TestCase):
         self.assertIn("upload", body.lower())
         self.assertIn("assisted initialisation", body)
 
+    def test_the_served_copy_does_not_claim_canonical_is_network_free_by_accident(self):
+        """The header must not make one blanket claim across two different modes.
+
+        It previously said, for the whole page, that "video stays on this machine,
+        nothing is uploaded anywhere" and that results are "pseudo-labels". Both were
+        false for `fresh_ai`, which sends selected frames to an external service, and
+        the pseudo-label wording was misleading for a canonical body report, which is a
+        measurement rather than a pseudo-label.
+        """
+        with urllib.request.urlopen(self.u("/")) as r:
+            body = r.read().decode()
+        flat = " ".join(body.split())
+        self.assertNotIn("Results are pseudo-labels, not ground truth", flat)
+        self.assertIn("Canonical", flat)
+        self.assertIn("no network request is made", flat)
+        self.assertIn("fresh AI sends selected frames to an external AI service", flat)
+        self.assertIn("research results are pseudo-labels", flat)
+        # the page title must not frame the canonical mode as research
+        self.assertNotIn("<title>FairwayOS upload &amp; review (research)</title>", flat)
+
+    def test_the_readiness_panel_does_not_imply_canonical_ball_can_be_unlocked(self):
+        with urllib.request.urlopen(self.u("/")) as r:
+            body = r.read().decode()
+        flat = " ".join(body.split())
+        self.assertIn("research dependency readiness", flat)
+        self.assertIn("does <b>not</b> enable ball or clubhead in canonical mode", flat)
+        self.assertNotIn("runtime readiness", flat)
+
     def test_frame_endpoint_binds_source_and_exact_frame(self):
         with urllib.request.urlopen(self.u(f"/frame?job={self.job}&n=7")) as r:
             self.assertEqual(r.headers["Content-Type"], "image/png")

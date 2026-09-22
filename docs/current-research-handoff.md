@@ -1,6 +1,8 @@
 # FairwayOS current research handoff
 
-Status date: 2026-09-16 (previously 2026-09-11). This document is an index and safety boundary for local golf-perception research artifacts. It is not an acceptance report and does not make production claims.
+Status date: 2026-09-21 (previously 2026-09-16). This document is an index and safety boundary for local golf-perception research artifacts. It is not an acceptance report and does not make production claims.
+
+**Primary classification, settled 2026-09-21: `FAILED_TO_GENERALIZE`** for the ball-tracker line (v1, v2 and v3), on **development evidence** — the only real-labelled corpus in this repository (`data/ball_annotations/`, 10 clips, 185 ball-visible frames) was consumed during development, so **no clean held-out accuracy figure exists for v3 and none is claimed**. The v3 final test remains **SEALED / NOT RUN** by decision. **No promotion. No canonical ball integration.** The research snapshot is archive provenance, not a promotion freeze. Canonical `ball` stays `UNAVAILABLE` (`method: none`), `CLUBHEAD` stays `UNAVAILABLE`, and every physical metric — ball speed, clubhead speed, launch, carry, apex and **spin** — stays `UNAVAILABLE`. The finished product pass is summarised in [`fairway-os-completion.md`](fairway-os-completion.md); decisive evidence is [`ball-tracker-v3-results.md`](ball-tracker-v3-results.md). **No further ball research loop is planned on this corpus.**
 
 ## There is now a canonical path, and this is not it
 
@@ -65,6 +67,39 @@ Findings to carry forward:
   observation.
 - `temporal_candidate_gate.accept_candidate_run` requires `residual_motion > 0` and so
   also discards every at-rest ball. Concept reusable, implementation not.
+
+## Ball-tracking research pass v3, 2026-09-21 — closed
+
+Outcome: **`FAILED_TO_GENERALIZE`**, on development evidence. Canonical `ball` stays
+`UNAVAILABLE`; nothing on the canonical path changed, and
+`tests/test_ball_v3_isolation.py` fails if that stops being true.
+
+What it measured, plainly:
+
+- The v3 architecture (blob proposals → context features → listwise tracklet ranker)
+  recovered **0 of 185** human-labelled ball-visible frames on `legacy` in **all six**
+  validation variants, including the full model. That corpus is development-consumed,
+  so this is the shape of the failure, **not** a held-out accuracy claim.
+- On unlabelled real video the tracker mostly abstains (coverage 0.17–0.48). No
+  identity recall, false-track rate or lock rate is reported there: the corpus has no
+  labels and inventing them is forbidden. `switches` and `body_lock_rate` in the
+  results doc are **geometric proxies**, not label-derived measurements.
+- Temporal separability rests on synthetic candidate lists, and 72.8 % of the
+  family-split validation rows sit in clips the ranker was trained on. No split is
+  both family-disjoint and ranker-optimism-free, and no genuinely frame-independent
+  ablation was run. All of that is disclosed in
+  [`ball-tracker-v3-results.md`](ball-tracker-v3-results.md), whose §8.2 correction
+  ledger records the reporting errors an independent review caught and fixed.
+
+**Sealed.** The 10 final-test clip ids were never decoded, viewed, inferred on,
+labelled or cached in any pass, and were independently re-verified as absent from
+all 113 files of the closeout artifact tree. The seal is intact and stays closed:
+spending untouched evidence on an already-negative model is not justified. **No
+promotion, freeze or canonical integration is authorized.**
+
+**Archive, not freeze.** The research snapshot is preserved as provenance. It is
+explicitly **not** a promotion freeze and carries **no future-promotion promise**.
+Reopening this line requires new rights-cleared labelled data, not a retune.
 
 ## Hard research flags
 
