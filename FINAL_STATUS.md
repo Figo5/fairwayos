@@ -1,0 +1,75 @@
+# Final project status — 2026-09-22
+
+Fairway OS is finished. `main` is the product branch. Research is closed; project
+completion does not validate physical measurements or general-purpose tracking.
+Use [the README](README.md) for setup, the two supported workflows and limitations.
+
+## History consolidation
+
+- Fast-forwarded completed `demo/operator-assisted-analysis` work (`2640b3a`),
+  including canonical analysis, v1/v2/v3 research history, assisted demo and showcase.
+  Local `research/ball-dataset-v2`, `research/ball-tracker-v2`,
+  `research/ball-tracker-v3-context`, `pga-research-analyzer`, and
+  `pga-research-demo` tips are ancestors of this finished history.
+- Merged remote `pga-research-analyzer` (`5aee6f0`). Its portability change was
+  already present; the merge preserves the remaining accepted-seed provenance fix
+  and regression test without restoring an older runtime.
+- Did not merge the divergent standalone `local-tracker-restart` implementation.
+  Its latest local tip (`676f1d6`, seven commits beyond its old remote tip) is
+  preserved as `archive/local-tracker-restart-2026-09-22`. It predates the final
+  body-only contract and would reintroduce a superseded AI/approximate-analytics
+  workflow. The final history retains its own process-group cleanup and truthful
+  unavailable-state implementation. The archive includes the old local `main` tip.
+
+No public history was rewritten. Removed documents remain accessible in the
+pre-closeout history, and the archive tag preserves the unmerged restart.
+
+## Cleanup
+
+Removed 39 obsolete Markdown files: `.hermes/plans/`, `docs/superpowers/plans/`,
+old `STATUS.md` / `DEMO_REVIEW.md`, progress logs, handoffs, acquisition plans and
+superseded workflow instructions. Retained operator guides, annotation contracts,
+canonical audit/sweep and selected ball/club research decisions; see
+[the evidence index](docs/research-decisions.md).
+
+Removed three unreferenced, superseded runners: `tools/demo/build_fairwayos_demo.py`,
+`tools/demo/render_rory_no_seed.py`, and `tools/demo/video_to_results.py`. Their
+rendering/body-only entry-point roles are covered by the final canonical/demo
+pipelines and tests; their original source remains in Git history.
+
+Removed eager imports of the historical AI demo/fallback from finished CLI startup.
+Their tested implementations remain opt-in research code. Moved the tested
+pseudo-clubhead experiment from `out/` to `tools/research/`. No test-backed research
+module was deleted merely because its experiment failed. Removed tracked `uv.lock`
+and strengthened ignores. Restricted pytest discovery to `tests/`, replaced stale
+dependency instructions, and made CI run the full pytest suite.
+
+Pruned four obsolete temporary worktrees after verifying their commits were in
+`main` and their remaining directories contained no source edits. Repaired the
+surviving PGA research worktree pointer and retained its detached historical tree.
+Obsolete local branch names were removed after ancestry checks. Remote demo and
+research branch names are removed after publishing `main`; the unmerged restart
+branch name is retired only after its archive tag is published. History remains
+reachable through `main` or the archive tag.
+
+## Validation
+
+- Fresh Python 3.11 environment installed from `requirements-dev.txt`: **1,699
+  passed, 2 skipped, 242 subtests passed** (421.64 seconds).
+- Existing research environment: **1,698 passed, 2 skipped, 240 subtests passed**
+  before the new CLI isolation test was added; that test also passed separately.
+- Targeted closeout regressions: **39 passed, 2 subtests passed**.
+- Two existing deprecation warnings: legacy `cgi` and one unittest returning a
+  value. Neither is a test failure; Python metadata excludes 3.13+.
+- Canonical CLI: success, 12 rendered frames, truthful unavailable body/ball/club
+  and physical-metric states on a synthetic clip with no golfer.
+- Demo and showcase CLI: success, 60 rendered frames each, operator assistance
+  disclosed and source/config hashes verified in provenance.
+- All three H.264 outputs passed complete FFmpeg decoding. Compilation, local
+  Markdown links, diff whitespace and the tracked-artifact audit passed.
+
+Smoke tests use a generated synthetic clip and locally supplied MoveNet weights;
+they verify execution, artifacts and truthful boundaries, not golf tracking
+accuracy. Existing showcase deliverables outside the repository are not inputs to
+these checks. No source footage, generated media, weights, caches, `out/` files or
+`uv.lock` are in the final tracked tree. Historical commits are left intact.

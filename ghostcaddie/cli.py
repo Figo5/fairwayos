@@ -39,17 +39,13 @@ from .video.prepare import prepare_video
 from .video.human_import import observations_from_human_annotations
 from .video.youtube import DownloadError, DownloadLimits, YtDlpDownloader, parse_youtube_url
 from .video.youtube_auto_try import AUTO_FORMAT, AutoTryConfig, DEFAULT_YTDLP, auto_try
-from .video.fairwayos_research import sidecar_from_mapping, write_fairwayos_sidecar
-from .video.ai_demo import DemoAcceptanceError, build_visual_review, run_local_demo
-from .video.pga_fallback import render_pga_fallback
-from .video.research_split import serialize_split_manifest
 from .video.source_binding import SourceBindingError
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ghostcaddie",
-        description="FairwayOS — golf shot-analytics engine (synthetic data only).",
+        description="Fairway OS — local golf video analysis. Use analyze-video or demo-video; other commands retain historical research compatibility.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
     run_p = sub.add_parser("run", help="Run the full analytics pipeline on one shot.")
@@ -483,6 +479,7 @@ def main(argv=None) -> None:
 def _run_fairwayos_ball_sidecar_command(args) -> None:
     with args.input.open() as fh:
         payload = json.load(fh)
+    from .video.fairwayos_research import sidecar_from_mapping, write_fairwayos_sidecar
     sidecar = sidecar_from_mapping(payload, source=args.source)
     write_fairwayos_sidecar(args.out, sidecar)
     print(f"Wrote research-only FairwayOS ball sidecar to {args.out}")
@@ -492,6 +489,7 @@ def _run_research_split_validate_command(args) -> None:
     with args.input.open() as fh:
         payload = json.load(fh)
     args.out.parent.mkdir(parents=True, exist_ok=True)
+    from .video.research_split import serialize_split_manifest
     args.out.write_text(serialize_split_manifest(payload) + "\n")
     print(f"Validated frozen research split manifest to {args.out}")
 
@@ -877,6 +875,7 @@ def _run_video_analyze_command(args) -> None:
 
 def _write_pga_failure_artifacts(out: Path, video) -> None:
     """Keep bounded local failure evidence inspectable without analytics."""
+    from .video.pga_fallback import render_pga_fallback
     source = Path(video).expanduser() if video is not None else None
     if source is not None and source.is_file():
         render_pga_fallback(source, out / "annotated_video.mp4")
@@ -891,6 +890,7 @@ def _write_pga_failure_artifacts(out: Path, video) -> None:
 
 def _run_ai_demo_command(args) -> None:
     """Run only the research demo path; never invoke validated analytics."""
+    from .video.ai_demo import DemoAcceptanceError, build_visual_review, run_local_demo
     out = args.out.expanduser().resolve()
     out.mkdir(parents=True, exist_ok=True)
     for stale_name in ("recommendation.json", "normalized_shot.json", "overlay.svg"):

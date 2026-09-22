@@ -1,7 +1,7 @@
 # Ball-tracking research results
 
 Status date: 2026-09-18. Branch `pga-research-analyzer`, baseline commit `fc76ffe`.
-Plan and acceptance bar: [`ball-tracking-research-plan.md`](ball-tracking-research-plan.md),
+Plan and acceptance bar: [`ball-tracking-research-plan.md`](https://github.com/Figo5/fairwayos/blob/2640b3a4b3b2da579adbe38744d2452ba385a6ff/docs/ball-tracking-research-plan.md),
 written before any of this was implemented and not edited afterwards.
 
 ---

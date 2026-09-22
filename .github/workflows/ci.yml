@@ -10,7 +10,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     env:
       GHOSTCADDIE_PGA_CV2_RUNTIME: "1"
     steps:
@@ -24,7 +24,7 @@ jobs:
           check-latest: false
 
       - name: Install research-test dependencies
-        run: python3 -m pip install --disable-pip-version-check --no-cache-dir "numpy>=1.26,<3" "opencv-python-headless>=4.9,<6"
+        run: python3 -m pip install --disable-pip-version-check --no-cache-dir -r requirements-dev.txt
 
       - name: Install ffmpeg for existing video smoke tests
         run: |
@@ -39,8 +39,8 @@ jobs:
           done
           sudo apt-get install -y --no-install-recommends ffmpeg
 
-      - name: Run unittest suite
-        run: python3 -m unittest discover -s tests -v
+      - name: Run full suite
+        run: python3 -m pytest -q
 
       - name: Compile source and tests
         run: python3 -m compileall -q ghostcaddie tests

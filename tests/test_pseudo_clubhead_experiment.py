@@ -4,10 +4,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 
-# The pseudo clubhead experiment script lives under out/ (ignored on most
-# checkouts) and requires the optional OpenCV research dependency. The test
-# must skip cleanly when either is unavailable — regression for 9b5cd2b CI.
-SCRIPT = Path(__file__).parents[1] / "out/research_training_gauntlet/run_pseudo_clubhead_experiment.py"
+# Archived, tested research source belongs under tools/, never generated out/.
+# OpenCV remains an optional dependency for this historical experiment.
+SCRIPT = Path(__file__).parents[1] / "tools/research/run_pseudo_clubhead_experiment.py"
 
 try:
     import cv2  # noqa: F401
@@ -22,7 +21,7 @@ if SCRIPT.is_file() and HAS_CV2:
     _spec.loader.exec_module(_module)
 
 
-@unittest.skipUnless(_module is not None, "requires ignored out/ experiment script and optional OpenCV")
+@unittest.skipUnless(_module is not None, "requires archived experiment script and optional OpenCV")
 class TestPseudoClubheadExperiment(unittest.TestCase):
     def test_ball_candidates_skips_oversized_box_and_preserves_valid_box(self):
         result = SimpleNamespace(

@@ -1,0 +1,4 @@
+-r requirements.txt
+pytest==9.1.1
+# Retained v3 ranker regression tests; never imported by canonical/demo serving.
+torch==2.13.0

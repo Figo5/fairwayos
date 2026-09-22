@@ -158,7 +158,7 @@ class TestAIDemoContracts(unittest.TestCase):
             root = Path(directory)
             source = root / "source.mp4"
             source.write_bytes(b"source")
-            with patch("ghostcaddie.cli.run_local_demo", side_effect=DemoAcceptanceError(
+            with patch("ghostcaddie.video.ai_demo.run_local_demo", side_effect=DemoAcceptanceError(
                     ["all_perception_unavailable", "insufficient_duration"])):
                 with redirect_stdout(output):
                     with self.assertRaises(SystemExit) as raised:
@@ -173,7 +173,7 @@ class TestAIDemoContracts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "source.mp4"
             source.write_bytes(b"source")
-            with patch("ghostcaddie.cli.run_local_demo", return_value={"status": "research_only"}) as run:
+            with patch("ghostcaddie.video.ai_demo.run_local_demo", return_value={"status": "research_only"}) as run:
                 with redirect_stdout(output):
                     main([
                         "fairwayos-demo", "--video", str(source), "--out", str(Path(directory) / "out"),
@@ -191,7 +191,7 @@ class TestAIDemoContracts(unittest.TestCase):
             review_path = root / "review.json"
             source.write_bytes(b"source")
             review_path.write_text(json.dumps(review))
-            with patch("ghostcaddie.cli.run_local_demo", return_value={"status": "research_only"}) as run:
+            with patch("ghostcaddie.video.ai_demo.run_local_demo", return_value={"status": "research_only"}) as run:
                 with redirect_stdout(output):
                     main(["ai-demo", "--video", str(source), "--out", str(root / "out"),
                           "--visual-review", str(review_path)])
@@ -208,7 +208,7 @@ class TestAIDemoContracts(unittest.TestCase):
             review_path = root / "review.json"
             source.write_bytes(b"source")
             review_path.write_text(json.dumps(verdicts))
-            with patch("ghostcaddie.cli.run_local_demo", return_value={"status": "research_only"}) as run:
+            with patch("ghostcaddie.video.ai_demo.run_local_demo", return_value={"status": "research_only"}) as run:
                 with redirect_stdout(output):
                     main(["ai-demo", "--video", str(source), "--out", str(root / "out"),
                           "--visual-review", str(review_path)])
@@ -222,7 +222,7 @@ class TestAIDemoContracts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "source.mp4"
             source.write_bytes(b"source")
-            with patch("ghostcaddie.cli.run_local_demo", return_value={"status": "research_only"}) as run:
+            with patch("ghostcaddie.video.ai_demo.run_local_demo", return_value={"status": "research_only"}) as run:
                 with redirect_stdout(output):
                     main([
                         "ai-demo", "--video", str(source), "--out", str(Path(directory) / "out"),

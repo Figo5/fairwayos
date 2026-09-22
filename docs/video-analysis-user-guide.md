@@ -17,8 +17,7 @@ falsified or withdrawn, and the reasons are printed on every run. The 2026-09-21
 ball-tracker pass is closed as **`FAILED_TO_GENERALIZE`** (development evidence;
 0 of 185 labelled frames recovered), not promoted, and its sealed final test was
 **not run** — see
-[`ball-tracker-v3-results.md`](ball-tracker-v3-results.md). Summary of the finished
-product pass: [`fairway-os-completion.md`](fairway-os-completion.md).
+[`ball-tracker-v3-results.md`](ball-tracker-v3-results.md). Project closeout: [final status](../FINAL_STATUS.md).
 
 ---
 
@@ -97,27 +96,19 @@ Retained as evidence. Do not retune thresholds to revive any of them.
 
 ### Interpreter
 
-The canonical workflow uses **two** interpreters on purpose:
+Use the Python 3.11 setup and dependency files in [the README](../README.md#setup).
+The orchestrator uses the standard library; the separate body worker needs
+`ai_edge_litert`, OpenCV and NumPy. Override that worker with `--body-python` or
+`FAIRWAY_BODY_PYTHON`. No model is downloaded. Development requirements add pytest
+and PyTorch for retained research tests; PyTorch is not a canonical dependency.
 
-- the **orchestrator** — any Python ≥ 3.11. It imports no cv2, no numpy and no model
-  runtime, and opens no socket.
-- the **body worker** — must have `ai_edge_litert`, `cv2` and `numpy`. In this repo
-  that is `.venv/bin/python3` (Python 3.11.16, **no torch**).
-
-Keeping them apart is what lets the whole output contract be tested on a bare
-interpreter, and keeps torch and pickle out of the serving process.
-
-Override the worker interpreter with `--body-python` or `$FAIRWAY_BODY_PYTHON`.
-
-Run the suite with an interpreter that has cv2:
-
-```bash
-.venv-video-ai/bin/python3 -m pytest tests -q
+```sh
+.venv/bin/python -m pytest -q
 ```
 
-On Python 3.9 roughly a hundred tests error at collection on `ModuleNotFoundError:
-cv2`. That is an environment artifact, not a regression; `requires-python` is now
-`>=3.11`.
+Pytest discovery is restricted to `tests/`, so ignored output experiments cannot
+be collected. Python 3.11 is the tested version; the retained upload wrapper uses
+`cgi`, so package metadata excludes Python 3.13 and newer.
 
 ### Model files
 

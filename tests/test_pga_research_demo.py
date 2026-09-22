@@ -29,7 +29,7 @@ class TestPgaResearchDemo(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             video = _make_fixture(root)
-            with patch("ghostcaddie.cli.run_local_demo", return_value={"status": "research_only"}) as runner, \
+            with patch("ghostcaddie.video.ai_demo.run_local_demo", return_value={"status": "research_only"}) as runner, \
                  patch("ghostcaddie.cli.run_pipeline", side_effect=AssertionError("analytics forbidden")):
                 main(["pga-research-demo", "--video", str(video), "--out", str(root / "out"),
                       "--max-duration", "2", "--sample-fps", "2", "--max-frames", "4"])
@@ -53,7 +53,7 @@ class TestPgaResearchDemo(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             video = _make_fixture(root)
-            with patch("ghostcaddie.cli.run_local_demo", side_effect=RuntimeError("no frames")):
+            with patch("ghostcaddie.video.ai_demo.run_local_demo", side_effect=RuntimeError("no frames")):
                 with self.assertRaises(SystemExit):
                     main(["pga-research-demo", "--video", str(video), "--out", str(root / "out")])
             payload = json.loads((root / "out" / "diagnostics.json").read_text())

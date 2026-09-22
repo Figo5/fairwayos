@@ -63,3 +63,12 @@ research_stock/
 # Local model files: placed by the operator, never committed (see docs/video-analysis-user-guide.md)
 models/
 *.tflite
+
+# Local dependency resolution and model/cache artifacts
+uv.lock
+.cache/
+*.ckpt
+*.h5
+*.hdf5
+*.weights
+CLAUDE.md

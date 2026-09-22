@@ -1,11 +1,15 @@
 [project]
 name = "fairwayos"
 version = "0.1.0"
-description = "FairwayOS local-first golf shot-analytics and video-perception research platform. Synthetic data only."
+description = "Fairway OS local golf-video analysis: canonical body-focused analytics and operator-assisted demos."
 # 3.11, not 3.9: the suite needs cv2, and ~100 tests error out at collection on
 # 3.9 with ModuleNotFoundError. The old floor made a fresh checkout look broken.
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.13"
 
 [build-system]
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+# Never collect historical experiments or generated scripts under ignored out/.
+testpaths = ["tests"]

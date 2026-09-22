@@ -17,8 +17,8 @@ evidence on a known-negative model is not justified. Canonical `ball` remains
 physical metric including spin is `UNAVAILABLE`; no canonical code imports any of
 this. Nothing here is a product-completion claim.
 
-See [`fairway-os-completion.md`](fairway-os-completion.md) for the finished-product
-summary, and [`current-research-handoff.md`](current-research-handoff.md) for the
+See [`fairway-os-completion.md`](https://github.com/Figo5/fairwayos/blob/2640b3a4b3b2da579adbe38744d2452ba385a6ff/docs/fairway-os-completion.md) for the finished-product
+summary, and [`current-research-handoff.md`](https://github.com/Figo5/fairwayos/blob/2640b3a4b3b2da579adbe38744d2452ba385a6ff/docs/current-research-handoff.md) for the
 research index.
 
 ## 1. Evidence classes, kept separate

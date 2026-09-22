@@ -1,6 +1,6 @@
 """Scoring a predicted ball track against human ground truth.
 
-The scoring rules were written down in ``docs/ball-tracking-research-plan.md``
+The scoring rules were written down in ``docs/ball-tracking-results.md``
 before any method was run, and this module implements them literally. Two of
 them matter more than the rest:
 

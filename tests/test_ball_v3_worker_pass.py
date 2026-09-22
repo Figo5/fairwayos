@@ -1,7 +1,7 @@
 """Worker-pass-1 regressions: provenance, grouping, features, splits, abstention.
 
 Each of these pins a property that a measurement in
-``docs/ball-tracker-v3-worker-pass-1.md`` depends on. If one of them breaks, the
+``docs/ball-tracker-v3-results.md`` depends on. If one of them breaks, the
 number it supports stops meaning what the document says it means:
 
 * a shard is one synthetic sequence, and an interrupted shard is not read;

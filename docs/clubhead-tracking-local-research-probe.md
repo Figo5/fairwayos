@@ -180,7 +180,7 @@ This path does not promote clubhead or impact, does not alter the existing human
 
 A separate local runner generated provisional clubhead/shaft labels from the MMU and two additional complete clips using the guarded ball track, generic pose when detected, Hough/contour geometry, frame motion, sparse optical flow, ball proximity, and temporal consistency. The shaft is only a wrist-to-clubhead proxy; it is not a validated shaft annotation.
 
-- Runner: `out/research_training_gauntlet/run_pseudo_clubhead_experiment.py`
+- Runner: `tools/research/run_pseudo_clubhead_experiment.py`
 - Contract: `ghostcaddie/video/clubhead_pseudo_labels.py`
 - Regression tests: `tests/test_clubhead_pseudo_labels.py` and `tests/test_research_ball_evaluation.py`
 - Every emitted record carries `pseudo_label: true`, `ground_truth: false`, `research_only: true`, and `production_eligible: false`.

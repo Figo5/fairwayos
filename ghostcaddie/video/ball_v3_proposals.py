@@ -55,10 +55,8 @@ class ProposalParams:
     against is ball-proposal rate on the legacy human-labelled corpus, which is
     development-consumed and never reported as accuracy.
 
-    (An earlier revision of this docstring pointed at
-    ``docs/ball-tracker-v3-results.md``, which was never written. The numbers it
-    meant are the two JSON artifacts named above; see
-    ``docs/ball-tracker-v3-worker-pass-1.md`` §12.)
+    Historical proposal measurements are not final tracking accuracy; see
+    ``docs/ball-tracker-v3-results.md`` for the closed research decision.
     """
 
     #: Peaks kept per generator before the frame budget is applied. v2 used 16.
@@ -77,7 +75,7 @@ class ProposalParams:
     min_score: float = 0.0
     #: Run the scale-space generators on a downsampled pyramid. ``False`` is the
     #: original full-resolution path, kept so the before/after in
-    #: ``docs/ball-tracker-v3-worker-pass-1.md`` can be re-measured rather than
+    #: ``docs/ball-tracker-v3-results.md`` can be re-measured rather than
     #: believed. It changes compute, not the decision surface.
     pyramid: bool = True
 
