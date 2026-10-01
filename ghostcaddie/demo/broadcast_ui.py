@@ -138,6 +138,7 @@ class Registry:
         self.clips: Dict[str, ClipRecord] = {}
         self.results: Dict[str, dict] = {}
         self.jobs: Dict[str, dict] = {}
+        self.tracking_review: Dict[str, dict] = {}
         self.lock = threading.Lock()
         self.scan()
 
@@ -301,6 +302,14 @@ def make_handler(registry: Registry, token: str, config_dir: Path,
                     self._json(200, {"ok": True,
                                      "clips": [c.to_dict()
                                                for c in registry.clips.values()]})
+                    return
+                if parsed.path == "/api/tracking":
+                    record = registry.clip(str(query.get("clip", "")))
+                    target = query.get("target", "clubhead")
+                    if target not in {"ball", "clubhead"}:
+                        raise DemoConfigError("unknown tracking target")
+                    self._json(200, {"ok": True, "tracking": registry.tracking_review.get(
+                        record.sha256, {}).get(target)})
                     return
                 if parsed.path == "/api/library":
                     self._json(200, {"ok": True, "roots": _library(registry)})
@@ -785,6 +794,7 @@ def _run_job(registry: Registry, job_id: str, clip: str, config_path: str,
 def serve(*, host: str = "127.0.0.1", port: int = 8765, out_root: Optional[str] = None,
           config_dir: Optional[str] = None, extra_roots: Sequence[str] = (),
           cv_python: Optional[str] = None, body_model: Optional[str] = None,
+          tracking_predictions: Optional[str] = None,
           open_browser: bool = False) -> None:
     """Launch the review UI. Refuses a non-loopback host."""
     if host not in LOOPBACK_HOSTS:
@@ -794,6 +804,9 @@ def serve(*, host: str = "127.0.0.1", port: int = 8765, out_root: Optional[str] 
                                                               or RUN_ROOT / "configs")]
     roots += [Path(p) for p in extra_roots]
     registry = Registry(roots)
+    if tracking_predictions:
+        from .tracking_review import load_tracking_review
+        registry.tracking_review = load_tracking_review(tracking_predictions, registry.clips.values())
     token = uuid.uuid4().hex
     render_config = {
         "python": os.environ.get("FAIRWAY_UI_PYTHON") or _this_python(),
@@ -828,5 +841,4 @@ def _this_python() -> str:
     import sys
 
     return sys.executable
-
 

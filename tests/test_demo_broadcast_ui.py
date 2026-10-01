@@ -201,6 +201,23 @@ class UiConfigBindingTests(TempDirTestCase):
         path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return path
 
+    def test_tracking_review_uses_registered_clip_ids_and_has_no_write_endpoint(self):
+        cid = self.clip_id('01_hole07_approach.mp4')
+        sha = self.sha('01_hole07_approach.mp4')
+        summary = {'target': 'clubhead', 'source_sha256': sha, 'gaps': [
+            {'start_frame': 3, 'end_frame': 5}], 'accuracy_claim': False}
+        self.registry.tracking_review[sha] = {'clubhead': summary}
+        code, result = self.call(f'/api/tracking?clip={cid}&target=clubhead')
+        self.assertEqual(code, 200); self.assertEqual(result['tracking'], summary)
+        _, result = self.call(f'/api/tracking?clip={cid}&target=ball')
+        self.assertIsNone(result['tracking'])
+        code, _ = self.call('/api/tracking?clip=../../outside.mp4')
+        self.assertEqual(code, 400)
+        code, _ = self.call(f'/api/tracking?clip={cid}&target=shaft')
+        self.assertEqual(code, 400)
+        code, _ = self.call('/api/tracking', method='POST', body={}, token='tok123')
+        self.assertEqual(code, 404)
+
     def test_the_config_list_holds_only_loadable_broadcast_configs(self):
         self.write_config("03_hole12_tee.broadcast.json", base_config(
             clip_path_hint=str(self.clip_c),

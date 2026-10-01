@@ -21,7 +21,7 @@ def compose(classic, learned, cohort):
         if stroke not in {'putt','full_swing'}:raise ValueError('Unsupported stroke family')
         if stroke=='putt':
             old[cid]['targets']['clubhead']=copy.deepcopy(new[cid]['targets']['clubhead'])
-            engines[cid]='seed-supported SAM2 head'
+            engines[cid]='learned head policy: '+learned.get('variant','unspecified')
         else:engines[cid]='classic head baseline replay'
     return result,engines
 
@@ -29,18 +29,32 @@ def compose(classic, learned, cohort):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ['dataset','baseline','learned','out']:p.add_argument('--'+name,type=Path,required=True)
+    p.add_argument('--learned-report',type=Path,help='Optional checksum-bound executed learned-policy report for engine/profile provenance')
     args=p.parse_args();dataset,sha=bench.load_dataset(args.dataset,verify_hashes=True)
     paths=[args.out,Path(str(args.out)+'.report.json'),Path(str(args.out)+'.report.md')]
-    if any(path.resolve() in {x.resolve() for x in [args.dataset,args.baseline,args.learned]}|{Path(c['path']).resolve() for c in dataset['clips']} for path in paths):
+    inputs=[args.dataset,args.baseline,args.learned]+([args.learned_report] if args.learned_report else [])
+    if any(path.resolve() in {x.resolve() for x in inputs}|{Path(c['path']).resolve() for c in dataset['clips']} for path in paths):
         raise ValueError('Output must preserve all inputs')
     if any(path.exists() for path in paths):raise ValueError('Choose a fresh output name')
     classic=json.loads(args.baseline.read_text());learned=json.loads(args.learned.read_text())
     bench.validate_predictions(classic,dataset);bench.validate_predictions(learned,dataset)
     payload,engines=compose(classic,learned,[{'id':c['id'],'stroke_type':c['stroke_type']} for c in dataset['clips']])
+    learned_record=None
+    if args.learned_report:
+        record=json.loads(args.learned_report.read_text())
+        if record.get('predictions',{}).get('sha256')!=bench.sha256_file(args.learned):
+            raise ValueError('Learned report does not describe these prediction bytes')
+        provenance=record['runtime'];actual=provenance['actual_engine_by_clip']
+        if set(actual)!={c['id'] for c in dataset['clips']} or not all(isinstance(v,str) and v for v in actual.values()):
+            raise ValueError('Learned engine provenance must cover the full collection')
+        for clip in dataset['clips']:
+            if clip['stroke_type']=='putt':engines[clip['id']]=actual[clip['id']]
+        learned_record={'path':str(args.learned_report.resolve()),'sha256':bench.sha256_file(args.learned_report),'runtime':provenance}
     args.out.parent.mkdir(parents=True,exist_ok=True);args.out.write_text(bench.canonical_json(payload))
     runtime={'research_only':True,'production_eligible':False,'model_rerun':False,
-        'selection_rule':'putt: learned mask; full_swing: classic baseline, by declared operator stroke type only',
+        'selection_rule':'putt: learned head policy; full_swing: classic baseline, by declared operator stroke type only',
         'selection_uses_target_labels':False,'actual_engine_by_clip':engines,
+        'learned_variant':learned.get('variant'),'learned_executed_report':learned_record,
         'baseline_predictions_sha256':bench.sha256_file(args.baseline),'learned_predictions_sha256':bench.sha256_file(args.learned),
         'tool_sha256':bench.sha256_file(Path(__file__)),
         'note':'Development choice on already inspected AI-reference footage, not independent holdout success. Ball blocks remain classic. No per-clip outcome-based switch.'}

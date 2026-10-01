@@ -120,6 +120,18 @@ PAGE = r"""<!DOCTYPE html>
       <span class="chip" id="coordChip">x – y –</span>
     </div>
     <div class="status" id="status">loading…</div>
+    <div class="status" aria-label="tracking gap review">
+      <strong>Review tracking gaps</strong>
+      <div class="row">
+        <select id="reviewTarget" aria-label="target to review">
+          <option value="clubhead">clubhead</option><option value="ball">ball</option>
+        </select>
+        <select id="reviewGap" aria-label="saved tracking gap"></select>
+        <button id="previousGap">previous gap</button>
+        <button id="nextGap">next gap</button>
+      </div>
+      <div class="muted" id="reviewInfo">No saved tracking results loaded.</div>
+    </div>
   </section>
   <aside class="panel">
     <h2>Clip</h2>
@@ -253,7 +265,7 @@ const state = {
   scenes: [], current: -1,
   phases: {}, roi: null, seeds: {},
   mode: "region", target: "ball", lastPoint: null,
-  dragging: null, job: null
+  dragging: null, job: null, tracking: null, reviewRequest: 0
 };
 const $ = (id) => document.getElementById(id);
 function clone(value){
@@ -479,6 +491,62 @@ function selectClip(id){
   $("coordChip").textContent = "x – y –";
   state.frame = 0;
   setFrame(0);
+  loadTrackingReview();
+}
+
+// Read-only navigation: result gaps never become seeds, corrections or detections.
+function renderTrackingReview(message){
+  const review = state.tracking, selector = $("reviewGap");
+  selector.innerHTML = "";
+  const gaps = review?.gaps || [];
+  gaps.forEach((gap, index) => {
+    const option = document.createElement("option"); option.value = index;
+    option.textContent = `frames ${gap.start_frame}–${gap.end_frame}`;
+    selector.appendChild(option);
+  });
+  selector.value = gaps.length ? "0" : "";
+  selector.disabled = !gaps.length;
+  $("previousGap").disabled = $("nextGap").disabled = !gaps.length;
+  $("reviewInfo").textContent = message || (!review
+    ? "No saved tracking results loaded for this target."
+    : `${review.automatic_frames} frames with automatic positions · ${gaps.length} gaps ` +
+      (review.start_frame === null ? "· no seeded result range" :
+       `· saved range ${review.start_frame}–${review.end_frame}`) +
+      ". Gaps may be occlusion or tracking loss. Position coverage does not measure accuracy.");
+}
+async function loadTrackingReview(){
+  const generation = ++state.reviewRequest, clip = state.clip;
+  const target = $("reviewTarget").value || "clubhead";
+  state.tracking = null; renderTrackingReview("Loading saved tracking results…");
+  if (!clip) return;
+  try {
+    const data = await api(`/api/tracking?clip=${encodeURIComponent(clip.id)}&target=${encodeURIComponent(target)}`);
+    if (generation !== state.reviewRequest || state.clip?.id !== clip.id) return;
+    const review = data.tracking;
+    if (review && (review.source_sha256 !== clip.sha256 || review.target !== target))
+      throw new Error("saved results belong to another source or target");
+    state.tracking = review || null; renderTrackingReview();
+  } catch (error) {
+    if (generation === state.reviewRequest) renderTrackingReview("Tracking review unavailable: " + error.message);
+  }
+}
+function showTrackingGap(index){
+  const review = state.tracking, gap = review?.gaps[index];
+  if (!gap || review.source_sha256 !== state.clip?.sha256) return;
+  const scene = state.scenes.findIndex(s => s.window && gap.start_frame >= s.window.start_frame && gap.start_frame <= s.window.end_frame);
+  // Outside scene windows, deselect so an operator cannot correct the wrong scene.
+  if (scene !== state.current) selectScene(scene);
+  state.lastPoint = null; $("coordChip").textContent = "x – y –";
+  $("reviewGap").value = String(index);
+  setFrame(gap.start_frame);
+}
+function nextTrackingGap(direction){
+  const gaps = state.tracking?.gaps || [];
+  const candidates = gaps.map((gap, index) => ({gap, index}));
+  const next = direction > 0
+    ? candidates.find(row => row.gap.start_frame > state.frame)
+    : candidates.reverse().find(row => row.gap.start_frame < state.frame);
+  if (next) showTrackingGap(next.index);
 }
 
 // ---- the frame on screen ------------------------------------------------
@@ -491,6 +559,7 @@ function setFrame(frame){
   $("scrub").value = state.frame;
   $("frameChip").textContent = "frame " + state.frame;
   const requestedFrame = state.frame, requestedClip = state.clip.id;
+  say(`Loading ${state.clip.name} · source frame ${requestedFrame}…`);
   const img = new Image();
   img.onload = () => {
     if (state.frame !== requestedFrame || state.clip?.id !== requestedClip) return;
@@ -1036,6 +1105,10 @@ async function pollJob(id){
 
 // ---- wiring -------------------------------------------------------------
 $("clip").onchange = (e) => selectClip(e.target.value);
+$("reviewTarget").onchange = loadTrackingReview;
+$("reviewGap").onchange = (e) => showTrackingGap(+e.target.value);
+$("previousGap").onclick = () => nextTrackingGap(-1);
+$("nextGap").onclick = () => nextTrackingGap(1);
 $("doImport").onclick = doImport;
 $("doImportPath").onclick = doImportPath;
 $("loadConfig").onclick = loadConfigFile;
@@ -1102,6 +1175,7 @@ document.addEventListener("keydown", (e) => {
 if (typeof window !== "undefined"){
   window.__bcui = {
     state, clone, applyConfig, buildConfig, commitEditors, selectScene, currentScene,
+    loadTrackingReview, showTrackingGap, nextTrackingGap,
     addScene, removeScene, sortScenes, sceneWindowOrderNote, renderScenes, renderAnchors,
     renderPhases, placeSeedAt, addCorrection, addAnchorToSegment, newSegment,
     addRoiKeyframe, resolveClipForConfig, selectClip, ensureConfig, defaultPresentation,

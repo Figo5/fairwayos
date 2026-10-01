@@ -161,6 +161,8 @@ def _register_broadcast(sub) -> None:
                       help="Additional allow-listed media root (repeatable).")
     ui_p.add_argument("--cv-python", default=None)
     ui_p.add_argument("--body-model", default=None)
+    ui_p.add_argument("--tracking-predictions", default=None,
+                      help="Optional saved research predictions for read-only gap review.")
     ui_p.add_argument("--open", action="store_true",
                       help="Open the page in the default browser.")
 
@@ -341,6 +343,7 @@ def _run_broadcast_showcase(args) -> None:
             serve(host=args.host, port=args.port, out_root=args.out_root,
                   config_dir=args.config_dir, extra_roots=args.extra_root,
                   cv_python=args.cv_python, body_model=args.body_model,
+                  tracking_predictions=args.tracking_predictions,
                   open_browser=args.open)
         except DemoError as exc:
             raise SystemExit(f"broadcast-showcase ui failed: {exc}") from exc

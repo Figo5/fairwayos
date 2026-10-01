@@ -331,5 +331,44 @@ staleImage.onload();
 check("out-of-order frame responses cannot repaint a newer selection", draws === 0);
 activeImage.onload();
 check("the selected native frame response paints normally", draws === 1);
+// Tracking gaps navigate real source frames without editing the document.
+ui.selectClip("clip03");
+const gapConfig = clone(rich);
+gapConfig.scenes = [scene("early",10,40),scene("later",60,90)];
+ui.applyConfig(gapConfig,"gaps.json","source hash");
+const documentBeforeGaps = clone(ui.state.config), seedBeforeGaps = clone(ui.state.seeds);
+ui.state.tracking = {source_sha256:ui.state.clip.sha256,target:"clubhead",automatic_frames:20,
+  start_frame:11,end_frame:99,gaps:[{start_frame:12,end_frame:14},
+    {start_frame:64,end_frame:66},{start_frame:95,end_frame:99}]};
+ui.state.frame=0;ui.state.lastPoint={frame:0,x:1,y:1};
+ui.nextTrackingGap(1);
+check("next gap loads its exact first source frame",ui.state.frame===12);
+check("gap navigation clears a stale clicked correction point",ui.state.lastPoint===null);
+ui.nextTrackingGap(1);
+check("gap navigation selects the scene containing the destination",ui.state.frame===64 && ui.currentScene().id==="later");
+check("review navigation does not edit or dirty the saved document",same(ui.state.config,documentBeforeGaps) && !ui.state.dirty);
+ui.nextTrackingGap(1);
+check("a gap outside scene windows deselects the correction scene",ui.state.frame===95 && ui.currentScene()===null);
+ui.nextTrackingGap(-1);
+check("previous gap returns to a real interval",ui.state.frame===64 && ui.currentScene().id==="later");
+ui.state.tracking.source_sha256="wrong";ui.showTrackingGap(0);
+check("another source's gaps cannot navigate this clip",ui.state.frame===64);
+
+// An old response cannot repopulate review data after source/target changes.
+const pendingReviews=[];
+globalThis.fetch=(url)=>String(url).startsWith("/api/tracking")
+  ? new Promise(resolve=>pendingReviews.push({url,resolve})) : fetchStub(url);
+function answerReview(request,payload){request.resolve({ok:true,status:200,async text(){return JSON.stringify({ok:true,tracking:payload});}});}
+ui.selectClip("clip01"); const oldReview=pendingReviews.pop();
+ui.selectClip("clip03"); const currentReview=pendingReviews.pop();
+answerReview(oldReview,{source_sha256:"a".repeat(64),target:"clubhead",gaps:[]});await sleep(0);
+check("stale tracking responses stay cleared after a source change",ui.state.tracking===null);
+answerReview(currentReview,{source_sha256:"b".repeat(64),target:"clubhead",gaps:[],automatic_frames:0,start_frame:null,end_frame:null});await sleep(0);
+check("current source results load without an accuracy claim",ui.state.tracking?.source_sha256==="b".repeat(64) && document.getElementById("reviewInfo").textContent.includes("does not measure accuracy"));
+document.getElementById("reviewTarget").value="ball";
+const ballLoad=ui.loadTrackingReview(); const ballReview=pendingReviews.pop();
+answerReview(ballReview,{source_sha256:"b".repeat(64),target:"clubhead",gaps:[]});await ballLoad;
+check("a response for the wrong target is refused",ui.state.tracking===null && document.getElementById("reviewInfo").textContent.includes("unavailable"));
+globalThis.fetch=fetchStub;
 console.log(JSON.stringify({results}));
 process.exit(results.every((r) => r.ok) ? 0 : 1);
