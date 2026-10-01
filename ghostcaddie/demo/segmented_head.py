@@ -85,13 +85,19 @@ may refine it. The first forward mask is still the original seeded frame, withou
 any future frame or correction. Internal ones are boolean admission indicators;
 exported points carry no confidence value.
     """
-    def __init__(self, seed, origin, cut_frames):
+    def __init__(self, seed, origin, cut_frames, *, point_policy=None):
         from .foreground_tracker import ForegroundPolicy
         self.seed = dict(seed)
         self.origin = list(origin)
         self.cut_frames = set(cut_frames)
+        self.policy_settings = dict(POINT_POLICY)
+        if point_policy is not None:
+            unknown = set(point_policy)-set(POINT_POLICY)
+            if unknown:
+                raise ValueError('Unknown point-policy settings: '+str(sorted(unknown)))
+            self.policy_settings.update(point_policy)
         self.policy = ForegroundPolicy(seed_frame=seed['frame'],seed_x=seed['x'],
-                                       seed_y=seed['y'],**POINT_POLICY)
+                                       seed_y=seed['y'],**self.policy_settings)
         self.policy.seed_decision()
         self.seed_region = None
         self.seed_valid = None
