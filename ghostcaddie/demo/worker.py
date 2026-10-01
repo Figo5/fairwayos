@@ -51,6 +51,7 @@ LK_MIN_TRACKED = 0.5
 #: near-perfect match for a constant template anywhere in a constant window, so a
 #: flat template is refused outright rather than allowed to jump the search window.
 MIN_TEXTURE_STD = 6.0
+MIN_CENTER_CONTRAST = 6.0
 
 
 def _patch_texture(patch) -> float:
@@ -119,6 +120,38 @@ def _patch(img: np.ndarray, x: float, y: float, size: int) -> Optional[np.ndarra
     return img[y0:y1, x0:x1].copy()
 
 
+def _clipped_match_has_center_evidence(template, candidate) -> bool:
+    """A newly admitted edge match needs evidence at the seeded target centre.
+
+    A large surrounding patch may match after the object leaves. Require either
+    retained centre-to-border contrast or a textured, correlated centre. This guard
+    applies only when the old search would have been rejected at the frame edge.
+    """
+    def gray(patch):
+        return cv2.cvtColor(patch, cv2.COLOR_BGR2GRAY) if patch.ndim == 3 else patch
+
+    seed_gray, match_gray = gray(template), gray(candidate)
+    half = template.shape[0] // 2
+    core_half = min(3, max(0, half - 1))
+    span = slice(half - core_half, half + core_half + 1)
+    seed_core, match_core = seed_gray[span, span], match_gray[span, span]
+
+    def contrast(patch, core):
+        border = np.concatenate((patch[0], patch[-1], patch[:, 0], patch[:, -1]))
+        return float(core.mean()) - float(np.median(border))
+
+    seed_delta = contrast(seed_gray, seed_core)
+    match_delta = contrast(match_gray, match_core)
+    if abs(seed_delta) >= MIN_CENTER_CONTRAST:
+        return (seed_delta * match_delta > 0
+                and abs(match_delta) >= 0.5 * abs(seed_delta))
+    if (_patch_texture(seed_core) < MIN_TEXTURE_STD
+            or _patch_texture(match_core) < MIN_TEXTURE_STD):
+        return False
+    correlation = cv2.matchTemplate(match_core, seed_core, cv2.TM_CCOEFF_NORMED)
+    return float(correlation[0, 0]) >= 0.5
+
+
 def _match(img: np.ndarray, previous: Tuple[float, float], template: np.ndarray,
            options) -> Tuple[Optional[Tuple[float, float]], Optional[float], str]:
     """Template match inside a bounded window around the previous point."""
@@ -129,8 +162,12 @@ def _match(img: np.ndarray, previous: Tuple[float, float], template: np.ndarray,
     px, py = int(round(previous[0])), int(round(previous[1]))
     x0, y0 = px - half - radius, py - half - radius
     x1, y1 = px + half + radius + 1, py + half + radius + 1
-    if x0 < 0 or y0 < 0 or x1 > w or y1 > h:
-        return None, None, "search_window_clipped_by_frame_edge"
+    clipped_search = x0 < 0 or y0 < 0 or x1 > w or y1 > h
+    # The target template remains fully inside the frame; only the requested
+    # search margin may extend beyond it. Search the valid intersection instead
+    # of declaring a visible target lost because a margin crossed the frame edge.
+    x0, y0 = max(0, x0), max(0, y0)
+    x1, y1 = min(w, x1), min(h, y1)
     window = img[y0:y1, x0:x1]
     if window.shape[0] < size or window.shape[1] < size:
         return None, None, "search_window_smaller_than_template"
@@ -147,6 +184,10 @@ def _match(img: np.ndarray, previous: Tuple[float, float], template: np.ndarray,
     step = math.hypot(point[0] - previous[0], point[1] - previous[1])
     if step > float(options.max_jump_px):
         return None, float(max_value), f"step_exceeds_max_jump ({step:.0f}px)"
+    if clipped_search:
+        matched_patch = _patch(img, point[0], point[1], size)
+        if matched_patch is None or not _clipped_match_has_center_evidence(template, matched_patch):
+            return None, float(max_value), "clipped_search_center_evidence_failed"
     return point, float(max_value), ""
 
 

@@ -101,6 +101,16 @@ _PREDICTION_POINT = frozenset({"source_frame", "x", "y", "status", "origin",
                                "method", "score"})
 _PREDICTION_STATUSES = frozenset({STATUS_OBSERVED, STATUS_OBSERVED_LK, STATUS_MANUAL,
                                   STATUS_INTERPOLATED, STATUS_MISSING, STATUS_LOST})
+#: The methods that may carry an automatic observation. ``template`` and
+#: ``template+lk`` are the classic demo tracker's. The other two are the isolated
+#: experimental masked-foreground candidate's
+#: (``ghostcaddie.demo.foreground_tracker``): it reports a re-acquired frame under its
+#: OWN method name so a bounded automatic re-acquisition can never be read as an
+#: uninterrupted continuation of the same track. Nothing else may claim to be a
+#: tracker method, and an empty method (which the classic policy writes on non-
+#: observations) stays accepted exactly as before.
+AUTOMATIC_METHODS = ("template", "template+lk", "foreground_template",
+                     "foreground_template_reacquired")
 #: Options a reference may set on a target. This is the tracker's own option set
 #: (``demo.config.TargetOptions``) plus the one interpolation switch the runner
 #: passes to ``resolve_track``. Nothing here is a label.
@@ -141,9 +151,13 @@ SCOPE_NOTES = (
     "by scoring them separately.",
     "A target's seed frame is excluded from every score. The seed is a reference "
     "point, and an automatic observation at the seed frame is refused outright.",
-    "Only automatic observations (template / template+lk) can score. Interpolated "
-    "(derived) points, operator anchors and the seed are counted separately and "
-    "are never evidence of an automatic observation.",
+    "Only automatic observations can score: the classic tracker's `template` and "
+    "`template+lk`, or a candidate's own declared experimental method "
+    "(`foreground_template` / `foreground_template_reacquired` for the isolated "
+    "masked-foreground tracker, whose re-acquired frames carry their own name so a "
+    "re-acquisition is never readable as a continuation). Interpolated (derived) "
+    "points, operator anchors and the seed are counted separately and are never "
+    "evidence of an automatic observation.",
     "Scope of the seeded track: one FORWARD leg per target. Labels at or before the "
     "seed frame are pre-initialization -- retained and counted separately "
     "(preseed_labels), excluded from the recall denominator, never scored as misses. "
@@ -607,8 +621,10 @@ def _prediction_point(value: Any, name: str, window: Mapping, cuts: Sequence[int
             _fail(f"{name} is an automatic observation at the seed frame "
                   f"{seed_frame}: the seed frame is an operator anchor and is never "
                   f"scored")
-        if method not in ("template", "template+lk", ""):
-            _fail(f"{name}.method {method!r} is not a tracker method")
+        if method not in AUTOMATIC_METHODS and method != "":
+            _fail(f"{name}.method {method!r} is not a tracker method; this contract "
+                  f"accepts {list(AUTOMATIC_METHODS)} (or an empty method on a "
+                  f"non-observation)")
     elif status == STATUS_MANUAL:
         if origin != ORIGIN_OPERATOR:
             _fail(f"{name} is {status!r} but origin is {origin!r}")
@@ -1446,6 +1462,14 @@ def render_markdown(results: Mapping[str, Any]) -> str:
             lines.append(f"- algorithm `{name}` sha256 `{record['sha256']}`")
         if runtime.get("tracker_scope"):
             lines.append(f"- tracker scope: {runtime['tracker_scope']}")
+        profile = runtime.get("candidate_profile")
+        if profile:
+            lines.append(f"- experimental profile: `{profile['name']}`; applies to "
+                         f"{', '.join(profile['targets'])}; constants sha256 "
+                         f"`{profile['constants_sha256']}`")
+            lines.append("- candidate target options below retain the classic reference "
+                         "options for comparison; the candidate actually uses this "
+                         "fixed profile: " + json.dumps(profile['constants'], sort_keys=True))
     lines.append(f"- provenance: {json.dumps(reference['provenance'], sort_keys=True)}")
     lines.append("")
     lines.append("## Scope of the seeded track")
