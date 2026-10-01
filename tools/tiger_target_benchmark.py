@@ -9,9 +9,9 @@ Runs the EXISTING demo tracker (``ghostcaddie.demo.worker.measure_target`` +
 * an evaluation report (JSON + markdown), produced by the stdlib-only evaluator in
   ``ghostcaddie.demo.target_benchmark``.
 
-Three variants exist. ``clubhead_foreground`` leaves the BALL leg identical to
-``baseline`` at the same code revision. ``lk_agreement`` enables optical-flow
-agreement for both targets.
+Four variants exist. ``clubhead_foreground`` and ``putter_redetect`` both leave the BALL
+leg identical to ``baseline`` at the same code revision. ``lk_agreement`` enables
+optical-flow agreement for both targets.
 
 * ``baseline`` -- the tracker with the reference's own options, no override;
 * ``lk_agreement`` -- the same tracker with ``lk_refine=true`` only;
@@ -24,6 +24,21 @@ agreement for both targets.
   constants is module-level and fixed, and the whole profile plus its source hash is
   declared in the report's ``runtime.candidate_profile``. Its per-frame raw
   metadata can be written with ``--raw-out``.
+* ``putter_redetect`` -- a SECOND, unrelated candidate
+  (``ghostcaddie.demo.putter_detector``), built after the 31 px masked template was
+  found to regress and to follow clothing: instead of following anything, it is an
+  UNTRAINED STRUCTURAL detector that re-segments compact bright/metal-like head
+  evidence in every frame, checks native size/area/contrast/colour compatibility
+  against the operator's seed and rejects thin shaft-only structure, oversized
+  clothing and round ball-like distractors by local thin-shaft endpoint geometry. It
+  reports its own honest method names (``putter_detector`` /
+  ``putter_detector_reacquired``) and is applied ONLY to the ``clubhead`` leg of a
+  clip whose declared ``stroke_type`` is ``putt`` (an explicit operator stroke hint,
+  recorded in the runtime record). Every ball leg, and the clubhead leg of every
+  other clip -- including ``full_swing`` -- runs the SAME classic path with the SAME
+  options, unchanged by construction. It is not a semantic model and carries no
+  trained weights, and a putt clip whose seed carries no compact-head evidence is
+  refused rather than guessed.
 
 What this runner will not do, by construction:
 
@@ -63,7 +78,8 @@ if str(ROOT) not in sys.path:
 
 from ghostcaddie.demo import target_benchmark as bench  # noqa: E402  (stdlib-only)
 
-SUPPORTED_VARIANTS = ("baseline", "lk_agreement", "clubhead_foreground")
+SUPPORTED_VARIANTS = ("baseline", "lk_agreement", "clubhead_foreground",
+                      "putter_redetect")
 #: What each variant changes and nothing else. ``baseline`` is the tracker with the
 #: reference's own options and no override, so it stays byte-for-byte what it was
 #: before this ablation existed; ``lk_agreement`` is the SAME tracker, the SAME
@@ -73,8 +89,13 @@ SUPPORTED_VARIANTS = ("baseline", "lk_agreement", "clubhead_foreground")
 #: the ball leg runs exactly the classic code -- and swaps only the CLUBHEAD leg for
 #: the isolated candidate in ``ghostcaddie.demo.foreground_tracker``, whose own
 #: profile is fixed at module level and declared in the report runtime.
+#: ``putter_redetect`` swaps the CLUBHEAD leg for a second, unrelated isolated
+#: candidate (``ghostcaddie.demo.putter_detector``, an untrained structural detector
+#: that re-segments head evidence afresh each frame) and only when the clip's declared
+#: ``stroke_type`` is ``putt``: with any other stroke hint, or for the ball of any
+#: clip, the classic code and options run exactly as ``baseline``.
 VARIANT_OPTION_OVERRIDES: dict = {"baseline": {}, "lk_agreement": {"lk_refine": True},
-                                 "clubhead_foreground": {}}
+                                  "clubhead_foreground": {}, "putter_redetect": {}}
 VARIANT_NOTES = {
     "baseline": "the tracker with the reference's options; no override",
     "lk_agreement": "the same tracker with lk_refine=true only (template match must "
@@ -83,11 +104,39 @@ VARIANT_NOTES = {
                            "identical), and the isolated masked-foreground candidate "
                            "for clubhead (fixed module-level profile, declared in "
                            "runtime.candidate_profile)",
+    "putter_redetect": "the same classic tracker and options for every ball leg and for "
+                       "every clubhead leg whose clip is not a declared putt, and the "
+                       "isolated untrained STRUCTURAL putter-head detector for the "
+                       "clubhead of a putt clip only (fixed module-level profile, "
+                       "declared in runtime.candidate_profile)",
 }
 #: Which targets each variant replaces with the candidate engine. Only the clubhead
 #: is in scope for this finite experiment; the ball baseline must not move.
 FOREGROUND_ENGINE_TARGETS = ("clubhead",)
 FOREGROUND_VARIANTS = ("clubhead_foreground",)
+#: The second candidate arm: same target scope, but gated on the clip's stroke hint.
+PUTTER_VARIANTS = ("putter_redetect",)
+PUTTER_ENGINE_TARGETS = ("clubhead",)
+#: The explicit operator stroke hint a clip must declare for the candidate arm to run
+#: at all. It is a hint about the stroke, never a label about the head.
+PUTTER_STROKE_TYPE = "putt"
+#: Every variant whose candidate profile belongs in the report runtime.
+CANDIDATE_VARIANTS = FOREGROUND_VARIANTS + PUTTER_VARIANTS
+#: The candidate module each variant may drive, and where its honest method names live.
+#: An explicit table, so the report can never name a method its module does not define
+#: and ``clubhead_foreground`` keeps declaring exactly what it always declared.
+CANDIDATE_MODULE_PATHS = {
+    "clubhead_foreground": "ghostcaddie.demo.foreground_tracker",
+    "putter_redetect": "ghostcaddie.demo.putter_detector",
+}
+CANDIDATE_METHOD_ATTRS = {
+    "clubhead_foreground": {"observation": "METHOD_FOREGROUND",
+                            "reacquired": "METHOD_REACQUIRED",
+                            "seed_anchor": "METHOD_SEED"},
+    "putter_redetect": {"observation": "METHOD_DETECTOR",
+                        "reacquired": "METHOD_REACQUIRED",
+                        "seed_anchor": "METHOD_SEED"},
+}
 RAW_SCHEMA = "fairwayos-target-foreground-raw.v1"
 
 
@@ -95,18 +144,25 @@ class RunnerError(RuntimeError):
     """The run could not be completed as promised."""
 
 
-def engine_for(target_name: str, variant: str) -> str:
+def engine_for(target_name: str, variant: str, *,
+               stroke_type: Optional[str] = None) -> str:
     """Which tracker measures ``target_name`` under ``variant``: pure and testable.
 
     ``classic`` means ``measure_target`` + ``resolve_track`` with the reference's
-    options; ``foreground`` means the isolated candidate. Nothing else is available,
-    and no variant changes what the other legs run.
+    options; ``foreground`` and ``putter`` mean one of the two isolated candidates.
+    Nothing else is available, and no variant changes what the other legs run. The
+    ``putter`` arm is gated on the clip's declared stroke type: without a ``putt`` hint
+    the clubhead leg stays on the classic path, so a full-swing clip is unchanged by
+    construction rather than by promise.
     """
     if variant not in SUPPORTED_VARIANTS:
         raise RunnerError(f"unsupported variant {variant!r}; this runner implements "
                           f"{list(SUPPORTED_VARIANTS)}")
     if variant in FOREGROUND_VARIANTS and target_name in FOREGROUND_ENGINE_TARGETS:
         return "foreground"
+    if (variant in PUTTER_VARIANTS and target_name in PUTTER_ENGINE_TARGETS
+            and stroke_type == PUTTER_STROKE_TYPE):
+        return "putter"
     return "classic"
 
 
@@ -204,7 +260,9 @@ def run_clip(cap, clip: Mapping[str, Any], *, variant: str) -> tuple[dict, dict,
     the classic tracker: only a variant that names the clubhead as a candidate target
     (see :func:`engine_for`) replaces that one leg, and the candidate is handed the
     clip's structural cut frames -- source structure, not labels -- so it cannot
-    re-acquire across a cut.
+    re-acquire across a cut. The ``putter_redetect`` candidate additionally requires the
+    clip's declared ``stroke_type`` to be ``putt``; with any other hint the clubhead leg
+    takes the classic path with the classic options.
     """
     from ghostcaddie.demo.config import Point, TargetOptions
     from ghostcaddie.demo.tracking import resolve_track
@@ -226,14 +284,19 @@ def run_clip(cap, clip: Mapping[str, Any], *, variant: str) -> tuple[dict, dict,
             suppressions[target_name] = {}
             continue
         declared_options = effective_options(block["options"], variant)
-        engine = engine_for(target_name, variant)
-        if engine == "foreground":
-            from ghostcaddie.demo.foreground_tracker import track_foreground
+        engine = engine_for(target_name, variant,
+                            stroke_type=clip.get("stroke_type"))
+        if engine in ("foreground", "putter"):
+            if engine == "foreground":
+                from ghostcaddie.demo.foreground_tracker import track_foreground \
+                    as track_leg
+            else:
+                from ghostcaddie.demo.putter_detector import track_putter as track_leg
 
-            run = track_foreground(cap, seed_frame=int(seed["frame"]),
-                                   seed_x=float(seed["x"]), seed_y=float(seed["y"]),
-                                   start_frame=start, end_frame=end,
-                                   cut_frames=clip["cut_frames"], target=target_name)
+            run = track_leg(cap, seed_frame=int(seed["frame"]),
+                            seed_x=float(seed["x"]), seed_y=float(seed["y"]),
+                            start_frame=start, end_frame=end,
+                            cut_frames=clip["cut_frames"], target=target_name)
             points = run.points()
             kept, summary = bench.suppress_structural(points, window=clip["window"],
                                                       cut_frames=clip["cut_frames"])
@@ -310,7 +373,7 @@ def _runtime_record(variant: str) -> dict:
                   "tracking.py": Path(tracking_mod.__file__).resolve(),
                   "config.py": Path(config_mod.__file__).resolve()}
     candidate: dict = {}
-    if variant in FOREGROUND_VARIANTS:
+    if variant in CANDIDATE_VARIANTS:
         candidate = _candidate_profile_record(variant, algorithms)
     record = {"interpreter": sys.executable, "python": platform.python_version(),
               "platform": platform.platform(), "cv2": cv2.__version__,
@@ -332,35 +395,54 @@ def _runtime_record(variant: str) -> dict:
 
 
 def _candidate_profile_record(variant: str, algorithms: dict) -> dict:
-    """The candidate's own runtime: its source hash and every one of its constants.
+    """The candidate's own runtime: its source hash, its scope and every constant.
 
     The report has to be able to say what actually ran. This is where the candidate
     profile goes -- NOT into the prediction's ``options``, which stay the classic
-    tracker's options because that is what the ball leg really used.
+    tracker's options because that is what the ball leg really used. Which candidate
+    module runs for which variant, and where its honest method names live, is a table
+    (:data:`CANDIDATE_MODULE_PATHS`, :data:`CANDIDATE_METHOD_ATTRS`); the stroke gate
+    recorded here is the same one :func:`engine_for` applies.
     """
-    from ghostcaddie.demo import foreground_tracker as foreground_mod
+    import importlib
 
-    code = Path(foreground_mod.__file__).resolve()
-    algorithms["foreground_tracker.py"] = code
-    constants = foreground_mod.PROFILE
+    candidate_mod = importlib.import_module(CANDIDATE_MODULE_PATHS[variant])
+    code = Path(str(candidate_mod.__file__)).resolve()
+    algorithms[code.name] = code
+    constants = candidate_mod.PROFILE
+    stroke = PUTTER_STROKE_TYPE if variant in PUTTER_VARIANTS else None
+    targets = list(PUTTER_ENGINE_TARGETS if stroke else FOREGROUND_ENGINE_TARGETS)
     return {
         "candidate_profile": {
-            "name": foreground_mod.PROFILE_NAME,
+            "name": candidate_mod.PROFILE_NAME,
             "variant": variant,
-            "targets": list(FOREGROUND_ENGINE_TARGETS),
-            "engine_by_target": {name: engine_for(name, variant)
+            "targets": targets,
+            "applies_when": ({"clip.stroke_type": stroke} if stroke else None),
+            "classic_otherwise": (
+                "every other target leg, and the clubhead leg of every clip that does "
+                "not declare that stroke type, runs the identical classic path with the "
+                "identical options" if stroke else None),
+            "engine_by_target": {name: engine_for(name, variant, stroke_type=stroke)
                                  for name in bench.TARGET_NAMES},
+            "engine_by_target_note": (
+                "computed with this candidate's own stroke gate applied; a routing "
+                "statement, not a score"),
             "code": {"path": str(code), "sha256": bench.sha256_file(code)},
             "constants": constants,
             "constants_sha256": bench.sha256_text(bench.canonical_json(constants)),
-            "methods": {"observation": foreground_mod.METHOD_FOREGROUND,
-                        "reacquired": foreground_mod.METHOD_REACQUIRED,
-                        "seed_anchor": foreground_mod.METHOD_SEED},
+            "methods": {key: getattr(candidate_mod, attr)
+                        for key, attr in CANDIDATE_METHOD_ATTRS[variant].items()},
             "driven_by_reference_options": False,
-            "note": ("the candidate's constants are module-level and fixed for every "
-                     "clip, hole and frame; the reference's options are not read by it. "
-                     "The ball leg of this same run is the classic tracker with the "
-                     "options the predictions declare."),
+            "note": (
+                (f"{candidate_mod.PROFILE_NAME} is an untrained STRUCTURAL detector: no "
+                 "trained weights, no object class, and no appearance template to "
+                 "follow -- it re-segments compact head evidence in each frame. "
+                 if stroke else
+                 f"{candidate_mod.PROFILE_NAME} is the masked-foreground candidate. ")
+                + "Its constants are module-level and fixed for every clip, hole and "
+                  "frame; the reference's options are not read by it. The ball leg of "
+                  "this same run is the classic tracker with the options the "
+                  "predictions declare."),
         },
         "candidate_raw_metadata": {
             "available": "_raw-out path on this run (schema "
@@ -400,13 +482,17 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--variant", default="baseline",
                         help="runner variant to evaluate: 'baseline' (the tracker with "
                              "the reference's options), 'lk_agreement' (the same "
-                             "tracker with lk_refine=true only) or "
+                             "tracker with lk_refine=true only), "
                              "'clubhead_foreground' (the classic tracker for ball and "
-                             "the isolated masked-foreground candidate for clubhead)")
+                             "the isolated masked-foreground candidate for clubhead) or "
+                             "'putter_redetect' (the same classic tracker and options "
+                             "everywhere, except the clubhead of a clip whose declared "
+                             "stroke_type is 'putt', which runs the isolated untrained "
+                             "structural putter-head detector)")
     parser.add_argument("--raw-out", type=Path, default=None,
                         help="where to write the candidate's per-frame raw metadata "
-                             "(only produced by the clubhead_foreground variant; "
-                             "default: not written)")
+                             "(produced by the clubhead_foreground and putter_redetect "
+                             "variants; default: not written)")
     parser.add_argument("--manifest", type=Path, default=None,
                         help="optional showcase batch manifest to bind the scope to "
                              "(clip id, path and sha256 are cross-checked)")

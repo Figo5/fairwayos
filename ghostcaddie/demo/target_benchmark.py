@@ -102,15 +102,23 @@ _PREDICTION_POINT = frozenset({"source_frame", "x", "y", "status", "origin",
 _PREDICTION_STATUSES = frozenset({STATUS_OBSERVED, STATUS_OBSERVED_LK, STATUS_MANUAL,
                                   STATUS_INTERPOLATED, STATUS_MISSING, STATUS_LOST})
 #: The methods that may carry an automatic observation. ``template`` and
-#: ``template+lk`` are the classic demo tracker's. The other two are the isolated
+#: ``template+lk`` are the classic demo tracker's. The next two are the isolated
 #: experimental masked-foreground candidate's
 #: (``ghostcaddie.demo.foreground_tracker``): it reports a re-acquired frame under its
 #: OWN method name so a bounded automatic re-acquisition can never be read as an
-#: uninterrupted continuation of the same track. Nothing else may claim to be a
-#: tracker method, and an empty method (which the classic policy writes on non-
-#: observations) stays accepted exactly as before.
+#: uninterrupted continuation of the same track. The following pair belongs to the second
+#: isolated candidate (``ghostcaddie.demo.putter_detector``), an untrained STRUCTURAL
+#: detector that re-segments compact head evidence in each frame: it likewise keeps a
+#: re-detected frame under its own name. This tuple is the ONLY contract surface the
+#: candidates extend: no metric, label, split or option changes with it. The final pair
+#: names measured compact regions from the optional SAM2 mask experiment; this is
+#: not a semantic clubhead-class detector. Nothing else
+#: may claim to be a tracker method, and an empty method (which the classic policy
+#: writes on non-observations) stays accepted exactly as before.
 AUTOMATIC_METHODS = ("template", "template+lk", "foreground_template",
-                     "foreground_template_reacquired")
+                     "foreground_template_reacquired", "putter_detector",
+                     "putter_detector_reacquired", "sam2_head_region",
+                     "sam2_head_region_reacquired")
 #: Options a reference may set on a target. This is the tracker's own option set
 #: (``demo.config.TargetOptions``) plus the one interpolation switch the runner
 #: passes to ``resolve_track``. Nothing here is a label.

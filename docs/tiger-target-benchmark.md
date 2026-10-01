@@ -47,7 +47,61 @@ The candidate's constants are module-level and fixed for every clip, hole and fr
 
 Synthetic fixtures exercise the candidate's behaviour (mask follow-through past a larger static neighbour, abstention on two indistinguishable candidates, refusal of flat/edge/uninformative seeds, clamped edge windows, bounded re-acquisition with consecutive confirmation, cut resets) and are not performance results for any real clip.
 
-## Scoring contract
+## Clubhead re-detection cycle
+
+The next local cycle is saved at
+`/Users/giofiore/fairway-os-runs/tiger-redetection-cycle`. All twelve original trims
+and both frozen AI reference files remain unchanged. There are two additional,
+explicitly optional research paths; neither changes the editor or classic default.
+
+`--variant putter_redetect` measures fresh compact head regions with relative
+contrast and thin-shaft support. It splits connected thick cores, measures each
+reconstructed head independently of the shaft, and refuses ambiguous seeds or
+candidates. Only declared putts use it; ball and full-swing head tracking remain
+classic. It was rejected on these real clips because its recall was too low.
+
+`tools/tiger_putter_sam2.py` uses an externally supplied, official SAM2.1 tiny
+checkpoint and checkout. It accepts `--dataset`, `--baseline`, `--out`, `--run-dir`,
+`--runtime-dir`, `--checkpoint`, `--device` and optional `--ids` for declared putts.
+It downloads nothing. The runtime must provide SAM2, PyTorch, OpenCV, NumPy,
+Hydra and iopath. The source video is decoded into a fixed native-pixel crop and
+JPEG measurement copies; the input MP4 is never edited. Each head receives only
+its original initial point and a box derived from that point, plus the window and
+cut metadata. No later prompt, reference coordinate or correction reaches the
+model. Every other target block is replayed from the validated classic baseline.
+
+SAM2 produces a generic prompted-object mask, not a clubhead class. The independent
+`segmented_head` helper splits thick mask cores and admits a nonround seed within
+three pixels. Subsequent native measurements need one nonround, area-compatible region in
+the bounded policy search. The reused point policy requires two current-frame
+confirmations after loss, never backfills earlier frames, and ends at a camera cut.
+Internal binary region admission indicators in the raw decisions are explicitly
+**not confidence probabilities**; exported automatic head confidence is null. Stronger appearance/identity checks remain a
+production blocker: later admission alone does not prove the region is a head.
+
+`tools/tiger_seed_fallback.py` composes measured results using initial seed admission
+only. It requires `--dataset`, `--baseline`, `--candidate`, `--out`; verifies raw
+inference hashes and inputs; and retains the entire classic head block when the
+initial SAM2 mask is refused. It records the actual engine for each clip. It never
+selects a clip by later scores or switches back to classic during a lost track.
+The pure candidate is preserved for comparison rather than hiding refusals.
+
+`tools/tiger_replay_head_masks.py` accepts `--dataset`, `--baseline`,
+`--mask-receipt`, `--out` to recompute the same head policy from checksum-verified
+native masks. It uses the first forward mask at the original seed frame for
+capability admission: the immediate prompt preview proved unstable across runs.
+It does not read the previous head decisions or add prompts. Exported head
+confidence is null, and inactive inherited probability thresholds are labelled
+in the profile. Pure SAM2-or-abstain is the primary research route; the optional
+classic fallback is a comparison that retains known classic ball drift.
+
+Reports include checkpoint, SAM2 source revision, inference/helper/policy hashes,
+effective geometry/policy settings, raw decisions and replay provenance. MPS is
+used locally; deterministic behavior on other devices is not asserted. Both paths
+remain research-only. See the cycle's `REPORT.md` for measured counts, refusals,
+native-frame comparisons and the next improvement priority.
+
+## Scoring contract (unchanged)
 
 - The seed is the sole annotation passed into tracking. Each target has one forward leg. Reference labels are consulted only during scoring; seeds, corrections and interpolated points cannot count as automatic observations.
 - Correctness means an automatic native-pixel point within the individual visible reference's tolerance. Misplaced automatic points and missing points are separate counts. Error summaries include all automatic predictions at scored visible labels, including misplaced ones; misses have no pixel error.
