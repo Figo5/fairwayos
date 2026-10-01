@@ -1,0 +1,53 @@
+{
+  "_comment": [
+    "ILLUSTRATIVE broadcast config for a PUTT. Every value is a placeholder.",
+    "The point of this file is the phase vocabulary: a putt is marked",
+    "address / backstroke / forward_stroke / contact / finish. A full-swing name",
+    "such as 'top' or 'follow_through' on a putt scene is REFUSED by the loader, so a",
+    "putt can never be presented with a fictitious TOP badge.",
+    "'contact' is the putt's impact: it is what the impact accent ring anchors to and",
+    "what the tempo record treats as the strike."
+  ],
+  "schema_version": "fairwayos-broadcast-config.v1",
+  "clip_path_hint": "02_hole08_putt.mp4",
+  "shot": {
+    "id": "illustrative_hole08_putt",
+    "label": "Illustrative: hole 8 putt (not a real shot)",
+    "stroke_type": "putt"
+  },
+  "interval": {"start_seconds": 0.0, "end_seconds": null, "max_frames": 1200},
+  "presentation": {
+    "metrics": ["shoulder_tilt", "hip_tilt", "sway", "tempo"],
+    "disclosure": "OPERATOR-ASSISTED \u00b7 2D IMAGE-SPACE ESTIMATES",
+    "metrics_required": false
+  },
+  "scenes": [
+    {
+      "id": "putt_golfer_view",
+      "label": "Illustrative: putting stroke, golfer visible",
+      "kind": "golfer_stroke",
+      "stroke_type": "putt",
+      "window": {"start_frame": 60, "end_frame": 150},
+      "keyframes": {
+        "address": 64,
+        "backstroke": 84,
+        "forward_stroke": 96,
+        "contact": 100,
+        "finish": 118
+      },
+      "roi": [420, 240, 420, 460],
+      "seeds": {
+        "ball": {"frame": 64, "x": 640.0, "y": 640.0, "note": "illustrative operator seed"}
+      },
+      "targets": {
+        "ball": {"mode": "template", "template_size": 21, "search_radius": 30, "min_score": 0.5, "max_jump_px": 30.0, "loss_frames": 4, "track_until_frame": 110}
+      },
+      "corrections": {},
+      "handedness": "right",
+      "allow_approx_phases": false,
+      "notes": "illustrative putt scene"
+    }
+  ],
+  "render": {"max_width": 1920, "crf": 18, "preset": "medium", "render": true},
+  "notes": "illustrative values only, not measurements of any clip."
+}

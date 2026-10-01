@@ -27,7 +27,8 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING
+from typing import (Any, Dict, List, Mapping, Optional, Sequence, Tuple,
+                    TYPE_CHECKING)
 
 import cv2
 import numpy as np
@@ -1396,73 +1397,89 @@ def _still_cards(cards: Sequence[dict], still_metrics: Sequence[str],
 # --------------------------------------------------------------------------
 # entry point
 
-def run(spec: dict) -> dict:
+def _measure(cap: cv2.VideoCapture, spec: dict) -> tuple:
+    """Body, targets and phases for ONE interval. Pure measurement, no rendering.
+
+    Shared by the single-interval workflow and by every scene of a broadcast run, so a
+    scene is measured by exactly the same code as a whole clip. There is no second
+    tracker, no second angle function and no second phase resolver to drift -- and
+    because ``spec["interval"]`` is the scene window, nothing can be tracked, seeded,
+    interpolated or phase-resolved outside the frames the operator declared visible.
+    """
     from .analytics import body_angles_for_record
     from .phases import frame_seconds_factory, resolve_phases
 
+    body = body_pass(cap, spec)
+    tracks: Dict[str, dict] = {}
+    track_objects: Dict[str, "TargetTrack"] = {}
+    raw_dump: Dict[str, dict] = {}
+    interval_frames = list(range(int(spec["interval"]["start_frame"]),
+                                 int(spec["interval"]["end_frame"]) + 1))
+    manual_blocks = spec.get("manual_segments") or {}
+    for name in ("ball", "clubhead"):
+        target_spec = spec.get("targets", {}).get(name) or {}
+        seed = spec.get("seeds", {}).get(name)
+        manual = manual_spec(manual_blocks.get(name))
+        options = _options(target_spec.get("options"))
+        corrections = spec.get("corrections", {}).get(name) or []
+        if manual and manual.get("replace_automatic"):
+            # The operator replaced this target's automatic track with their own
+            # anchor segments, so there is nothing to measure: the segments ARE the
+            # presentation. Nothing is drawn outside them, and the run says so.
+            raw: Dict[int, RawMeasurement] = {}
+            raw_dump[name] = {}
+            track = resolve_track(
+                name, options=options, interval_frames=interval_frames, raw={},
+                seed=None, corrections=[],
+                interpolation_enabled=False, max_gap_frames=0)
+        elif not seed:
+            # No seed and no operator segments: this target is absent from this
+            # interval, and absent is what the run reports.
+            continue
+        else:
+            raw = measure_target(cap, name, options, _point(seed),
+                                 [_point(c) for c in corrections],
+                                 int(spec["interval"]["start_frame"]),
+                                 int(spec["interval"]["end_frame"]))
+            raw_dump[name] = {str(k): v.to_dict()
+                              for k, v in sorted(raw.items())}
+            track = resolve_track(
+                name, options=options, interval_frames=interval_frames, raw=raw,
+                seed=_point(seed), corrections=[_point(c) for c in corrections],
+                interpolation_enabled=bool(spec["interpolation"]["enabled"]),
+                max_gap_frames=int(spec["interpolation"]["max_gap_frames"]))
+        if manual:
+            apply_manual_segments(track, manual=manual,
+                                  interval_frames=interval_frames)
+        track_objects[name] = track
+        tracks[name] = track.to_dict()
+
+    angles_fn = (lambda record: body_angles_for_record(
+        record, pixel_aspect=float(spec.get("pixel_aspect", 1.0)),
+        handedness=str(spec.get("handedness", "right"))))
+    phase_config = spec.get("phases") or {}
+    frame_times = phase_config.get("frame_times")
+    phase_payload = resolve_phases(
+        config_keyframes={k: int(v) for k, v in
+                          (phase_config.get("keyframes") or {}).items()},
+        interval_frames=interval_frames, body_records=body["per_frame"],
+        tracks=track_objects, fps=float(phase_config.get("fps")
+                                        or spec["native_fps"]),
+        allow_approx=bool(phase_config.get("allow_approx", False)),
+        body_angles_fn=angles_fn,
+        frame_seconds=frame_seconds_factory(
+            frame_times, int(phase_config.get("start_frame",
+                                              interval_frames[0]))))
+    return body, track_objects, tracks, phase_payload, raw_dump
+
+
+def run(spec: dict) -> dict:
     cap = _open(spec["video"])
     try:
-        body = body_pass(cap, spec)
-        tracks: Dict[str, dict] = {}
-        track_objects: Dict[str, "TargetTrack"] = {}
-        raw_dump: Dict[str, dict] = {}
-        interval_frames = list(range(int(spec["interval"]["start_frame"]),
-                                     int(spec["interval"]["end_frame"]) + 1))
-        manual_blocks = spec.get("manual_segments") or {}
-        for name in ("ball", "clubhead"):
-            target_spec = spec.get("targets", {}).get(name) or {}
-            seed = spec.get("seeds", {}).get(name)
-            manual = manual_spec(manual_blocks.get(name))
-            options = _options(target_spec.get("options"))
-            corrections = spec.get("corrections", {}).get(name) or []
-            if manual and manual.get("replace_automatic"):
-                # The operator replaced this target's automatic track with their own
-                # anchor segments, so there is nothing to measure: the segments ARE the
-                # presentation. Nothing is drawn outside them, and the run says so.
-                raw: Dict[int, RawMeasurement] = {}
-                raw_dump[name] = {}
-                track = resolve_track(
-                    name, options=options, interval_frames=interval_frames, raw={},
-                    seed=None, corrections=[],
-                    interpolation_enabled=False, max_gap_frames=0)
-            elif not seed:
-                continue
-            else:
-                raw = measure_target(cap, name, options, _point(seed),
-                                     [_point(c) for c in corrections],
-                                     int(spec["interval"]["start_frame"]),
-                                     int(spec["interval"]["end_frame"]))
-                raw_dump[name] = {str(k): v.to_dict()
-                                  for k, v in sorted(raw.items())}
-                track = resolve_track(
-                    name, options=options, interval_frames=interval_frames, raw=raw,
-                    seed=_point(seed), corrections=[_point(c) for c in corrections],
-                    interpolation_enabled=bool(spec["interpolation"]["enabled"]),
-                    max_gap_frames=int(spec["interpolation"]["max_gap_frames"]))
-            if manual:
-                apply_manual_segments(track, manual=manual,
-                                      interval_frames=interval_frames)
-            track_objects[name] = track
-            tracks[name] = track.to_dict()
-
-        angles_fn = (lambda record: body_angles_for_record(
-            record, pixel_aspect=float(spec.get("pixel_aspect", 1.0)),
-            handedness=str(spec.get("handedness", "right"))))
-        phase_config = spec.get("phases") or {}
-        frame_times = phase_config.get("frame_times")
-        phase_payload = resolve_phases(
-            config_keyframes={k: int(v) for k, v in
-                              (phase_config.get("keyframes") or {}).items()},
-            interval_frames=interval_frames, body_records=body["per_frame"],
-            tracks=track_objects, fps=float(phase_config.get("fps")
-                                            or spec["native_fps"]),
-            allow_approx=bool(phase_config.get("allow_approx", False)),
-            body_angles_fn=angles_fn,
-            frame_seconds=frame_seconds_factory(
-                frame_times, int(phase_config.get("start_frame",
-                                                  interval_frames[0]))))
-
         style = str((spec.get("render") or {}).get("style") or "demo")
+        if style == "broadcast":
+            return _run_broadcast(cap, spec)
+        body, track_objects, tracks, phase_payload, raw_dump = _measure(cap, spec)
         if style == "showcase":
             # The showcase pass captures its stills from the same staged frames it
             # encoded, so the stills are produced inside it rather than from a second
@@ -1489,6 +1506,902 @@ def run(spec: dict) -> dict:
         "raw_measurements": raw_dump,
         "environment": _environment(),
     }
+
+
+# --------------------------------------------------------------------------
+# broadcast: several independent scene windows in one whole-shot render
+
+#: The display vocabulary for a scene's phase badge. The full-swing names are the
+#: existing badge spellings, so the look is unchanged; a putt gets its own words and
+#: therefore can never show TOP.
+_BROADCAST_BADGES: Dict[str, Dict[str, str]] = {
+    "full_swing": {"address": "ADDRESS", "takeaway": "TAKEAWAY", "top": "TOP",
+                   "downswing": "DOWNSWING", "impact": "IMPACT",
+                   "follow_through": "FOLLOW-THROUGH", "finish": "FINISH"},
+    "chip": {"address": "ADDRESS", "takeaway": "TAKEAWAY", "top": "TOP",
+             "downswing": "DOWNSWING", "impact": "IMPACT",
+             "follow_through": "FOLLOW-THROUGH", "finish": "FINISH"},
+    "pitch": {"address": "ADDRESS", "takeaway": "TAKEAWAY", "top": "TOP",
+              "downswing": "DOWNSWING", "impact": "IMPACT",
+              "follow_through": "FOLLOW-THROUGH", "finish": "FINISH"},
+    "bunker": {"address": "ADDRESS", "takeaway": "TAKEAWAY", "top": "TOP",
+               "downswing": "DOWNSWING", "impact": "IMPACT",
+               "follow_through": "FOLLOW-THROUGH", "finish": "FINISH"},
+    "unknown": {"address": "ADDRESS", "takeaway": "TAKEAWAY", "top": "TOP",
+                "downswing": "DOWNSWING", "impact": "IMPACT",
+                "follow_through": "FOLLOW-THROUGH", "finish": "FINISH"},
+    "putt": {"address": "ADDRESS", "backstroke": "BACKSTROKE",
+             "forward_stroke": "FORWARD STROKE", "contact": "CONTACT",
+             "finish": "FINISH"},
+}
+#: canonical analytics slot -> the scene's own vocabulary word.
+_BROADCAST_SLOT_TO_NAME: Dict[str, str] = {
+    "address": "address", "takeaway": "takeaway", "top": "top",
+    "downswing": "downswing", "impact": "impact", "follow_through": "follow_through",
+    "finish": "finish",
+}
+#: The vocabulary word that owns each canonical slot, per stroke type. The analytics
+#: run on canonical slots (so tempo and the sequence check keep one definition); every
+#: artifact the operator reads is emitted in the scene's own words. A putt therefore
+#: never emits the string TOP: there is no vocabulary entry that maps to it.
+_BROADCAST_SLOT_VOCAB: Dict[str, Dict[str, str]] = {
+    "full_swing": dict(_BROADCAST_SLOT_TO_NAME),
+    "chip": dict(_BROADCAST_SLOT_TO_NAME),
+    "pitch": dict(_BROADCAST_SLOT_TO_NAME),
+    "bunker": dict(_BROADCAST_SLOT_TO_NAME),
+    "unknown": dict(_BROADCAST_SLOT_TO_NAME),
+    "putt": {"address": "address", "takeaway": "backstroke",
+             "downswing": "forward_stroke", "impact": "contact", "finish": "finish"},
+}
+
+
+def _broadcast_scene_phases(phases: Mapping[str, Any], *, stroke_type: str,
+                            vocabulary: Sequence[str], keyframes: Mapping[str, int]
+                            ) -> dict:
+    """Re-key a scene's phase payload into the scene's own vocabulary.
+
+    The canonical slots stay inside the measurement; what is published is the words
+    this stroke actually has. A putt's payload therefore contains ``contact`` and
+    never ``impact``, ``top`` or ``downswing`` -- not in a key, not in a label and not
+    in a reason string.
+    """
+    records = (phases or {}).get("phases") or {}
+    slot_vocab = _BROADCAST_SLOT_VOCAB.get(stroke_type) or _BROADCAST_SLOT_TO_NAME
+    out: Dict[str, Any] = {}
+    for slot, name in slot_vocab.items():
+        if name not in vocabulary:
+            continue
+        record = records.get(slot)
+        if record is None:
+            continue
+        entry = dict(record)
+        entry["name"] = name
+        out[name] = entry
+    return {"phases": out, "vocabulary": list(vocabulary),
+            "stroke_type": stroke_type,
+            "tempo": _broadcast_tempo(stroke_type, vocabulary, keyframes,
+                                      canonical=(phases or {}).get("tempo") or {}),
+            "source_seconds_basis": (phases or {}).get("source_seconds_basis"),
+            "notes": [n for n in ((phases or {}).get("notes") or [])]}
+
+
+def _broadcast_tempo(stroke_type: str, vocabulary: Sequence[str],
+                     keyframes: Mapping[str, int],
+                     canonical: Optional[Mapping[str, Any]] = None) -> dict:
+    """Tempo in the stroke's own terms, or an honest refusal.
+
+    * **full swing** — the canonical record the existing resolver computed, unchanged.
+      Delegating is the whole point: the pilot showed that record working, and a second
+      definition here could only disagree with it.
+    * **putt** — measured from the operator's own marks in source frames:
+      ``back = forward_stroke - backstroke`` (the hands travelling away and back to the
+      starting point) and ``through = contact - forward_stroke`` (the strike travel).
+      Both are unavailable, never estimated, unless all three marks are present.
+
+    Seconds are source-timeline positions throughout and are never measured action time.
+    """
+    def frame(name: str) -> Optional[int]:
+        value = keyframes.get(name)
+        return None if value is None else int(value)
+
+    if stroke_type == "putt":
+        backstroke = frame("backstroke")
+        forward = frame("forward_stroke")
+        contact = frame("contact")
+        if backstroke is None or forward is None or contact is None:
+            return {"state": "unavailable", "label": "PUTT TEMPO",
+                    "unit": ":1",
+                    "reason": ("a putt's tempo needs the operator's backstroke, "
+                               "forward_stroke and contact marks; without all three "
+                               "there is no back : through pair to report")}
+        back_frames = forward - backstroke
+        through_frames = contact - forward
+        if back_frames <= 0 or through_frames <= 0:
+            return {"state": "unavailable", "label": "PUTT TEMPO", "unit": ":1",
+                    "reason": ("the operator's marks are not in stroke order "
+                               f"(backstroke {backstroke}, forward_stroke {forward}, "
+                               f"contact {contact}), so no back : through pair can be "
+                               f"formed")}
+        return {"state": "supported", "label": "PUTT TEMPO back : through",
+                "backswing_frames": back_frames, "downswing_frames": through_frames,
+                "backswing_downswing_ratio": round(back_frames / float(through_frames),
+                                                   3),
+                "backswing_start_marker": "backstroke",
+                "marks": {"backstroke": backstroke, "forward_stroke": forward,
+                          "contact": contact},
+                "unit": ":1",
+                "note": ("source frames only: this is a position in the source "
+                         "timeline, not measured action time")}
+    if canonical:
+        return dict(canonical)
+    return {"state": "unavailable", "label": "TEMPO", "unit": ":1",
+            "reason": ("the phase resolver produced no tempo record for this scene; "
+                       "it is reported unavailable rather than recomputed here")}
+
+
+def _broadcast_badge(stroke_type: str, frame: int,
+                     markers: Dict[str, Optional[int]]) -> Optional[str]:
+    """The phase badge for one frame, in the scene's own vocabulary.
+
+    Bounded by construction: the marker table only holds this scene's own marks and
+    the caller only draws inside the window, so FINISH cannot ride into a reaction
+    shot behind the cut.
+    """
+    badges = _BROADCAST_BADGES.get(stroke_type) or _BROADCAST_BADGES["full_swing"]
+    order = [slot for slot in ("address", "takeaway", "top", "downswing", "impact",
+                               "follow_through", "finish")
+             if markers.get(slot) is not None]
+    current: Optional[str] = None
+    for slot in order:
+        marker = markers.get(slot)
+        if marker is not None and int(marker) <= int(frame):
+            current = slot
+    if current is None:
+        return None
+    slot_vocab = _BROADCAST_SLOT_VOCAB.get(stroke_type) or _BROADCAST_SLOT_TO_NAME
+    name = slot_vocab.get(current, current)
+    return badges.get(name)
+
+
+def _run_broadcast(cap: cv2.VideoCapture, spec: dict) -> dict:
+    """Measure every scene, then composite the whole clip once.
+
+    Each scene is measured by ``_measure`` with its own interval, so a scene's body,
+    tracks, phases, card series and hand_rise reference are built from that scene's
+    frames alone. Nothing is shared between scenes, and no record exists for a frame
+    that is not inside a golfer-stroke window.
+    """
+    broadcast = spec.get("broadcast") or {}
+    measured: List[dict] = []
+    for entry in (broadcast.get("scenes") or []):
+        scene_spec = entry.get("spec")
+        if str(entry.get("kind") or "golfer_stroke") != "golfer_stroke" or not scene_spec:
+            measured.append({"entry": entry, "measured": False, "body": None,
+                             "track_objects": {}, "tracks": {}, "phases": None,
+                             "raw": {}})
+            continue
+        body, track_objects, tracks, phases, raw = _measure(cap, scene_spec)
+        measured.append({"entry": entry, "measured": True, "body": body,
+                         "track_objects": track_objects, "tracks": tracks,
+                         "phases": phases, "raw": raw})
+
+    render, stills = _render_pass_broadcast(cap, spec, measured)
+    keyframes = _render_broadcast_stills(spec, stills)
+
+    scenes_out: List[dict] = []
+    for item in measured:
+        entry = item["entry"]
+        body = item["body"] or {}
+        coverage = {"frames_with_pose": sum(1 for r in (body.get("per_frame") or [])
+                                            if r.get("available")),
+                    "frames_total": len(body.get("per_frame") or [])}
+        scenes_out.append({
+            "id": entry.get("id"), "label": entry.get("label"),
+            "kind": entry.get("kind"), "stroke_type": entry.get("stroke_type"),
+            "window": dict(entry.get("window") or {}),
+            "phase_vocabulary": list(entry.get("vocabulary") or []),
+            "operator_keyframes": dict(entry.get("keyframes") or {}),
+            "measured": bool(item["measured"]),
+            "body": {"state": body.get("state"), "method": body.get("method"),
+                     "coverage": coverage,
+                     "identity": body.get("identity") or {},
+                     "roi_xywh": body.get("roi_xywh"),
+                     "limitations": list(body.get("limitations") or []),
+                     "per_frame": body.get("per_frame") or []},
+            "targets": item["tracks"],
+            # Published in the scene's own vocabulary: a putt has no TOP here.
+            "phases": (_broadcast_scene_phases(
+                item["phases"] or {}, stroke_type=str(entry.get("stroke_type") or
+                                                      "unknown"),
+                vocabulary=entry.get("vocabulary") or [],
+                keyframes=entry.get("keyframes") or {})
+                if item["measured"] else
+                {"phases": {}, "vocabulary": list(entry.get("vocabulary") or []),
+                 "stroke_type": entry.get("stroke_type"),
+                 "tempo": {"state": "unavailable",
+                           "reason": "this window is not a golfer stroke, so no "
+                                     "phase was measured in it", "unit": ":1"},
+                 "source_seconds_basis": None, "notes": []}),
+            "raw_measurements": item["raw"],
+        })
+    return {
+        "source_frames": {"start_frame": int(spec["interval"]["start_frame"]),
+                          "end_frame": int(spec["interval"]["end_frame"]),
+                          "count": int(spec["interval"]["end_frame"])
+                          - int(spec["interval"]["start_frame"]) + 1},
+        "scenes": scenes_out,
+        "render": render,
+        "keyframes": keyframes,
+        "environment": _environment(),
+    }
+
+
+def _render_broadcast_stills(spec: dict, stills: Dict[str, Any]) -> dict:
+    """Write ``scene-<id>_<phase>.png`` for every marked phase, then a contact sheet.
+
+    Each still is composed from the SAME staged frame the video showed (same skeleton,
+    same markers, same trails) with that scene's own card row, so a still can never
+    disagree with the video. The key includes the scene id, so a second window's
+    ``address`` still cannot overwrite the first window's.
+    """
+    from . import render_showcase as sc_render
+
+    out_dir = spec.get("keyframes_dir") or "."
+    options = spec.get("showcase") or {}
+    os.makedirs(out_dir, exist_ok=True)
+    written: List[dict] = []
+    panels: List[tuple] = []
+    engine = sc_render.TextEngine()
+    # Stroke order, not alphabetical: the sheet is read as a sequence, so ADDRESS
+    # must come before TAKEAWAY. Sorting the keys would put DOWNSWING first.
+    order: List[tuple] = []
+    for key in sorted(stills):
+        entry = stills[key]
+        scene_id = str(entry.get("scene_id") or "")
+        vocabulary = list(entry.get("vocabulary_order") or [])
+        phase = str(entry.get("phase") or "")
+        try:
+            rank = vocabulary.index(phase)
+        except ValueError:
+            rank = len(vocabulary)
+        order.append((scene_id, rank, phase, key))
+    for _scene, _rank, _phase, key in sorted(order):
+        entry = stills[key]
+        staged = entry["staged"]
+        height, width = staged.shape[:2]
+        card_lookup = entry.get("card_metrics") or []
+        layout = _broadcast_layout(width, height, card_lookup,
+                                   options.get("card_row_max_width"),
+                                   entry.get("card_position", "bottom"))
+        chrome = {
+            "text_scrim": True,
+            "brand": options.get("brand", ""),
+            "brand_sub": options.get("brand_sub", ""),
+            # The same badge table the video uses, so a still and the video cannot
+            # spell the same phase differently.
+            "phase": str(entry.get("phase_badge") or entry.get("phase", "")),
+            "cards": entry.get("cards") or [],
+            "disclosure": options.get("disclosure", ""),
+        }
+        image, _drawing = sc_render.compose_chrome(staged, layout=layout, chrome=chrome,
+                                                   engine=engine, mode="still")
+        path = os.path.join(out_dir, f"{key}.png")
+        ok = sc_render.write_png(path, image)
+        written.append({"key": key, "path": path, "written": bool(ok),
+                        "frame": entry.get("frame"), "scene_id": entry.get("scene_id"),
+                        "phase": entry.get("phase"),
+                        "cards": [c.get("metric") for c in (entry.get("cards") or [])]})
+        if ok:
+            panels.append((f"{entry.get('scene_id')} / {entry.get('phase')}", image))
+    sheet_path = spec.get("contact_sheet") or ""
+    sheet_written = False
+    if panels and sheet_path:
+        sheet = sc_render.contact_sheet(
+            panels, columns=min(3, len(panels)),
+            title=f"{options.get('brand', '')} — scene stills",
+            subtitle="source frame order within each scene",
+            disclaimer=str(options.get("disclosure", "")))
+        sheet_written = sc_render.write_png(sheet_path, sheet)
+    return {"stills": written, "contact_sheet": sheet_path,
+            "contact_sheet_written": bool(sheet_written),
+            "count": len([s for s in written if s["written"]])}
+
+
+def _broadcast_layout(width: int, height: int, metrics, max_row_width,
+                      card_position: str = "bottom"):
+    from . import showcase as showcase_mod
+
+    return showcase_mod.plan_layout(width, height, tuple(metrics),
+                                    max_row_width=max_row_width,
+                                    card_position=card_position)
+
+
+def _broadcast_content_bottom(body_records, tracks, *, scale: float) -> Optional[float]:
+    """The lowest output-pixel y that carries measured content in this scene.
+
+    The union of every visible pose keypoint and every drawn ball/club point: this is
+    the thing the card row must not cover. It is computed over the WHOLE scene, not per
+    frame, because a row that jumped between top and bottom during playback would be
+    worse than either position.
+    """
+    lowest: Optional[float] = None
+    for record in body_records or []:
+        if not record.get("available"):
+            continue
+        for point in record.get("keypoints") or []:
+            if point.get("visible") and point.get("y") is not None:
+                y = float(point["y"]) * scale
+                lowest = y if lowest is None else max(lowest, y)
+    for track in (tracks or {}).values():
+        for point in getattr(track, "points", []) or []:
+            if point.drawn and point.y is not None:
+                y = float(point.y) * scale
+                lowest = y if lowest is None else max(lowest, y)
+    return lowest
+
+
+def _broadcast_card_position(request: str, *, body, tracks, scale: float, out_w: int,
+                             out_h: int, metrics, max_row_width) -> tuple:
+    """Resolve the card row's position for one scene, with its reason.
+
+    ``auto`` moves the row to the top when the measured content would otherwise sit
+    under it. The decision is made once for the whole scene and recorded, so the video,
+    the stills, the analysis and the provenance cannot disagree about where the row is.
+    """
+    from . import showcase as showcase_mod
+
+    if request in ("top", "bottom"):
+        return request, f"the operator set card_position to {request!r}"
+    bottom_layout = showcase_mod.plan_layout(out_w, out_h, metrics,
+                                             max_row_width=max_row_width,
+                                             card_position="bottom")
+    lowest = _broadcast_content_bottom(body, tracks, scale=scale)
+    if lowest is None:
+        return "bottom", ("no measured content in this scene, so the row took the "
+                          "default bottom position")
+    clearance = max(2.0, 0.006 * out_h)
+    if lowest > bottom_layout.strip_top - clearance:
+        return "top", (f"measured content reaches output y={lowest:.0f}, which is "
+                       f"inside the bottom card band "
+                       f"(y={bottom_layout.strip_top}..{bottom_layout.strip_bottom}); "
+                       f"the row moved to the top rather than covering it")
+    return "bottom", (f"measured content stops at output y={lowest:.0f}, above the "
+                      f"bottom card band (y={bottom_layout.strip_top}), so the row "
+                      f"stayed at the bottom")
+
+
+def _broadcast_metric_availability(display: dict, clip: dict,
+                                   metrics: Sequence[str]) -> Dict[str, bool]:
+    """Which cards actually have something to show anywhere in this scene.
+
+    A metric with no measured frame in the scene is left out for the WHOLE scene, so
+    a card cannot pop in and out frame by frame. If none survives, the card row is
+    omitted and the reason is recorded rather than four placeholders being drawn.
+    """
+    from . import showcase as showcase_mod
+
+    out: Dict[str, bool] = {}
+    for metric in metrics:
+        spec = showcase_mod.METRICS.get(metric) or {}
+        if spec.get("source") == "frame":
+            series = ((display.get("measured") or {}).get(metric) or {})
+            out[metric] = any(value is not None for value in series.values())
+        else:
+            out[metric] = (clip.get(metric) or {}).get("state") == "supported"
+    return out
+
+
+def _broadcast_metric_record(record: Optional[dict], hidden: Sequence[Sequence[int]]) -> Optional[dict]:
+    if record is None:
+        return None
+    frame = int(record["source_frame"])
+    if any(int(first) <= frame <= int(last) for first, last in hidden):
+        return dict(record, available=False, metric_gate="operator_fast_motion")
+    return record
+
+
+def _broadcast_card_display(body_records, metrics, *, handedness, wrist_reference,
+                            min_run, hidden):
+    """Reset display hysteresis at every explicit operator metric gate."""
+    from itertools import groupby
+    from . import showcase as showcase_mod
+    if not hidden:
+        return _card_display_series(body_records, metrics, handedness=handedness,
+                                    wrist_reference=wrist_reference, min_run=min_run)
+    combined = {"display": {}, "measured": {}, "records": {}}
+    gated = [_broadcast_metric_record(record, hidden) for record in body_records]
+    for is_hidden, records in groupby(gated, lambda r: bool(r.get("metric_gate"))):
+        block = _card_display_series(list(records), metrics, handedness=handedness,
+                                     wrist_reference=wrist_reference,
+                                     min_run=1 if is_hidden else min_run)
+        for kind in ("display", "measured"):
+            for metric, values in block[kind].items():
+                combined[kind].setdefault(metric, {}).update(values)
+    for metric, series in combined["display"].items():
+        values = combined["measured"][metric]
+        combined["records"][metric] = {
+            **showcase_mod.debounce_record(series, min_run=min_run),
+            "measured_frames": len(values),
+            "measured_available_frames": sum(v is not None for v in values.values()),
+            "operator_gated_frames": sum(bool(r.get("metric_gate")) for r in gated)}
+    return combined
+
+
+def _render_pass_broadcast(cap: cv2.VideoCapture, spec: dict, measured: List[dict]
+                           ) -> tuple:
+    """Stream the WHOLE clip once, drawing only inside the scene windows.
+
+    Frame *n* of the output is frame *n* of the source: the identity mapping is the
+    whole point of the broadcast render. On a frame in no window the picture is the
+    source picture (plus, at most, the persistent brand mark) -- no skeleton, no
+    marker, no trail, no card, no badge, no held value. On a frame inside a window,
+    exactly that window's own state is drawn.
+    """
+    from . import showcase as showcase_mod
+    from .analytics import body_metrics as _body_metrics
+    from .tracking import trail_window
+
+    broadcast = spec.get("broadcast") or {}
+    options = spec.get("showcase") or {}
+    render_cfg = spec.get("render") or {}
+    native_w, native_h = (int(v) for v in spec["native_wh"])
+    start_frame = int(spec["interval"]["start_frame"])
+    end_frame = int(spec["interval"]["end_frame"])
+    fps = float(spec["native_fps"])
+    fps_rational = str(spec.get("native_fps_rational") or "") or _rational(fps)
+    ffmpeg = _ffmpeg_path()
+    video_path = str(render_cfg.get("path") or "")
+    final_path = str(broadcast.get("final_path") or video_path)
+    audio = broadcast.get("audio") or {}
+    outside = str(broadcast.get("outside_windows") or "brand_only")
+    debug_dir = spec.get("debug_dir") or "."
+    os.makedirs(debug_dir, exist_ok=True)
+
+    scale = 1.0
+    if render_cfg.get("max_width"):
+        scale = min(3.0, max(0.1, float(render_cfg["max_width"]) / float(native_w)))
+    out_w = int(round(native_w * scale))
+    out_h = int(round(native_h * scale))
+    trimmed = False
+    if out_w % 2 or out_h % 2:
+        out_w -= out_w % 2
+        out_h -= out_h % 2
+        trimmed = True
+        scale = out_w / float(native_w)
+    style = render_showcase_mod.style_scale(out_h)
+
+    base_result = {
+        "written": False, "frames": 0, "fps": fps, "fps_rational": fps_rational,
+        "wh": [out_w, out_h], "picture_wh": [out_w, out_h],
+        "source_wh": [native_w, native_h], "scale": round(scale, 6),
+        "trimmed_to_even": trimmed, "style": "broadcast",
+        "reason": "", "audio": dict(audio), "muxed": False,
+        "output_to_source_frames": "identity (frame i of the output is frame i of the source)",
+    }
+    if not render_cfg.get("enabled", True):
+        base_result["reason"] = "rendering off; measurement only"
+        return base_result, {}
+
+    if not ffmpeg:
+        base_result["reason"] = (
+            "ffmpeg was not found on PATH. The broadcast render writes H.264 / "
+            "yuv420p / faststart output with ffmpeg and muxes the source audio.")
+        return base_result, {}
+
+    card_row_max_width = options.get("card_row_max_width")
+    debounce_frames = int(options.get("card_debounce_frames")
+                          or showcase_mod.DEFAULT_CARD_DEBOUNCE_FRAMES)
+    accent_on = bool(options.get("impact_accent", True))
+    accent_span = int(options.get("impact_accent_span_frames") or 3)
+    trail_points = {"ball": int(options.get("ball_trail_points")
+                                or showcase_mod.BALL_TRAIL_POINTS),
+                    "clubhead": int(options.get("club_trail_points")
+                                    or showcase_mod.CLUB_TRAIL_POINTS)}
+    handedness_default = str(spec.get("handedness", "right"))
+
+    states: List[dict] = []
+    for item in measured:
+        entry = item["entry"]
+        window = entry.get("window") or {}
+        state = {
+            "entry": entry, "id": entry.get("id"),
+            "start": int(window.get("start_frame") or 0),
+            "end": int(window.get("end_frame") or -1),
+            "measured": bool(item["measured"]),
+            "metrics": [], "omitted_metrics": [], "card_row": False,
+            "row_reason": "", "layout": None, "display_names": {}, "markers": {},
+            "body_by_frame": {}, "point_by_frame": {}, "clip": {}, "card_display": {},
+            "wrist_reference": None, "handedness": handedness_default,
+            "scene_id": entry.get("id"),
+            "contact_frame": entry.get("contact_frame"),
+            "vocabulary": list(entry.get("vocabulary") or []),
+            "card_records": {},
+        }
+        if item["measured"]:
+            body = item["body"]
+            phases = item["phases"] or {}
+            stroke_type = str(entry.get("stroke_type") or "unknown")
+            handedness = str(entry.get("handedness") or handedness_default)
+            metrics = tuple(entry.get("metrics") or options.get("metrics")
+                            or showcase_mod.DEFAULT_METRICS)
+            frames_possible = state["end"] - state["start"] + 1
+            clip_analytics = {"body_2d": _body_metrics(
+                body["per_frame"], frames_possible=frames_possible,
+                pixel_aspect=float(spec.get("pixel_aspect", 1.0)),
+                handedness=handedness)}
+            published_phases = _broadcast_scene_phases(
+                phases, stroke_type=stroke_type, vocabulary=entry.get("vocabulary") or [],
+                keyframes=entry.get("keyframes") or {})
+            clip = showcase_mod.clip_values(clip_analytics, published_phases,
+                                            handedness=handedness)
+            if stroke_type == "putt" and (clip.get("tempo") or {}).get("state") == "supported":
+                tempo = published_phases["tempo"]
+                clip["tempo"]["sub"] = f"back {tempo['backswing_frames']}f / through {tempo['downswing_frames']}f"
+            wrist_reference = showcase_mod.wrist_reference(body["per_frame"])
+            display = _broadcast_card_display(
+                body["per_frame"], metrics, handedness=handedness,
+                wrist_reference=wrist_reference, min_run=debounce_frames,
+                hidden=entry.get("metric_hide_frames") or [])
+            available = _broadcast_metric_availability(display, clip, metrics)
+            kept = [m for m in metrics if available.get(m)]
+            omitted = [m for m in metrics if not available.get(m)]
+            position, why = _broadcast_card_position(
+                str(options.get("card_position") or "auto"),
+                body=body["per_frame"], tracks=item["track_objects"], scale=scale,
+                out_w=out_w, out_h=out_h, metrics=kept,
+                max_row_width=card_row_max_width)
+            state.update({
+                "handedness": handedness,
+                "display_names": dict(_BROADCAST_BADGES.get(
+                    stroke_type) or _BROADCAST_BADGES["full_swing"]),
+                "slot_vocab": dict(_BROADCAST_SLOT_VOCAB.get(stroke_type)
+                                   or _BROADCAST_SLOT_TO_NAME),
+                "markers": _broadcast_phase_markers(phases),
+                "body_by_frame": {int(r["source_frame"]): r
+                                  for r in body["per_frame"]},
+                "point_by_frame": {name: {int(p.source_frame): p for p in track.points}
+                                   for name, track in item["track_objects"].items()},
+                "track_objects": dict(item["track_objects"]),
+                "clip": clip, "card_display": display,
+                "wrist_reference": wrist_reference,
+                "card_records": (display or {}).get("records") or {},
+                "metrics": kept, "omitted_metrics": omitted,
+            })
+            state["layout"] = showcase_mod.plan_layout(
+                out_w, out_h, kept, max_row_width=card_row_max_width,
+                card_position=position)
+            state["card_position"] = position
+            state["card_position_reason"] = why
+            if kept:
+                state["card_row"] = True
+            else:
+                state["row_reason"] = (
+                    "no card in this scene's metric set had a single measured frame, "
+                    "so the row is omitted rather than drawn as four placeholders")
+        states.append(state)
+
+    def scene_for_frame(frame: int) -> Optional[dict]:
+        for state in states:
+            if state["start"] <= frame <= state["end"]:
+                return state
+        return None
+
+    # The chrome layout for a frame in no window: brand only, no card row, no badge.
+    brand_only_layout = showcase_mod.plan_layout(out_w, out_h, (),
+                                                 max_row_width=card_row_max_width)
+    # The brand-only frames still report the layout the report measures coverage from.
+    chrome_engine = render_showcase_mod.TextEngine()
+    stills: Dict[str, Any] = {}
+    rendered = 0
+    empty_frames = 0
+    overlay_frames = 0
+
+    cmd = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-f", "rawvideo",
+           "-pix_fmt", "bgr24", "-s", f"{out_w}x{out_h}", "-r", fps_rational, "-i", "-",
+           "-an", "-c:v", "libx264", "-preset", str(render_cfg.get("preset", "medium")),
+           "-crf", str(render_cfg.get("crf", 18)), "-pix_fmt", "yuv420p",
+           "-movflags", "+faststart", video_path]
+    os.makedirs(os.path.dirname(video_path) or ".", exist_ok=True)
+    log_path = os.path.join(debug_dir, "ffmpeg.log")
+
+    with open(log_path, "wb") as log:
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=log, stderr=log)
+        stdin = proc.stdin
+        if stdin is None:  # pragma: no cover - Popen with PIPE always provides one
+            raise RuntimeError("ffmpeg stdin pipe could not be opened")
+        try:
+            for frame, img in _forward_leg(cap, start_frame, end_frame + 1):
+                picture = (img if abs(scale - 1.0) < 1e-9 else
+                           cv2.resize(img, (out_w, out_h),
+                                      interpolation=(cv2.INTER_AREA if scale < 1.0
+                                                     else cv2.INTER_CUBIC)))
+                state = scene_for_frame(frame)
+                if state is None or not state["measured"]:
+                    # A frame in no window, or in a window that is not a golfer
+                    # stroke: the source picture, and at most the persistent mark.
+                    if outside == "clean":
+                        annotated = picture
+                    else:
+                        annotated, _draw = render_showcase_mod.compose_chrome(
+                            picture, layout=brand_only_layout,
+                            chrome={"brand": options.get("brand", ""),
+                                    "brand_sub": options.get("brand_sub", ""),
+                                    "phase": None, "cards": [], "disclosure": ""},
+                            engine=chrome_engine)
+                    empty_frames += 1
+                else:
+                    annotated = _draw_broadcast_slot(
+                        picture, frame, state, scale, style, trail_window,
+                        trail_points, accent_on, accent_span, options,
+                        chrome_engine, stills)
+                    overlay_frames += 1
+                payload = np.ascontiguousarray(annotated).tobytes()
+                stdin.write(payload)
+                rendered += 1
+        except BaseException:
+            stdin.close()
+            proc.kill()
+            # Reap the child: killing without waiting leaves a zombie and can leave
+            # ffmpeg writing into the output file after the next run starts.
+            try:
+                proc.wait(timeout=30)
+            except Exception:
+                pass
+            raise
+        finally:
+            try:
+                stdin.close()
+            except Exception:
+                pass
+        code = proc.wait()
+
+    if code != 0:
+        base_result["reason"] = (f"ffmpeg exited with status {code}; see {log_path}")
+        base_result["frames"] = rendered
+        return base_result, stills
+
+    muxed, mux_note = _mux_source_audio(ffmpeg, video_path, final_path, audio,
+                                        os.path.join(debug_dir, "ffmpeg_mux.log"))
+    card_disclosure = []
+    for state in states:
+        if not state["measured"]:
+            continue
+        records = state.get("card_records") or {}
+        held = sum(int((records.get(metric) or {}).get("held_count") or 0)
+                   for metric in state["metrics"])
+        card_disclosure.append({
+            "scene_id": state["id"],
+            "metrics": list(state["metrics"]),
+            "omitted_metrics": list(state["omitted_metrics"]),
+            "card_row": bool(state["card_row"]),
+            "row_reason": state["row_reason"],
+            "card_position": state.get("card_position", "bottom"),
+            "card_position_reason": state.get("card_position_reason", ""),
+            "card_debounce_frames": debounce_frames,
+            "metric_hide_frames": state["entry"].get("metric_hide_frames") or [],
+            "metric_gate_reason": "operator withheld frame body values during visually marked fast motion; clip tempo remains available",
+            "held_value_frames": held,
+            "wrist_reference": state.get("wrist_reference"),
+            "debounce_records": {metric: (records.get(metric) or {})
+                                 for metric in state["metrics"]},
+        })
+    base_result.update({
+        "written": True, "frames": rendered, "muxed": muxed, "mux_note": mux_note,
+        "empty_frames": empty_frames, "overlay_frames": overlay_frames,
+        "path": final_path, "video_only_path": video_path,
+        "frame_plan": {"stride": 1, "holds": [],
+                       "output_frames": rendered,
+                       "scenes_drawn": sorted({s["id"] for s in states
+                                               if s["measured"]})},
+        "scenes": card_disclosure,
+        "audio_verification": _audio_fingerprint(ffmpeg, final_path, audio),
+    })
+    return base_result, stills
+
+
+def _rational(value: float) -> str:
+    """A float frame rate as an ffmpeg rational, only when it is already one."""
+    from fractions import Fraction
+
+    frac = Fraction(value).limit_denominator(1000000)
+    return f"{frac.numerator}/{frac.denominator}"
+
+
+def _broadcast_phase_markers(phases: Mapping[str, Any]) -> Dict[str, Optional[int]]:
+    records = (phases or {}).get("phases") or {}
+    return {name: (None if (records.get(name) or {}).get("frame") is None
+                   else int(records[name]["frame"]))
+            for name in ("address", "takeaway", "top", "downswing", "impact",
+                         "follow_through", "finish")}
+
+
+def _draw_broadcast_slot(picture, frame: int, state: dict, scale: float,
+                         style: float, trail_window, trail_points: dict,
+                         accent_on: bool, accent_span: int, options: dict,
+                         engine, stills: dict):
+    """Draw one in-window frame: this scene's overlays, then this scene's chrome."""
+    from . import showcase as showcase_mod
+
+    record = state["body_by_frame"].get(frame)
+    markers = state["markers"]
+
+    def scaled_keypoints(item: Optional[dict]) -> List[dict]:
+        if item is None or not item.get("available"):
+            return []
+        return [dict(p, x=p["x"] * scale, y=p["y"] * scale)
+                for p in (item.get("keypoints") or [])]
+
+    def scaled_points(name: str, at: int) -> List[dict]:
+        points = state["point_by_frame"].get(name) or {}
+        ordered = [points[k] for k in sorted(points)]
+        window = trail_window(ordered, at, trail_points.get(name, 10))
+        # ``trail: segments_only`` (opt-in, per target) keeps this scene's trail inside
+        # the operator's own anchored segments. The track object is this scene's own,
+        # so the filter cannot see a point from another scene.
+        track = (state.get("track_objects") or {}).get(name)
+        if track is not None:
+            window = manual_segments_only(track, window)
+        return [dict(p.to_dict(), x=p.x * scale, y=p.y * scale)
+                for p in window if p.x is not None and p.y is not None]
+
+    def overlay_draw(layer, mask, item, at):
+        drawn = 0
+        keypoints = scaled_keypoints(item)
+        if keypoints:
+            drawn += render_showcase_mod.draw_skeleton(layer, mask, keypoints, style)
+        for name, points in (state["point_by_frame"] or {}).items():
+            point = points.get(at)
+            if point is None or not point.drawn:
+                continue
+            payload = scaled_points(name, at)
+            payload.append(dict(point.to_dict(), x=point.x * scale, y=point.y * scale))
+            if name == "clubhead":
+                render_showcase_mod.draw_trail(
+                    layer, mask, payload, render_showcase_mod.CLUB_TRAIL,
+                    alpha=render_showcase_mod.CLUB_TRAIL_ALPHA,
+                    thickness=max(3, int(round(3.4 * style))), dash=5)
+                render_showcase_mod.draw_club_marker(
+                    layer, mask, dict(point.to_dict(), x=point.x * scale,
+                                      y=point.y * scale), style)
+            else:
+                render_showcase_mod.draw_trail(
+                    layer, mask, payload, render_showcase_mod.BALL_TRAIL,
+                    alpha=render_showcase_mod.TRAIL_ALPHA,
+                    thickness=max(2, int(round(2.0 * style))), dash=4)
+                render_showcase_mod.draw_ball_marker(
+                    layer, mask, dict(point.to_dict(), x=point.x * scale,
+                                      y=point.y * scale), style)
+        if accent_on:
+            contact = state.get("contact_frame")
+            strength = showcase_mod.impact_accent(at, contact, half_span=accent_span)
+            if strength > 0:
+                anchor = None
+                for name in ("clubhead", "ball"):
+                    candidate = (state["point_by_frame"].get(name) or {}).get(at)
+                    if candidate is not None and candidate.drawn:
+                        anchor = dict(candidate.to_dict(), x=candidate.x * scale,
+                                      y=candidate.y * scale)
+                        break
+                render_showcase_mod.draw_impact_accent(layer, mask, anchor, style,
+                                                       strength)
+        return drawn
+
+    card_record = _broadcast_metric_record(record, state["entry"].get("metric_hide_frames") or [])
+    cards = _showcase_card_payload(state["metrics"], card_record, state["clip"],
+                                   handedness=state["handedness"],
+                                   wrist_ref=state["wrist_reference"],
+                                   display=(state["card_display"] or {}).get(
+                                       "display")) if state["card_row"] else []
+    chrome = {
+        "text_scrim": True,
+            "brand": options.get("brand", ""),
+        "brand_sub": options.get("brand_sub", ""),
+        "phase": _broadcast_badge(str(state["entry"].get("stroke_type") or "unknown"),
+                                  frame, markers),
+        "cards": cards,
+        "disclosure": (options.get("disclosure", "")
+                       if (cards or state["measured"]) else ""),
+    }
+    staged = render_showcase_mod.stage_overlays(
+        picture, overlay_draw=lambda layer, mask: overlay_draw(layer, mask, record,
+                                                               frame))
+    annotated, _drawing = render_showcase_mod.compose_chrome(
+        staged, layout=state["layout"], chrome=chrome, engine=engine)
+    for slot, marker in markers.items():
+        if marker is not None and int(marker) == int(frame):
+            # The still is named in the scene's OWN vocabulary, so a putt writes
+            # scene-<id>_contact.png and never ..._impact.png.
+            name = (state.get("slot_vocab") or {}).get(slot, slot)
+            key = f"scene-{state['id']}_{name}"
+            # A still is read on its own, out of context, so it must never carry a
+            # HELD value: it gets the measured value at this frame or a placeholder,
+            # and the badge spelling comes from the same table the video uses.
+            measured = _showcase_card_payload(
+                state["metrics"], card_record, state["clip"],
+                handedness=state["handedness"],
+                wrist_ref=state["wrist_reference"], display=None
+            ) if state["card_row"] else []
+            stills.setdefault(key, {"staged": staged.copy(), "cards": measured,
+                                    "frame": frame, "scene_id": state["id"],
+                                    "phase": name,
+                                    "phase_badge": (state.get("display_names") or {}).get(
+                                        name, name.replace("_", " ").upper()),
+                                    "vocabulary_order": list(
+                                        (state.get("vocabulary") or [])),
+                                    "card_position": state.get("card_position", "bottom"),
+                                    "card_metrics": list(state["metrics"])})
+    return annotated
+
+
+def _mux_source_audio(ffmpeg: str, video_path: str, final_path: str, audio: dict,
+                      log_path: str) -> tuple:
+    """Mux the clip's own audio onto the rendered video, without re-encoding it.
+
+    ``-c:a copy`` is what makes the audio bit-exact; there is no resample, no volume
+    change and no ``-shortest``, so a stream that is a few milliseconds longer or
+    shorter than the picture is preserved rather than silently trimmed.
+    """
+    source = str(audio.get("source") or "")
+    if not audio.get("present") or str(audio.get("mode") or "copy") == "none" or not source:
+        shutil.copyfile(video_path, final_path)
+        return False, ("no audio was present in the source, so the render is video "
+                       "only" if not audio.get("present")
+                       else "audio muxing was switched off for this run")
+    mux_tmp = final_path + ".muxing.mp4"
+    cmd = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", video_path,
+           "-i", source, "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy",
+           "-c:a", "copy", "-movflags", "+faststart", mux_tmp]
+    with open(log_path, "wb") as log:
+        code = subprocess.call(cmd, stdout=log, stderr=log)
+    if code != 0:
+        shutil.copyfile(video_path, final_path)
+        return False, (f"the audio mux failed (ffmpeg status {code}); the video-only "
+                       f"render was kept and the failure is recorded")
+    # Publish by rename, so a --force rerun can never overwrite a finished video in
+    # place while it is still being muxed.
+    os.replace(mux_tmp, final_path)
+    return True, "source audio copied bit-exactly (-c:a copy)"
+
+
+def _audio_fingerprint(ffmpeg: str, path: str, audio: dict) -> Dict[str, Any]:
+    """The output's audio stream, and an md5 of its audio packets."""
+    out: Dict[str, Any] = {"checked": False}
+    if not os.path.isfile(path):
+        out["reason"] = "no output file"
+        return out
+    try:
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries",
+             "stream=codec_name,sample_rate,channels,time_base,duration,nb_frames",
+             "-of", "json", path], capture_output=True, text=True, timeout=60)
+        payload = json.loads(probe.stdout or "{}")
+        streams = payload.get("streams") or []
+    except Exception as exc:  # pragma: no cover - ffprobe missing/unparsable
+        out["reason"] = f"ffprobe could not read the output audio: {exc}"
+        return out
+    if not streams:
+        out["present"] = False
+        out["checked"] = True
+        out["reason"] = "the output has no audio stream"
+        return out
+    stream = streams[0]
+    out.update({"checked": True, "present": True,
+                "codec_name": stream.get("codec_name"),
+                "sample_rate": stream.get("sample_rate"),
+                "channels": stream.get("channels")})
+    digest = _audio_md5(ffmpeg, path)
+    out["audio_md5"] = digest
+    return out
+
+
+def _audio_md5(ffmpeg: str, path: str) -> str:
+    try:
+        p = subprocess.run([ffmpeg, "-v", "error", "-i", path, "-map", "0:a:0",
+                            "-c", "copy", "-f", "md5", "-"],
+                           capture_output=True, text=True, timeout=300)
+        return (p.stdout or "").strip().splitlines()[-1].strip() if p.stdout else ""
+    except Exception:  # pragma: no cover - ffmpeg missing
+        return ""
 
 
 def _options(payload):

@@ -370,7 +370,7 @@ def main(argv=None) -> None:
         _run_canonical_video_command(args)
         return
 
-    if args.command in ("demo-video", "demo-setup"):
+    if args.command in ("demo-video", "demo-setup", "broadcast-showcase"):
         from .demo import cli as demo_cli
         demo_cli.dispatch(args, argv)
         return

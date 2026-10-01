@@ -1,0 +1,145 @@
+{
+  "_comment": [
+    "ILLUSTRATIVE broadcast showcase config. EVERY VALUE BELOW IS A PLACEHOLDER: it",
+    "describes no clip and must be replaced before it is run. It exists so the schema",
+    "is unambiguous and so a config can be written without trial and error.",
+    "Contract: coordination/broadcast-contract.json (JSON Schema).",
+    "Frame indices are zero-based frames of THIS CLIP. A whole shot is rendered end to",
+    "end at the source's own cadence with the source's own audio; overlays and metrics",
+    "are drawn ONLY inside the scene windows below, and at a cut everything is",
+    "cleared: body, trails, cards, phase badge and the hand_rise reference frame.",
+    "Scene blocks use the demo-config vocabulary, so docs/demo-mode.md documents them.",
+    "Keys beginning with _ are ignored by the loader."
+  ],
+  "schema_version": "fairwayos-broadcast-config.v1",
+  "clip_path_hint": "01_hole07_approach.mp4",
+  "shot": {
+    "id": "illustrative_hole07_approach",
+    "label": "Illustrative: hole 7 approach (not a real shot)",
+    "stroke_type": "full_swing",
+    "source_notes": "illustrative only; the operator records the real clip here"
+  },
+  "interval": {
+    "start_seconds": 0.0,
+    "end_seconds": null,
+    "max_frames": 1200
+  },
+  "presentation": {
+    "brand": "FAIRWAY OS",
+    "brand_sub": "SWING ANALYSIS",
+    "disclosure": "OPERATOR-ASSISTED \u00b7 2D IMAGE-SPACE ESTIMATES",
+    "metrics": ["shoulder_tilt", "hip_tilt", "knee_flexion", "hand_rise"],
+    "card_debounce_frames": 8,
+    "card_row_max_width": 1450,
+    "ball_trail_points": 10,
+    "club_trail_points": 12,
+    "impact_accent": true,
+    "impact_accent_span_frames": 12,
+    "metrics_required": false
+  },
+  "scenes": [
+    {
+      "id": "golfer_window_1",
+      "label": "Illustrative: golfer visible, address to finish",
+      "kind": "golfer_stroke",
+      "stroke_type": "full_swing",
+      "window": {
+        "start_frame": 40,
+        "end_frame": 150,
+        "note": "illustrative: first golfer-visible window, ends before the cut to the flight view"
+      },
+      "keyframes": {
+        "address": 44,
+        "takeaway": 58,
+        "top": 96,
+        "downswing": 112,
+        "impact": 120,
+        "follow_through": 132,
+        "finish": 146
+      },
+      "roi": [420, 240, 420, 460],
+      "roi_keyframes": [
+        {"frame": 40, "roi": [420, 240, 420, 460], "note": "illustrative operator box"},
+        {"frame": 150, "roi": [380, 220, 440, 480], "note": "illustrative: crop follows the camera pan"}
+      ],
+      "seeds": {
+        "ball": {"frame": 44, "x": 640.0, "y": 640.0, "note": "illustrative operator seed"},
+        "clubhead": {"frame": 44, "x": 620.0, "y": 620.0, "note": "illustrative operator seed"}
+      },
+      "targets": {
+        "ball": {"mode": "template", "template_size": 41, "search_radius": 60, "min_score": 0.55, "max_jump_px": 80.0, "loss_frames": 3, "track_until_frame": 132, "automatic_until_frame": 118},
+        "clubhead": {"mode": "template", "template_size": 21, "search_radius": 90, "min_score": 0.55, "max_jump_px": 120.0, "loss_frames": 2, "track_until_frame": 132}
+      },
+      "corrections": {
+        "ball": [{"frame": 118, "x": 648.0, "y": 636.0, "note": "illustrative operator anchor"}],
+        "clubhead": []
+      },
+      "manual_segments": {
+        "clubhead": {
+          "author": "illustrative: operator visual inspection",
+          "replace_automatic": true,
+          "trail": "segments_only",
+          "segments": [
+            {
+              "name": "downswing_through_contact",
+              "max_anchor_spacing_frames": 6,
+              "anchors": [[112, 560.0, 470.0], [118, 590.0, 540.0], [121, 620.0, 610.0]]
+            }
+          ]
+        }
+      },
+      "interpolation": {"enabled": true, "max_gap_frames": 2},
+      "handedness": "right",
+      "allow_approx_phases": false,
+      "notes": "illustrative scene"
+    },
+    {
+      "id": "golfer_window_2",
+      "label": "Illustrative: second golfer window after the cut",
+      "kind": "golfer_stroke",
+      "stroke_type": "full_swing",
+      "window": {
+        "start_frame": 300,
+        "end_frame": 420,
+        "note": "illustrative: the reaction/flight frames 151..299 carry NO overlay at all"
+      },
+      "keyframes": {
+        "address": 306,
+        "top": 350,
+        "impact": 372,
+        "finish": 404
+      },
+      "roi": [300, 200, 500, 500],
+      "seeds": {
+        "ball": {"frame": 306, "x": 560.0, "y": 600.0, "note": "illustrative operator seed"}
+      },
+      "targets": {
+        "ball": {"mode": "template", "template_size": 41, "search_radius": 60, "min_score": 0.55, "max_jump_px": 80.0, "loss_frames": 3}
+      },
+      "corrections": {},
+      "handedness": "right",
+      "allow_approx_phases": false,
+      "notes": "illustrative scene; nothing is carried over from golfer_window_1"
+    }
+  ],
+  "render": {
+    "max_width": 1920,
+    "crf": 18,
+    "preset": "medium",
+    "render": true
+  },
+  "timing": {
+    "source_cadence_caveat": "illustrative: the source may be a replay or a slow-motion capture; container cadence places frames in the source timeline and is never treated as measured action time",
+    "nominal_fps_trusted": false,
+    "accept_variable_cadence": false
+  },
+  "cuts": [
+    {"frame": 151, "kind": "hard_cut", "confidence": 0.71, "method": "illustrative: ffmpeg scene score", "note": "illustrative suggestion; not applied automatically"},
+    {"frame": 299, "kind": "hard_cut", "confidence": 0.66, "method": "illustrative: ffmpeg scene score", "note": "illustrative suggestion"}
+  ],
+  "overrides": [
+    {"frame": 299, "decision": "accept", "note": "illustrative: operator accepted this proposal and ended golfer_window_1 above"}
+  ],
+  "source_description": "illustrative: the operator's own description of what the clip is, who is in it and what it is not. Recorded verbatim; the tool never identifies a person or a rights status.",
+  "notes": "illustrative values only, not measurements of any clip."
+}

@@ -1,0 +1,31 @@
+{
+  "_comment": [
+    "Shared viewport -> native-pixel vectors. The page's JavaScript and the Python",
+    "reference (ghostcaddie.demo.broadcast_ui.viewport_to_native) are both checked",
+    "against these, so the two cannot drift. 'expect' of null means the click is in",
+    "the letterbox and MUST be refused rather than mapped to a corner pixel."
+  ],
+  "vectors": [
+    {"name": "identity", "rect": {"left": 0, "top": 0, "width": 1266, "height": 720},
+     "natural": {"w": 1266, "h": 720}, "click": [100, 200],
+     "expect": {"x": 100, "y": 200}},
+    {"name": "half-scale", "rect": {"left": 0, "top": 0, "width": 633, "height": 360},
+     "natural": {"w": 1266, "h": 720}, "click": [316.5, 180],
+     "expect": {"x": 633, "y": 360}},
+    {"name": "letterbox-left", "rect": {"left": 40, "top": 0, "width": 800, "height": 300},
+     "natural": {"w": 1266, "h": 720}, "click": [440, 150],
+     "expect": {"x": 633, "y": 360}},
+    {"name": "click-in-letterbox-left", "rect": {"left": 40, "top": 0, "width": 800, "height": 300},
+     "natural": {"w": 1266, "h": 720}, "click": [45, 150],
+     "expect": null},
+    {"name": "click-in-letterbox-top", "rect": {"left": 0, "top": 60, "width": 400, "height": 500},
+     "natural": {"w": 1266, "h": 720}, "click": [200, 62],
+     "expect": null},
+    {"name": "bottom-right-corner", "rect": {"left": 0, "top": 0, "width": 633, "height": 360},
+     "natural": {"w": 1266, "h": 720}, "click": [633, 360],
+     "expect": {"x": 1266, "y": 720}},
+    {"name": "zero-size-box", "rect": {"left": 0, "top": 0, "width": 0, "height": 0},
+     "natural": {"w": 1266, "h": 720}, "click": [0, 0],
+     "expect": null}
+  ]
+}

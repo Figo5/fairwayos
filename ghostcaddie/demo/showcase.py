@@ -535,7 +535,8 @@ def _clamp(value: float, low: int, high: int) -> int:
 
 
 def plan_layout(width: int, height: int, metrics: Sequence[str], *,
-                max_row_width: Optional[int] = None) -> ShowcaseLayout:
+                max_row_width: Optional[int] = None,
+                card_position: str = "bottom") -> ShowcaseLayout:
     """Rectangles for one rendered frame, all inside ``(width, height)``.
 
     Sizes are fractions of the frame HEIGHT, so the same design holds at 360p and at
@@ -567,14 +568,29 @@ def plan_layout(width: int, height: int, metrics: Sequence[str], *,
     bottom_band = max(margin, disclosure_font + _clamp(0.015 * height, 3, 18))
 
     card_h = _clamp(0.105 * height, 34, 200)
-    card_row_bottom = height - bottom_band
-    card_row_top = card_row_bottom - card_h
-    # Bounded, not silent: if the frame is so short that the card band would touch
-    # the brand block, the cards shrink to the space that is actually free.
-    available = card_row_bottom - (margin + top_h) - _clamp(0.020 * height, 3, 24)
-    if available < card_h:
-        card_h = max(24, available)
+    if card_position not in ("bottom", "top"):
+        raise ValueError(f"card_position must be 'bottom' or 'top', got "
+                         f"{card_position!r}")
+    if card_position == "top":
+        # The card row moves UNDER the brand/badge band instead of above the
+        # disclosure line. It exists because a golfer low in the frame has their feet
+        # exactly where the bottom row would sit, and covering the feet of the swing
+        # is worse than any layout nicety. Nothing else about the design changes: same
+        # card size, same fonts, same inside-the-picture guarantee.
+        card_row_top = margin + top_h + _clamp(0.012 * height, 2, 14)
+        available = (height - bottom_band - card_row_top)
+        if available < card_h:
+            card_h = max(24, available)
+        card_row_bottom = card_row_top + card_h
+    else:
+        card_row_bottom = height - bottom_band
         card_row_top = card_row_bottom - card_h
+        # Bounded, not silent: if the frame is so short that the card band would touch
+        # the brand block, the cards shrink to the space that is actually free.
+        available = card_row_bottom - (margin + top_h) - _clamp(0.020 * height, 3, 24)
+        if available < card_h:
+            card_h = max(24, available)
+            card_row_top = card_row_bottom - card_h
 
     count = max(1, len(metrics))
     gap = _clamp(0.012 * width, 3, 40)

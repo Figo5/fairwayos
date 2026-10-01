@@ -4,14 +4,15 @@ Fairway OS is a finished local golf-video analysis project with two modes:
 **canonical body-focused analysis** and an **operator-assisted demo** for selected
 clips. The internal Python package remains `ghostcaddie` for compatibility.
 
-| | Canonical mode | Demo mode |
-|---|---|---|
-| Command | `analyze-video` | `demo-video` |
-| Processing | Local/offline | Local/offline, operator-assisted |
-| Body | Conditional golfer identification and 2D image-space pose/angles | Body analysis within an optional operator-selected region |
-| Ball / clubhead | Truthful `UNAVAILABLE` states | Experimental seeded/corrected image-space tracking |
-| Output | Annotated video, analysis, report, provenance, diagnostics | Polished annotated video, keyframe cards, report, reproducible config/provenance |
-| Physical metrics | Unavailable | Unavailable |
+| | Canonical mode | Demo mode | Broadcast showcase |
+|---|---|---|---|
+| Command | `analyze-video` | `demo-video` | `broadcast-showcase` |
+| Scope | the clip, no operator input | one operator-chosen interval | the whole shot, overlays only in declared windows |
+| Processing | Local/offline | Local/offline, operator-assisted | Local/offline, operator-assisted |
+| Body | Conditional golfer identification and 2D image-space pose/angles | Body analysis within an optional operator-selected region | Same body pipeline, per scene window |
+| Ball / clubhead | Truthful `UNAVAILABLE` states | Experimental seeded/corrected image-space tracking | Same, per scene window; absent stays absent |
+| Output | Annotated video, analysis, report, provenance, diagnostics | Polished annotated video, keyframe cards, report, reproducible config/provenance | Whole-shot video (**source cadence, source audio copied**), per-scene report, config, provenance |
+| Physical metrics | Unavailable | Unavailable | Unavailable |
 
 There is **no validated physical ball speed**, and no carry, spin, or launch-monitor
 claim. Pixel displacement and playback time do not establish physical speed.
@@ -86,6 +87,34 @@ config and model versions together locally for reproducibility. The
 manual anchors, holds and output contracts. The
 [showcase template](examples/showcase_config.template.json) contains illustrative
 values, not measurements that can be reused across clips.
+
+## Run the broadcast showcase
+
+A whole shot, rendered end to end at the source's own cadence with the source's own
+audio, where overlays and metrics exist **only** inside the scene windows declared in
+the config. Outside every window the frame is the source picture; at a window boundary
+the body, trails, cards, phase badge and `hand_rise` reference are all cleared, and no
+scene inherits another's tracks. A putt is marked
+`address / backstroke / forward_stroke / contact / finish` — never a full-swing TOP.
+
+```sh
+# cut/dissolve candidates for a clip (suggestions with confidence; nothing applied)
+.venv/bin/python -m ghostcaddie broadcast-showcase scenes CLIP.mp4 --out cuts.json
+
+# check a config against a clip without rendering anything
+.venv/bin/python -m ghostcaddie broadcast-showcase validate CLIP.mp4 --config C.json
+
+# render it
+.venv/bin/python -m ghostcaddie broadcast-showcase run CLIP.mp4 --config C.json \
+  --out showcases/my_shot --cv-python "$PWD/.venv/bin/python" \
+  --body-model "$FAIRWAY_BODY_MODEL"
+
+# the loopback browser review UI: drag the golfer box, mark phases, save, render
+.venv/bin/python -m ghostcaddie broadcast-showcase ui --port 8899
+```
+
+The [broadcast guide](docs/broadcast-showcase.md) documents the config, the four
+non-negotiables, the UI and what the render verification proves.
 
 ## Architecture and boundaries
 

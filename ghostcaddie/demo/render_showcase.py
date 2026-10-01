@@ -581,6 +581,19 @@ def compose_chrome(picture: np.ndarray, *, layout: sc.ShowcaseLayout, chrome: di
     engine = engine or TextEngine()
     drawn_badge_px = 0
     layer, mask = new_layers(width, height)
+    if chrome.get("text_scrim"):
+        pad = max(4, int(height * 0.008))
+        for rect, text, size, bold in (
+            (layout.brand, chrome.get("brand"), layout.brand_font, True),
+            (layout.disclosure, chrome.get("disclosure"), layout.disclosure_font, False)):
+            if not text:
+                continue
+            text_width = engine.measure(str(text), size, bold=bold)[0]
+            panel_width = min(rect.w, text_width) + pad * 2
+            filled_rect(layer, mask, rect.x - pad, rect.y - pad,
+                        panel_width, rect.h + pad * 2, (12, 17, 19), 0.66,
+                        radius=pad)
+
     for rect, card in zip(layout.cards, chrome.get("cards") or []):
         draw_card(layer, mask, rect, card, engine, {
             "value": layout.card_value_font, "label": layout.card_label_font,
