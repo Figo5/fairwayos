@@ -15,8 +15,12 @@ unavailable ball/clubhead and physical-metric contract remains unchanged.
 
 This work is on the local `feat/clubhead-appearance-identity` branch. Saved
 observations are experimental; the twelve inspected clips are a regression
-collection, not independent human-confirmed validation. Remaining ball false
-positives and fast-swing head losses require further tracking research. Completion
+collection, not independent human-confirmed validation. A new opt-in ball-evidence
+ablation removes the four labeled false positives on this collection while
+retaining 108 of 109 previously correct ball samples; the extra miss is a causal
+confirmation delay. All twelve new exports preserve source timing and audio.
+See [the research scope and limitations](docs/ball-evidence-research.md).
+Unseen ball distractors, flight tracking and fast-swing head losses still require research. Completion
 of the local showcase workflow does not establish general-purpose tracking.
 
 ## Earlier closeout record

@@ -111,14 +111,16 @@ _PREDICTION_STATUSES = frozenset({STATUS_OBSERVED, STATUS_OBSERVED_LK, STATUS_MA
 #: detector that re-segments compact head evidence in each frame: it likewise keeps a
 #: re-detected frame under its own name. This tuple is the ONLY contract surface the
 #: candidates extend: no metric, label, split or option changes with it. The final pair
-#: names measured compact regions from the optional SAM2 mask experiment; this is
-#: not a semantic clubhead-class detector. Nothing else
+#: names measured compact regions from the optional SAM2 mask experiment. The
+#: ball-evidence pair names seed/current-pixel validation of classic proposals;
+#: neither candidate establishes semantic or physical target identity. Nothing else
 #: may claim to be a tracker method, and an empty method (which the classic policy
 #: writes on non-observations) stays accepted exactly as before.
 AUTOMATIC_METHODS = ("template", "template+lk", "foreground_template",
                      "foreground_template_reacquired", "putter_detector",
                      "putter_detector_reacquired", "sam2_head_region",
-                     "sam2_head_region_reacquired")
+                     "sam2_head_region_reacquired", "ball_evidence_template",
+                     "ball_evidence_template_reacquired")
 #: Options a reference may set on a target. This is the tracker's own option set
 #: (``demo.config.TargetOptions``) plus the one interpolation switch the runner
 #: passes to ``resolve_track``. Nothing here is a label.
@@ -161,9 +163,10 @@ SCOPE_NOTES = (
     "point, and an automatic observation at the seed frame is refused outright.",
     "Only automatic observations can score: the classic tracker's `template` and "
     "`template+lk`, or a candidate's own declared experimental method "
-    "(`foreground_template` / `foreground_template_reacquired` for the isolated "
-    "masked-foreground tracker, whose re-acquired frames carry their own name so a "
-    "re-acquisition is never readable as a continuation). Interpolated (derived) "
+    "(foreground_template, putter_detector, sam2_head_region, or "
+    "ball_evidence_template, including each method's _reacquired form). "
+    "Re-acquired frames carry their own method name so a re-acquisition is never "
+    "readable as a continuation. Interpolated (derived) "
     "points, operator anchors and the seed are counted separately and are never "
     "evidence of an automatic observation.",
     "Scope of the seeded track: one FORWARD leg per target. Labels at or before the "

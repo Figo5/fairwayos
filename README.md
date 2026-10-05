@@ -43,6 +43,12 @@ It imports prior results without running a new tracking model. Body/phase inputs
 remain operator-assisted; physical metrics remain unavailable. See the
 [saved tracking guide](docs/saved-tracking-user-guide.md).
 
+An isolated [ball evidence research ablation](docs/ball-evidence-research.md)
+checks classic proposals against compact current-frame pixels from the original
+seed. On the twelve inspected Tiger development clips it removes four labeled
+false positives while retaining 108 of 109 previously correct ball samples.
+It remains opt-in research; the canonical detector and tracking defaults are unchanged.
+
 ## Setup
 
 Use Python 3.11 and install `ffmpeg` / `ffprobe` on your PATH. From the repository:
