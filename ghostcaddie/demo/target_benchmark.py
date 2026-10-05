@@ -121,7 +121,8 @@ AUTOMATIC_METHODS = ("template", "template+lk", "foreground_template",
                      "putter_detector_reacquired", "sam2_head_region",
                      "sam2_head_region_reacquired", "ball_evidence_template",
                      "ball_evidence_template_reacquired", "sam2_swing_core",
-                     "sam2_swing_core_reacquired", "shaft_head", "shaft_head_reacquired")
+                     "sam2_swing_core_reacquired", "shaft_head", "shaft_head_reacquired",
+                     "learned_bbox_center")
 #: Options a reference may set on a target. This is the tracker's own option set
 #: (``demo.config.TargetOptions``) plus the one interpolation switch the runner
 #: passes to ``resolve_track``. Nothing here is a label.
