@@ -20,6 +20,12 @@ ablation removes the four labeled false positives on this collection while
 retaining 108 of 109 previously correct ball samples; the extra miss is a causal
 confirmation delay. All twelve new exports preserve source timing and audio.
 See [the research scope and limitations](docs/ball-evidence-research.md).
+An opt-in full-swing context policy retains all classic observations and recovers
+two additional labeled head samples: 23 correct / 0 incorrect / 15 misses on 38
+visible development references. Earlier versions were rejected for background,
+shaft and grip tracking. The selected version adds 78 current observations, all
+visually inspected; this does not establish accuracy on unlabeled frames.
+See [full-swing scope and remaining limitations](docs/full-swing-research.md).
 Unseen ball distractors, flight tracking and fast-swing head losses still require research. Completion
 of the local showcase workflow does not establish general-purpose tracking.
 

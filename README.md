@@ -49,6 +49,12 @@ seed. On the twelve inspected Tiger development clips it removes four labeled
 false positives while retaining 108 of 109 previously correct ball samples.
 It remains opt-in research; the canonical detector and tracking defaults are unchanged.
 
+The opt-in [full-swing recovery policy](docs/full-swing-research.md) adds
+current-frame wrist and image-contrast checks to mask measurements. On the same
+development collection, selected full-swing head samples improve from 21 to 23
+correct out of 38, with no incorrect labeled position. Sparse scores alone missed
+shaft/grip failures in rejected versions, so visual checks are also recorded.
+
 ## Setup
 
 Use Python 3.11 and install `ffmpeg` / `ffprobe` on your PATH. From the repository:
