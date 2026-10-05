@@ -55,6 +55,13 @@ development collection, selected full-swing head samples improve from 21 to 23
 correct out of 38, with no incorrect labeled position. Sparse scores alone missed
 shaft/grip failures in rejected versions, so visual checks are also recorded.
 
+The [proposal support experiment](docs/proposal-supported-head-research.md) uses
+the frozen learned detector to restrict current pixel/shaft measurements. It
+adds one visually reviewed missing head point to the selected twelve clips.
+Four newer shots remain body-only: their unseeded candidate confused two balls
+with clubheads and still missed the fast swing. This is opt-in development
+research; tracking defaults are unchanged.
+
 ## Setup
 
 Use Python 3.11 and install `ffmpeg` / `ffprobe` on your PATH. From the repository:

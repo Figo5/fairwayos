@@ -406,6 +406,37 @@ answerPosition(hashSummary,{ok:true,tracking:{source_sha256:ui.state.clip.sha256
 const hashPoints=pendingPositions.pop();
 answerPosition(hashPoints,{ok:true,available:true,prediction_sha256:"c".repeat(64),result:{points:[]}});await hashLoad;
 check("available positions without a source binding are refused",ui.state.savedPoints===null && !ui.state.savedAvailable);
+// Source-bound saved results should be the default; target navigation must not
+// silently switch an automatic export back to an assisted showcase.
+async function completeTracking(available){
+  const target=document.getElementById("reviewTarget").value;
+  const loading=ui.loadTrackingReview(),summary=pendingPositions.pop();
+  check("render waits for the current saved-route lookup",document.getElementById("render").disabled);
+  answerPosition(summary,{ok:true,tracking:null});await sleep(0);
+  const positions=pendingPositions.pop();
+  answerPosition(positions,{ok:true,source_sha256:ui.state.clip.sha256,target,available,
+    prediction_sha256:"c".repeat(64),result:available?{seed:null,points:[]}:null});
+  await loading;
+}
+ui.state.trackingPreference=null;
+await completeTracking(true);
+check("source-bound saved results default to automatic export",document.getElementById("trackingMode").value==="saved_automatic");
+check("render is available after the current route is checked",!document.getElementById("render").disabled);
+document.getElementById("trackingMode").value="reviewed";
+document.getElementById("trackingMode").onchange();
+document.getElementById("reviewTarget").value="ball";
+await completeTracking(true);
+check("an explicit assisted choice survives target navigation",document.getElementById("trackingMode").value==="reviewed");
+document.getElementById("trackingMode").value="saved_automatic";
+document.getElementById("trackingMode").onchange();
+document.getElementById("reviewTarget").value="clubhead";
+await completeTracking(true);
+check("an explicit automatic choice survives target navigation",document.getElementById("trackingMode").value==="saved_automatic");
+await completeTracking(false);
+check("missing saved data cannot silently select assisted export",document.getElementById("trackingMode").value==="saved_automatic" && !ui.state.savedAvailable);
+ui.state.trackingPreference=null;
+await completeTracking(false);
+check("without saved data a new session keeps the existing reviewed workflow",document.getElementById("trackingMode").value==="reviewed");
 globalThis.fetch=fetchStub;
 console.log(JSON.stringify({results}));
 process.exit(results.every((r) => r.ok) ? 0 : 1);

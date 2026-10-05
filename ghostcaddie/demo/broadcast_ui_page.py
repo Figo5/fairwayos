@@ -274,7 +274,8 @@ const state = {
   scenes: [], current: -1,
   phases: {}, roi: null, seeds: {},
   mode: "region", target: "ball", lastPoint: null,
-  dragging: null, job: null, tracking: null, savedPoints: null, savedAvailable: false, reviewRequest: 0
+  dragging: null, job: null, tracking: null, savedPoints: null, savedAvailable: false,
+  trackingPreference: null, reviewRequest: 0
 };
 const $ = (id) => document.getElementById(id);
 function clone(value){
@@ -527,13 +528,14 @@ async function loadTrackingReview(){
   const generation = ++state.reviewRequest, clip = state.clip;
   const target = $("reviewTarget").value || "clubhead";
   state.tracking = null; state.savedPoints = null; state.savedAvailable = false;
-  $("trackingMode").value = "reviewed";
+  $("trackingMode").value = state.trackingPreference || "reviewed";
+  $("render").disabled = true;
   const savedChoice = $("trackingMode").querySelector('option[value="saved_automatic"]');
   if (savedChoice) savedChoice.disabled = true;
   renderTrackingReview("Loading saved tracking results…");
   $("automaticInfo").textContent = "Loading saved positions…";
   if (clip) setFrame(state.frame);
-  if (!clip) return;
+  if (!clip) { $("render").disabled = false; return; }
   try {
     const data = await api(`/api/tracking?clip=${encodeURIComponent(clip.id)}&target=${encodeURIComponent(target)}`);
     if (generation !== state.reviewRequest || state.clip?.id !== clip.id) return;
@@ -547,6 +549,8 @@ async function loadTrackingReview(){
       throw new Error("saved positions belong to another source or target");
     state.savedPoints = positions.result || null;
     state.savedAvailable = !!positions.available;
+    $("trackingMode").value = state.trackingPreference ||
+      (state.savedAvailable ? "saved_automatic" : "reviewed");
     const choice = $("trackingMode").querySelector('option[value="saved_automatic"]');
     if (choice) choice.disabled = !state.savedAvailable;
     updateAutomaticInfo();
@@ -557,6 +561,8 @@ async function loadTrackingReview(){
       $("automaticInfo").textContent = "Saved positions unavailable.";
       renderTrackingReview("Tracking review unavailable: " + error.message);
     }
+  } finally {
+    if (generation === state.reviewRequest) $("render").disabled = false;
   }
 }
 function automaticPoint(){
@@ -1106,7 +1112,10 @@ $("save").onclick = async () => {
   }catch(e){ say("not saved: " + e.message, "bad"); }
 };
 $("previewAutomatic").onchange = () => setFrame(state.frame);
-$("trackingMode").onchange = () => setFrame(state.frame);
+$("trackingMode").onchange = () => {
+  state.trackingPreference = $("trackingMode").value;
+  setFrame(state.frame);
+};
 $("render").onclick = async () => {
   try{
     if (!state.scenes.length) throw new Error("add at least one scene first");
