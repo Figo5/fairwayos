@@ -181,6 +181,11 @@ fallbacks and do not expand the capability boundary. See
 The older synthetic shot-analytics engine and fictional provider samples under
 `data/` are separate from video analysis and are not official PGA data.
 
+The [Masters compilation and motion review](docs/masters-compilation-motion-review.md)
+records the complete local 16-clip compilation, source-bound image-motion exports,
+tempo/coverage limits and validation. Motion rates use source video time and native
+pixels; physical club/ball speed remains unavailable without calibrated evidence.
+
 ## Testing
 
 ```sh
