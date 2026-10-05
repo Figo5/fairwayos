@@ -1458,6 +1458,15 @@ def _measure(cap: cv2.VideoCapture, spec: dict) -> tuple:
                                  int(spec["interval"]["end_frame"]) + 1))
     manual_blocks = spec.get("manual_segments") or {}
     for name in ("ball", "clubhead"):
+        if "saved_tracks" in spec:
+            from .tracking import track_from_dict
+            imported = spec["saved_tracks"].get(name)
+            if imported is not None:
+                track = track_from_dict(name, imported)
+                track_objects[name] = track
+                tracks[name] = track.to_dict()
+                raw_dump[name] = {}
+            continue
         target_spec = spec.get("targets", {}).get(name) or {}
         seed = spec.get("seeds", {}).get(name)
         manual = manual_spec(manual_blocks.get(name))
@@ -1504,7 +1513,7 @@ def _measure(cap: cv2.VideoCapture, spec: dict) -> tuple:
         config_keyframes={k: int(v) for k, v in
                           (phase_config.get("keyframes") or {}).items()},
         interval_frames=interval_frames, body_records=body["per_frame"],
-        tracks=track_objects, fps=float(phase_config.get("fps")
+        tracks={} if "saved_tracks" in spec else track_objects, fps=float(phase_config.get("fps")
                                         or spec["native_fps"]),
         allow_approx=bool(phase_config.get("allow_approx", False)),
         body_angles_fn=angles_fn,

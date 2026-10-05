@@ -616,11 +616,15 @@ def run_broadcast(clip: str, config_path: str, out_dir: str, *,
                   probe_fn: Optional[Callable[[str], Any]] = None,
                   worker_runner: Optional[Callable[[dict, str], dict]] = None,
                   interpreter_resolver: Optional[Callable[[Optional[str]], dict]] = None,
-                  guard_outputs: bool = True,
+                  guard_outputs: bool = True, saved_tracks: Optional[str] = None,
+                  saved_tracks_sha256: Optional[str] = None,
                   ) -> BroadcastResult:
     """Run one broadcast showcase. Returns the result; raises on a failed run."""
     from .broadcast_config import load_broadcast
     from .probe import probe_source
+
+    if saved_tracks_sha256 and not saved_tracks:
+        raise DemoConfigError("--saved-tracks-sha256 requires --saved-tracks")
 
     src = Path(clip).expanduser()
     if not src.is_file():
@@ -644,10 +648,7 @@ def run_broadcast(clip: str, config_path: str, out_dir: str, *,
 
     root = (guard_output_dir(out_dir, repo_root=repo_root, force=force)
             if guard_outputs else Path(out_dir).expanduser())
-    root.mkdir(parents=True, exist_ok=True)
     paths = broadcast_out_paths(root)
-    paths["debug_dir"].mkdir(parents=True, exist_ok=True)
-    paths["keyframes_dir"].mkdir(parents=True, exist_ok=True)
 
     from ghostcaddie.video import model_paths
     resolved_model = model_paths.resolve("body", body_model_path)
@@ -656,6 +657,14 @@ def run_broadcast(clip: str, config_path: str, out_dir: str, *,
     spec = build_broadcast_spec(resolved, out_dir=str(root), paths=paths,
                                 body_model=resolved_model, redact_path=redact_path,
                                 render_enabled=render_enabled)
+
+    saved_provenance = None
+    if saved_tracks:
+        from .broadcast_saved import attach_saved_tracks
+        saved_provenance = attach_saved_tracks(spec, resolved, saved_tracks, saved_tracks_sha256)
+    root.mkdir(parents=True, exist_ok=True)
+    paths["debug_dir"].mkdir(parents=True, exist_ok=True)
+    paths["keyframes_dir"].mkdir(parents=True, exist_ok=True)
 
     interpreter = (interpreter_resolver or resolve_cv_interpreter)(cv_python)
     runner = worker_runner or run_demo_worker
@@ -687,7 +696,7 @@ def run_broadcast(clip: str, config_path: str, out_dir: str, *,
         row = card_rows.get(scene.get("id"))
         if row:
             scene["cards"] = row
-            scene["targets_origin"] = _tracking_origin_summary(scene.get("targets") or {})
+        scene["targets_origin"] = _tracking_origin_summary(scene.get("targets") or {}, saved=bool(saved_provenance))
     limitations = _limitations(resolved, worker, spec)
     artifacts = _artifact_record(paths, spec, worker)
 
@@ -720,7 +729,8 @@ def run_broadcast(clip: str, config_path: str, out_dir: str, *,
                 "schema_version": BROADCAST_CONFIG_SCHEMA,
                 "out_dir": (str(root.name) if redact_path else str(root)),
                 "outside_windows": config.outside_windows,
-                "presentation": config.presentation.to_dict(),
+                "presentation": spec["broadcast"]["presentation"],
+                "tracking_export": saved_provenance,
                 "cut_candidates": [c.to_dict() for c in config.cuts],
                 "cut_overrides": list(config.overrides),
                 "anchor_spacing": list(config.spacing_records)},
@@ -772,7 +782,7 @@ def _sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _tracking_origin_summary(tracks: Mapping[str, Any]) -> Dict[str, Any]:
+def _tracking_origin_summary(tracks: Mapping[str, Any], *, saved: bool = False) -> Dict[str, Any]:
     """Where each target's points came from, counted.
 
     ``absent`` is a real answer: a target with no seed and no anchor was never tracked,
@@ -784,8 +794,8 @@ def _tracking_origin_summary(tracks: Mapping[str, Any]) -> Dict[str, Any]:
         payload = tracks.get(name)
         if not payload:
             out[name] = {"origin": "absent",
-                         "reason": "no seed, correction or manual anchor for this "
-                                   "target in this scene"}
+                         "reason": ("no saved seed inside this scene window" if saved else
+                                    "no seed, correction or manual anchor for this target in this scene")}
             continue
         counts: Dict[str, int] = {}
         for point in (payload.get("points") or []):
@@ -794,13 +804,16 @@ def _tracking_origin_summary(tracks: Mapping[str, Any]) -> Dict[str, Any]:
         observed = sum(counts.get(k, 0) for k in
                        ("manual_anchor", "observed_template", "observed_template_lk"))
         out[name] = {
-            "origin": ("operator_anchor" if counts.get("manual_anchor") else
+            "origin": ("saved_automatic_research" if payload.get("mode") == "saved_automatic_research" else
+                       "operator_anchor" if counts.get("manual_anchor") else
                        "template_from_operator_seed" if observed else "absent"),
             "points_by_status": counts,
             "observed": observed,
             "total_points": len(payload.get("points") or []),
             "coverage": payload.get("coverage"),
-            "is_a_detection": False,
+            "is_a_detection": None if saved else False,
+            "measurement_note": ("saved automatic research observations from a prior run; no model rerun"
+                                 if saved else "operator placements or template matches"),
         }
     return out
 
@@ -1058,6 +1071,7 @@ def _provenance(result: BroadcastResult, resolved: ResolvedBroadcast, probe,
                      "performed"),
         },
         "config": {"sha256": config_sha},
+        "saved_tracking": spec.get("saved_tracking"),
         "frame_bounds": {
             "interval": [resolved.start_frame, resolved.end_frame],
             "end_inclusive": True,
@@ -1078,7 +1092,7 @@ def _provenance(result: BroadcastResult, resolved: ResolvedBroadcast, probe,
                    "verification": result.verification},
         "targets_origin": {scene.get("id"): scene.get("targets_origin")
                            for scene in result.scenes},
-        "operator_inputs": {
+        "operator_inputs": {"used_for_target_tracking": not bool(spec.get("saved_tracking")),
             "scenes": [{"id": s.scene.scene_id, "kind": s.scene.kind,
                         "stroke_type": s.scene.stroke_type,
                         "window": [s.start_frame, s.end_frame],
@@ -1179,10 +1193,19 @@ def _limitations(resolved: ResolvedBroadcast, worker: dict, spec: dict) -> List[
     from .result import DISCLOSURE_LONG
 
     out = list(DISCLOSURE_LONG)
-    out.append(
-        "The ball and clubhead markers are operator-anchored or seeded image-space "
-        "points. They are not detections, and no broadcast tracer graphic was used as "
-        "one.")
+    if spec.get("saved_tracking"):
+        out[0] = ("Targets are saved automatic research observations from a prior operator-seeded run. "
+                  "The source region and phase inputs remain operator-assisted. Importing these "
+                  "positions does not establish physical identity or general tracking accuracy.")
+    if spec.get("saved_tracking"):
+        out.append("Ball and clubhead markers use saved automatic research observations from a prior run "
+                   "and its original operator seed; no model rerun or accuracy claim. Gaps stay empty; "
+                   "the imported positions are not verified ball-flight measurements.")
+    else:
+        out.append(
+            "The ball and clubhead markers are operator-anchored or seeded image-space "
+            "points. They are not detections, and no broadcast tracer graphic was used as "
+            "one.")
     render = worker.get("render") or {}
     if render.get("empty_frames"):
         out.append(
@@ -1220,6 +1243,13 @@ def render_broadcast_report(result: BroadcastResult) -> str:
                  "picture. At a window boundary everything is cleared: body, trails, "
                  "cards, phase badge and the `hand_rise` reference frame.")
     lines.append("")
+    saved = result.config.get("tracking_export")
+    if saved:
+        lines.append("Saved automatic research positions, with the original operator seed. "
+                     "Missing/lost frames stay empty. Assisted paths are excluded; body and phase "
+                     "configuration remain operator-assisted. No model rerun or accuracy claim.")
+        lines.append(f"Prediction sha256: `{saved['prediction_sha256']}` · variant `{saved['variant']}`")
+        lines.append("")
     lines.append("## Source")
     lines.append("")
     lines.append(f"* file: `{src['display_name']}`")

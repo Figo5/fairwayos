@@ -20,6 +20,7 @@ import subprocess
 import sys
 import threading
 import unittest
+from unittest.mock import patch
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
@@ -34,7 +35,7 @@ from ghostcaddie.demo.broadcast import _parent_source_record, verify_broadcast_r
 from ghostcaddie.demo.broadcast_ui import Registry, make_handler
 from ghostcaddie.demo.broadcast_ui_page import PAGE
 from ghostcaddie.demo.errors import DemoConfigError
-from tests.demo_fixtures import TempDirTestCase
+from tests.demo_fixtures import TempDirTestCase, synthetic_probe
 
 NODE = shutil.which("node")
 FFMPEG = shutil.which("ffmpeg")
@@ -200,6 +201,49 @@ class UiConfigBindingTests(TempDirTestCase):
         path = self.configs / name
         path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return path
+
+    def test_each_render_pins_its_config_and_has_independent_output(self):
+        from ghostcaddie.demo.broadcast_ui import _start_render
+        cid = self.clip_id('01_hole07_approach.mp4')
+        config = base_config(clip_path_hint=str(self.clip_a))
+        config['shot']['expected_source_sha256'] = self.sha('01_hole07_approach.mp4')
+        config['shot']['parent_source_manifest'] = 'manifest.json'
+        payload = {'clip': cid, 'config': config, 'name': 'review.json', 'save_config': True}
+        settings = {'python': sys.executable, 'out_root': str(self.tmp / 'renders')}
+        from dataclasses import replace
+        probe = replace(synthetic_probe(width=320,height=180,frame_count=120),path=str(self.clip_a))
+        with patch('ghostcaddie.demo.probe.probe_source',return_value=probe), \
+             patch('ghostcaddie.demo.broadcast_ui.threading.Thread') as thread:
+            first = _start_render(self.registry,self.configs,settings,payload)
+            config['scenes'][0]['label'] = 'second document'
+            second = _start_render(self.registry,self.configs,settings,payload)
+        jobs = [self.registry.jobs[r['job']['id']] for r in [first,second]]
+        self.assertNotEqual(jobs[0]['out_dir'],jobs[1]['out_dir'])
+        self.assertNotEqual(jobs[0]['config'],jobs[1]['config'])
+        self.assertEqual(json.loads(Path(jobs[0]['config']).read_text())['scenes'][0]['label'],'scene one')
+        self.assertEqual(json.loads(Path(jobs[1]['config']).read_text())['scenes'][0]['label'],'second document')
+        self.assertEqual(thread.call_args_list[0].kwargs['args'][3],jobs[0]['config'])
+        self.write_config('review.json',base_config())
+        code, pinned = self.call('/api/config?id=' + jobs[0]['id'])
+        self.assertEqual(code,200)
+        self.assertEqual(pinned['scenes'][0]['label'],'scene one')
+        self.assertEqual(pinned['shot']['parent_source_manifest'],str((self.configs / 'manifest.json').resolve()))
+
+    def test_saved_points_api_is_source_bound_and_read_only(self):
+        cid = self.clip_id('01_hole07_approach.mp4')
+        sha = self.sha('01_hole07_approach.mp4')
+        target = {'seed': {'frame': 2, 'x': 50, 'y': 60}, 'points': []}
+        self.registry.saved_tracks = {'prediction_sha256': 'c'*64,
+            'clips_by_sha': {sha: {'targets': {'clubhead': target}}}}
+        code, result = self.call(f'/api/tracking/points?clip={cid}&target=clubhead')
+        self.assertEqual(code, 200); self.assertEqual(result['result'], target)
+        self.assertEqual(result['source_sha256'], sha); self.assertTrue(result['available'])
+        code, _ = self.call('/api/tracking/points?clip=../../clip.mp4')
+        self.assertEqual(code, 400)
+        code, _ = self.call(f'/api/tracking/points?clip={cid}&target=shaft')
+        self.assertEqual(code, 400)
+        code, _ = self.call('/api/tracking/points',method='POST',body={},token='tok123')
+        self.assertEqual(code, 404)
 
     def test_tracking_review_uses_registered_clip_ids_and_has_no_write_endpoint(self):
         cid = self.clip_id('01_hole07_approach.mp4')

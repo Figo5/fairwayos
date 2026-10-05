@@ -561,7 +561,8 @@ class RunnerRoutingTests(unittest.TestCase):
                                    summary=lambda: {"target": "clubhead"},
                                    limitations=["synthetic"], raw_frames=[])
 
-        with mock.patch.object(pd, "track_putter", recorder):
+        with mock.patch.object(importlib.import_module(
+                self.tool.CANDIDATE_MODULE_PATHS["putter_redetect"]), "track_putter", recorder):
             prediction, _, raw = self.tool.run_clip(object(), self.clip("putt"),
                                                     variant="putter_redetect")
         self.assertEqual(seen["target"], "clubhead")
@@ -591,7 +592,8 @@ class RunnerRoutingTests(unittest.TestCase):
         with mock.patch.object(worker_mod, "measure_target", classic), \
                 mock.patch.object(tracking_mod, "resolve_track",
                                   lambda *a, **k: SimpleNamespace(points=[])), \
-                mock.patch.object(pd, "track_putter", detector):
+                mock.patch.object(importlib.import_module(
+                    self.tool.CANDIDATE_MODULE_PATHS["putter_redetect"]), "track_putter", detector):
             self.tool.run_clip(object(), self.clip("full_swing"),
                                variant="putter_redetect")
         self.assertEqual(calls["classic"], 1)

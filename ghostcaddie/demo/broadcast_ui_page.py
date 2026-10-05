@@ -130,10 +130,19 @@ PAGE = r"""<!DOCTYPE html>
         <button id="previousGap">previous gap</button>
         <button id="nextGap">next gap</button>
       </div>
+      <label><input type="checkbox" id="previewAutomatic" checked> Show saved automatic positions (amber)</label>
+      <div class="muted" id="automaticInfo">No saved automatic positions loaded.</div>
       <div class="muted" id="reviewInfo">No saved tracking results loaded.</div>
     </div>
   </section>
   <aside class="panel">
+    <h2>Export</h2>
+    <label for="trackingMode">Target positions</label>
+    <select id="trackingMode">
+      <option value="reviewed">Reviewed showcase (assisted)</option>
+      <option value="saved_automatic" disabled>Saved automatic targets (research)</option>
+    </select>
+    <div class="muted">Automatic export uses saved observations and the original seed. Gaps stay empty; current seed edits and assisted paths are excluded.</div>
     <h2>Clip</h2>
     <select id="clip" aria-label="clip"></select>
     <div class="muted" id="clipInfo"></div>
@@ -265,7 +274,7 @@ const state = {
   scenes: [], current: -1,
   phases: {}, roi: null, seeds: {},
   mode: "region", target: "ball", lastPoint: null,
-  dragging: null, job: null, tracking: null, reviewRequest: 0
+  dragging: null, job: null, tracking: null, savedPoints: null, savedAvailable: false, reviewRequest: 0
 };
 const $ = (id) => document.getElementById(id);
 function clone(value){
@@ -517,7 +526,13 @@ function renderTrackingReview(message){
 async function loadTrackingReview(){
   const generation = ++state.reviewRequest, clip = state.clip;
   const target = $("reviewTarget").value || "clubhead";
-  state.tracking = null; renderTrackingReview("Loading saved tracking results…");
+  state.tracking = null; state.savedPoints = null; state.savedAvailable = false;
+  $("trackingMode").value = "reviewed";
+  const savedChoice = $("trackingMode").querySelector('option[value="saved_automatic"]');
+  if (savedChoice) savedChoice.disabled = true;
+  renderTrackingReview("Loading saved tracking results…");
+  $("automaticInfo").textContent = "Loading saved positions…";
+  if (clip) setFrame(state.frame);
   if (!clip) return;
   try {
     const data = await api(`/api/tracking?clip=${encodeURIComponent(clip.id)}&target=${encodeURIComponent(target)}`);
@@ -526,9 +541,49 @@ async function loadTrackingReview(){
     if (review && (review.source_sha256 !== clip.sha256 || review.target !== target))
       throw new Error("saved results belong to another source or target");
     state.tracking = review || null; renderTrackingReview();
+    const positions = await api(`/api/tracking/points?clip=${encodeURIComponent(clip.id)}&target=${encodeURIComponent(target)}`);
+    if (generation !== state.reviewRequest || state.clip?.id !== clip.id) return;
+    if ((positions.available || positions.result) && (positions.source_sha256 !== clip.sha256 || positions.target !== target))
+      throw new Error("saved positions belong to another source or target");
+    state.savedPoints = positions.result || null;
+    state.savedAvailable = !!positions.available;
+    const choice = $("trackingMode").querySelector('option[value="saved_automatic"]');
+    if (choice) choice.disabled = !state.savedAvailable;
+    updateAutomaticInfo();
+    setFrame(state.frame);
   } catch (error) {
-    if (generation === state.reviewRequest) renderTrackingReview("Tracking review unavailable: " + error.message);
+    if (generation === state.reviewRequest) {
+      state.savedPoints = null; state.savedAvailable = false;
+      $("automaticInfo").textContent = "Saved positions unavailable.";
+      renderTrackingReview("Tracking review unavailable: " + error.message);
+    }
   }
+}
+function automaticPoint(){
+  if (!$("previewAutomatic").checked || !state.savedPoints) return null;
+  // Export only uses the scene containing the original saved operator seed.
+  const seedFrame = state.savedPoints.seed?.frame;
+  const scene = state.scenes.find(s => (s.kind || "golfer_stroke") === "golfer_stroke" && s.window && seedFrame >= s.window.start_frame && seedFrame <= s.window.end_frame);
+  if (!scene || state.frame < scene.window.start_frame || state.frame > scene.window.end_frame) return null;
+  const p = (state.savedPoints.points || []).find(p => p.source_frame === state.frame);
+  return p && p.origin === "automatic" &&
+    ["observed_template", "observed_template_lk"].includes(p.status) &&
+    Number.isFinite(p.x) && Number.isFinite(p.y) ? p : null;
+}
+function updateAutomaticInfo(){
+  const p = automaticPoint();
+  $("automaticInfo").textContent = p
+    ? `Saved automatic ${$("reviewTarget").value || "clubhead"} · source frame ${state.frame} · ${p.method}`
+    : state.savedPoints ? `No automatic position exported at source frame ${state.frame}; gaps and frames outside the original seed’s scene stay empty.`
+                        : "No saved automatic positions loaded.";
+}
+function drawAutomatic(ctx, canvas){
+  const p = automaticPoint();
+  if (!p) return;
+  ctx.save(); ctx.fillStyle = "#ffb030"; ctx.beginPath();
+  ctx.arc(p.x * canvas.width / state.clip.width, p.y * canvas.height / state.clip.height,
+          Math.max(4, canvas.width/200), 0, Math.PI*2);
+  ctx.fill(); ctx.restore();
 }
 function showTrackingGap(index){
   const review = state.tracking, gap = review?.gaps[index];
@@ -556,6 +611,7 @@ function apiFrameUrl(frame){
 function setFrame(frame){
   if (!state.clip) return;
   state.frame = Math.max(0, Math.min(frame, (state.clip.frame_count||1)-1));
+  updateAutomaticInfo();
   $("scrub").value = state.frame;
   $("frameChip").textContent = "frame " + state.frame;
   const requestedFrame = state.frame, requestedClip = state.clip.id;
@@ -569,6 +625,7 @@ function setFrame(frame){
     ctx.drawImage(img, 0, 0);
     drawRoi(ctx, c);
     drawMarks(ctx, c);
+    drawAutomatic(ctx, c);
     updateWindowInfo();
     const inWindow = isInAnyWindow(state.frame);
     say(`${state.clip.name} · frame ${state.frame} of ` +
@@ -597,6 +654,7 @@ function drawRoi(ctx, canvas){
   ctx.restore();
 }
 function drawMarks(ctx, canvas){
+  if ($("trackingMode").value === "saved_automatic") return;
   const scene = currentScene();
   const marks = [];
   if (state.lastPoint) marks.push([state.lastPoint, "#ffb030"]);
@@ -940,7 +998,7 @@ $("view").addEventListener("pointermove", (ev) => {
                Math.abs(pt.x-d.x0), Math.abs(pt.y-d.y0)];
   const c = $("view"), ctx = c.getContext("2d");
   const img = new Image();
-  img.onload = () => { ctx.drawImage(img,0,0); drawRoi(ctx,c); drawMarks(ctx,c); };
+  img.onload = () => { ctx.drawImage(img,0,0); drawRoi(ctx,c); drawMarks(ctx,c); drawAutomatic(ctx,c); };
   img.src = apiFrameUrl(state.frame);
 });
 $("view").addEventListener("pointerup", () => {
@@ -1047,13 +1105,16 @@ $("save").onclick = async () => {
     $("configFile").value = data.name;
   }catch(e){ say("not saved: " + e.message, "bad"); }
 };
+$("previewAutomatic").onchange = () => setFrame(state.frame);
+$("trackingMode").onchange = () => setFrame(state.frame);
 $("render").onclick = async () => {
   try{
     if (!state.scenes.length) throw new Error("add at least one scene first");
     const name = $("configName").value ||
       `${state.clip.name.replace(/\.[^.]+$/,"")}_ui.json`;
     const data = await post("/api/render",
-      {clip: state.clip.id, config: buildConfig(), name, save_config:true});
+      {clip: state.clip.id, config: buildConfig(), name, save_config:true,
+       tracking_mode: $("trackingMode").value || "reviewed"});
     state.job = data.job.id;
     say(`rendering ${data.frames} frames…`);
     pollJob(data.job.id);
@@ -1090,6 +1151,10 @@ async function pollJob(id){
         ? (durations.measured_seconds + "s, expected " +
            durations.expected_seconds_from_frames_and_cadence + "s")
         : "not checked"}</div>
+      <div class="muted">${r.tracking_export
+        ? "Saved automatic target observations (research) · prediction " + r.tracking_export.prediction_sha256
+        : "Reviewed showcase · operator-assisted target positions"}</div>
+      <video controls preload="metadata" style="width:100%;border-radius:8px" src="/api/artifact?id=${id}&name=broadcast_annotated.mp4"></video>
       <table>${rows}</table>
       <div class="row">
         <button onclick="location='/api/artifact?id=${id}&name=broadcast_annotated.mp4'">download video</button>
@@ -1175,7 +1240,7 @@ document.addEventListener("keydown", (e) => {
 if (typeof window !== "undefined"){
   window.__bcui = {
     state, clone, applyConfig, buildConfig, commitEditors, selectScene, currentScene,
-    loadTrackingReview, showTrackingGap, nextTrackingGap,
+    loadTrackingReview, showTrackingGap, nextTrackingGap, automaticPoint, drawAutomatic,
     addScene, removeScene, sortScenes, sceneWindowOrderNote, renderScenes, renderAnchors,
     renderPhases, placeSeedAt, addCorrection, addAnchorToSegment, newSegment,
     addRoiKeyframe, resolveClipForConfig, selectClip, ensureConfig, defaultPresentation,

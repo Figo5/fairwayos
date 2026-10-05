@@ -1,8 +1,8 @@
 # Fairway OS
 
-Fairway OS is a finished local golf-video analysis project with two modes:
-**canonical body-focused analysis** and an **operator-assisted demo** for selected
-clips. The internal Python package remains `ghostcaddie` for compatibility.
+Fairway OS is a local golf-video analysis and showcase project with
+**canonical body-focused analysis**, **operator-assisted demos**, and source-bound
+**saved tracking review and export** for selected clips. The internal Python package remains `ghostcaddie` for compatibility.
 
 | | Canonical mode | Demo mode | Broadcast showcase |
 |---|---|---|---|
@@ -10,7 +10,7 @@ clips. The internal Python package remains `ghostcaddie` for compatibility.
 | Scope | the clip, no operator input | one operator-chosen interval | the whole shot, overlays only in declared windows |
 | Processing | Local/offline | Local/offline, operator-assisted | Local/offline, operator-assisted |
 | Body | Conditional golfer identification and 2D image-space pose/angles | Body analysis within an optional operator-selected region | Same body pipeline, per scene window |
-| Ball / clubhead | Truthful `UNAVAILABLE` states | Experimental seeded/corrected image-space tracking | Same, per scene window; absent stays absent |
+| Ball / clubhead | Truthful `UNAVAILABLE` states | Experimental seeded/corrected image-space tracking | Same, per scene window, plus opt-in saved research observations; absent stays absent |
 | Output | Annotated video, analysis, report, provenance, diagnostics | Polished annotated video, keyframe cards, report, reproducible config/provenance | Whole-shot video (**source cadence, source audio copied**), per-scene report, config, provenance |
 | Physical metrics | Unavailable | Unavailable | Unavailable |
 
@@ -19,6 +19,29 @@ claim. Pixel displacement and playback time do not establish physical speed.
 Body angles are 2D projections, not validated 3D biomechanics. Demo ball/club
 tracking is experimental and operator-assisted; seeds, corrections, interpolation,
 and reviewed anchors are disclosed rather than presented as automatic detections.
+
+## Review and export saved tracking
+
+The broadcast review UI can preview source-bound automatic research positions,
+step through tracking gaps, and export them with the showcase presentation. Load a
+matching config, then choose **Reviewed showcase (assisted)** or **Saved automatic
+targets (research)**. Each export has its own immutable config snapshot and output
+folder, with an inline video preview after verification.
+
+```sh
+.venv/bin/python -m ghostcaddie broadcast-showcase ui \
+  --config-dir /absolute/path/to/configs --out-root /absolute/path/to/exports \
+  --extra-root /absolute/path/to/clips \
+  --tracking-predictions /absolute/path/to/results.predictions.json \
+  --cv-python "$FAIRWAY_BODY_PYTHON" --body-model "$FAIRWAY_BODY_MODEL"
+```
+
+Saved mode uses the original saved seed and automatic observations; current seed
+edits, corrections and assisted paths stay in the document but do not alter this
+export. Missing, lost and interpolated frames have no automatic marker or trail.
+It imports prior results without running a new tracking model. Body/phase inputs
+remain operator-assisted; physical metrics remain unavailable. See the
+[saved tracking guide](docs/saved-tracking-user-guide.md).
 
 ## Setup
 

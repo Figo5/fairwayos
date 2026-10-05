@@ -1,3 +1,30 @@
+# Current project status — 2026-10-05
+
+The broadcast review/export workflow now supports source-bound saved automatic
+research observations alongside the existing reviewed showcase. Automatic previews
+and exports use the scene containing the original saved seed, leave missing/lost
+frames empty, omit interpolation, and record which assistance was excluded. Jobs
+have separate output folders and pinned config snapshots; the verified output can
+be played inline. See [the saved tracking guide](docs/saved-tracking-user-guide.md).
+
+The Tiger 2019 Masters collection contains twelve source trims with reviewed and
+saved automatic export variants. Body inference uses the unchanged local MoveNet
+model and the project-pinned LiteRT runtime. Original trims, older showcases and
+tracking evidence are preserved outside Git. The canonical body-focused mode's
+unavailable ball/clubhead and physical-metric contract remains unchanged.
+
+This work is on the local `feat/clubhead-appearance-identity` branch. Saved
+observations are experimental; the twelve inspected clips are a regression
+collection, not independent human-confirmed validation. Remaining ball false
+positives and fast-swing head losses require further tracking research. Completion
+of the local showcase workflow does not establish general-purpose tracking.
+
+## Earlier closeout record
+
+The following records the separate 2026-09-22 closeout. The user subsequently
+reopened tracking work on the Tiger collection; its statement that research was
+closed describes that earlier date.
+
 # Final project status — 2026-09-22
 
 Fairway OS is finished. `main` is the product branch. Research is closed; project

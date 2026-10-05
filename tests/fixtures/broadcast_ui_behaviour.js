@@ -370,5 +370,42 @@ const ballLoad=ui.loadTrackingReview(); const ballReview=pendingReviews.pop();
 answerReview(ballReview,{source_sha256:"b".repeat(64),target:"clubhead",gaps:[]});await ballLoad;
 check("a response for the wrong target is refused",ui.state.tracking===null && document.getElementById("reviewInfo").textContent.includes("unavailable"));
 globalThis.fetch=fetchStub;
+// Preview paints only current-frame automatic observations, with native scaling.
+preview.width=1280;preview.height=720;
+document.getElementById("previewAutomatic").checked=true;
+ui.state.clip.width=1920;ui.state.clip.height=1080;
+ui.state.scenes=[{id:"saved",window:{start_frame:2,end_frame:5}}];
+ui.state.savedPoints={seed:{frame:2,x:960,y:540},points:[
+ {source_frame:2,status:"manual_anchor",origin:"operator",x:960,y:540},
+ {source_frame:3,status:"observed_template",origin:"automatic",x:960,y:540,method:"sam2_head_region"},
+ {source_frame:4,status:"lost",origin:"derived",x:null,y:null},
+ {source_frame:5,status:"interpolated",origin:"derived",x:975,y:540}]};
+ui.state.frame=3;let autoCircles=[];
+ui.drawAutomatic({save(){},restore(){},beginPath(){},fill(){},arc(...args){autoCircles.push(args);}},preview);
+check("saved automatic points use scaled native source coordinates",autoCircles.length===1 && autoCircles[0][0]===640 && autoCircles[0][1]===360);
+const beforeAutomatic=clone(ui.state.config);
+for (const frame of [2,4,5,6]) {ui.state.frame=frame;check("no automatic ghost or assisted point on frame "+frame,ui.automaticPoint()===null);}
+check("automatic preview does not modify assistance or dirty the document",same(ui.state.config,beforeAutomatic) && !ui.state.dirty);
+ui.state.frame=3;document.getElementById("previewAutomatic").checked=false;
+check("automatic preview can be hidden without removing saved observations",ui.automaticPoint()===null && ui.state.savedPoints.points.length===4);
+// Complete a real two-step summary + positions response, then switch source while points are pending.
+const pendingPositions=[];
+globalThis.fetch=(url)=>String(url).startsWith("/api/tracking")
+ ? new Promise(resolve=>pendingPositions.push({url,resolve})) : fetchStub(url);
+function answerPosition(request,payload){request.resolve({ok:true,status:200,async text(){return JSON.stringify(payload);}});}
+document.getElementById("reviewTarget").value="clubhead";
+const loadPositions=ui.loadTrackingReview();const summaryRequest=pendingPositions.pop();
+answerPosition(summaryRequest,{ok:true,tracking:{source_sha256:ui.state.clip.sha256,target:"clubhead",gaps:[],automatic_frames:1,start_frame:3,end_frame:4}});await sleep(0);
+const oldPoints=pendingPositions.pop();
+ui.selectClip("clip01");
+answerPosition(oldPoints,{ok:true,source_sha256:"b".repeat(64),target:"clubhead",available:true,prediction_sha256:"c".repeat(64),result:{points:[{source_frame:3,origin:"automatic",status:"observed_template",x:1,y:1}]}});await loadPositions;
+check("pending positions cannot repopulate another clip's preview",ui.state.savedPoints===null && !ui.state.savedAvailable);
+// A reply claiming available results must carry its exact source and target.
+const hashLoad=ui.loadTrackingReview();const hashSummary=pendingPositions.pop();
+answerPosition(hashSummary,{ok:true,tracking:{source_sha256:ui.state.clip.sha256,target:"clubhead",gaps:[],automatic_frames:1,start_frame:3,end_frame:4}});await sleep(0);
+const hashPoints=pendingPositions.pop();
+answerPosition(hashPoints,{ok:true,available:true,prediction_sha256:"c".repeat(64),result:{points:[]}});await hashLoad;
+check("available positions without a source binding are refused",ui.state.savedPoints===null && !ui.state.savedAvailable);
+globalThis.fetch=fetchStub;
 console.log(JSON.stringify({results}));
 process.exit(results.every((r) => r.ok) ? 0 : 1);

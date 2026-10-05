@@ -139,6 +139,7 @@ class Registry:
         self.results: Dict[str, dict] = {}
         self.jobs: Dict[str, dict] = {}
         self.tracking_review: Dict[str, dict] = {}
+        self.saved_tracks: dict = {}
         self.lock = threading.Lock()
         self.scan()
 
@@ -310,6 +311,18 @@ def make_handler(registry: Registry, token: str, config_dir: Path,
                         raise DemoConfigError("unknown tracking target")
                     self._json(200, {"ok": True, "tracking": registry.tracking_review.get(
                         record.sha256, {}).get(target)})
+                    return
+                if parsed.path == "/api/tracking/points":
+                    record = registry.clip(str(query.get("clip", "")))
+                    target = query.get("target", "clubhead")
+                    if target not in {"ball", "clubhead"}:
+                        raise DemoConfigError("unknown tracking target")
+                    block = registry.saved_tracks.get("clips_by_sha", {}).get(record.sha256)
+                    result = (block or {}).get("targets", {}).get(target)
+                    self._json(200, {"ok": True, "source_sha256": record.sha256,
+                                     "target": target, "result": result,
+                                     "available": bool(block),
+                                     "prediction_sha256": registry.saved_tracks.get("prediction_sha256")})
                     return
                 if parsed.path == "/api/library":
                     self._json(200, {"ok": True, "roots": _library(registry)})
@@ -701,8 +714,35 @@ def _start_render(registry: Registry, config_dir: Path, render_config: dict,
     mismatch = _clip_match_error(registry, clip, config)
     if mismatch:
         raise DemoConfigError(mismatch)
+    mode = payload.get("tracking_mode", "reviewed")
+    if mode not in {"reviewed", "saved_automatic"}:
+        raise DemoConfigError("Unknown tracking export mode")
+    job_config = dict(render_config)
+    job_config["use_saved_tracks"] = mode == "saved_automatic"
+    if job_config["use_saved_tracks"]:
+        from .saved_tracks import load_saved_tracks
+        path = render_config.get("tracking_predictions")
+        if not path:
+            raise DemoConfigError("No saved tracking results were loaded at startup")
+        current = load_saved_tracks(path, [clip], require_all_registered=False)
+        if current["prediction_sha256"] != registry.saved_tracks.get("prediction_sha256"):
+            raise DemoConfigError("Saved tracking file changed; restart review to load it")
+        if clip.sha256 not in current["clips_by_sha"]:
+            raise DemoConfigError("No saved tracking results match this clip")
     parsed = parse_broadcast(config)
     resolved = validate_broadcast(parsed, probe_source(clip.path))
+
+    if job_config["use_saved_tracks"]:
+        from types import SimpleNamespace
+        from .broadcast import build_broadcast_spec, broadcast_out_paths
+        from .broadcast_saved import attach_saved_tracks
+        check_paths = broadcast_out_paths(Path(render_config["out_root"]))
+        check_spec = build_broadcast_spec(resolved, out_dir=render_config["out_root"],
+                                         paths=check_paths, body_model=SimpleNamespace(path="", found=False),
+                                         redact_path=False, render_enabled=True)
+        attach_saved_tracks(check_spec, resolved, render_config["tracking_predictions"],
+                            registry.saved_tracks.get("prediction_sha256"))
+        job_config["tracking_predictions_sha256"] = registry.saved_tracks["prediction_sha256"]
 
     config_path = Path(os.path.realpath(str(config_dir))) / name
     if keep_config or not config_path.exists():
@@ -712,17 +752,26 @@ def _start_render(registry: Registry, config_dir: Path, render_config: dict,
         config_path = _write_config_payload(config_dir, name, config)
 
     out_root = Path(os.path.realpath(str(render_config["out_root"])))
-    out_dir = out_root / f"{parsed.shot_id or clip.clip_id}_ui"
+    render_key = uuid.uuid4().hex
+    out_dir = out_root / f"{parsed.shot_id or clip.clip_id}_{mode}_{render_key[:12]}"
     for protected in PROTECTED_OUTPUT_PREFIXES:
         if str(out_dir).startswith(protected):
             raise DemoConfigError(
                 f"refusing to write into the preserved tree {protected}")
 
-    job_id = registry.new_job(clip_id=clip.clip_id, config_path=str(config_path),
+    # Pin the submitted document for this job; later saves cannot change a running export.
+    snapshot_dir = Path(config_dir) / ".render-snapshots" / render_key
+    snapshot_config = json.loads(json.dumps(config))
+    manifest = (snapshot_config.get("shot") or {}).get("parent_source_manifest")
+    if manifest and not Path(manifest).is_absolute():
+        snapshot_config["shot"]["parent_source_manifest"] = str((Path(config_dir) / manifest).resolve())
+    execution_path = _write_config_payload(snapshot_dir, name, snapshot_config)
+
+    job_id = registry.new_job(clip_id=clip.clip_id, config_path=str(execution_path),
                               out_dir=str(out_dir))
     thread = threading.Thread(target=_run_job, args=(registry, job_id, clip.path,
-                                                     str(config_path), str(out_dir),
-                                                     render_config),
+                                                     str(execution_path), str(out_dir),
+                                                     job_config),
                               daemon=True)
     thread.start()
     return {"ok": True, "job": _job_public(registry.jobs[job_id]),
@@ -735,6 +784,9 @@ def _run_job(registry: Registry, job_id: str, clip: str, config_path: str,
     job = registry.jobs[job_id]
     cmd = [render_config["python"], "-m", "ghostcaddie", "broadcast-showcase", "run",
            clip, "--config", config_path, "--out", out_dir, "--force"]
+    if render_config.get("use_saved_tracks"):
+        cmd += ["--saved-tracks", render_config["tracking_predictions"],
+                "--saved-tracks-sha256", render_config["tracking_predictions_sha256"]]
     if render_config.get("cv_python"):
         cmd += ["--cv-python", render_config["cv_python"]]
     if render_config.get("body_model"):
@@ -777,6 +829,7 @@ def _run_job(registry: Registry, job_id: str, clip: str, config_path: str,
             try:
                 analysis = json.loads(paths["analysis"].read_text(encoding="utf-8"))
                 job["result"]["verification"] = analysis.get("verification")
+                job["result"]["tracking_export"] = (analysis.get("config") or {}).get("tracking_export")
                 job["result"]["render"] = analysis.get("render")
                 job["result"]["scenes"] = [
                     {"id": s.get("id"), "kind": s.get("kind"),
@@ -805,13 +858,16 @@ def serve(*, host: str = "127.0.0.1", port: int = 8765, out_root: Optional[str] 
     roots += [Path(p) for p in extra_roots]
     registry = Registry(roots)
     if tracking_predictions:
-        from .tracking_review import load_tracking_review
-        registry.tracking_review = load_tracking_review(tracking_predictions, registry.clips.values())
+        from .saved_tracks import load_saved_tracks
+        from .tracking_review import summarize_saved_tracks
+        registry.saved_tracks = load_saved_tracks(tracking_predictions, registry.clips.values())
+        registry.tracking_review = summarize_saved_tracks(registry.saved_tracks)
     token = uuid.uuid4().hex
     render_config = {
         "python": os.environ.get("FAIRWAY_UI_PYTHON") or _this_python(),
         "cv_python": cv_python or os.environ.get("FAIRWAY_BODY_PYTHON") or "",
         "body_model": body_model or os.environ.get("FAIRWAY_BODY_MODEL") or "",
+        "tracking_predictions": str(Path(tracking_predictions).resolve()) if tracking_predictions else None,
         "out_root": str(out_root or RUN_ROOT / "showcases"),
         "repo_root": str(Path(__file__).resolve().parents[2]),
     }

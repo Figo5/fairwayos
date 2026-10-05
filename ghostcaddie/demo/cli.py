@@ -100,6 +100,9 @@ def _register_broadcast(sub) -> None:
                        help="Interpreter that has cv2+numpy.")
     run_p.add_argument("--body-model", default=None,
                        help="Explicit MoveNet TFLite path. Never downloaded.")
+    run_p.add_argument("--saved-tracks", type=Path, default=None,
+                       help="Opt-in saved source-bound research observations; excludes assisted paths.")
+    run_p.add_argument("--saved-tracks-sha256", default=None, help="Require this saved prediction digest.")
     run_p.add_argument("--no-render", action="store_true",
                        help="Measure only; write no video.")
     run_p.add_argument("--redact-path", action="store_true",
@@ -271,7 +274,8 @@ def _run_broadcast_showcase(args) -> None:
                 str(args.clip), str(args.config), str(args.out),
                 cv_python=args.cv_python, body_model_path=args.body_model,
                 render=not args.no_render, redact_path=args.redact_path,
-                force=args.force)
+                force=args.force, saved_tracks=str(args.saved_tracks) if args.saved_tracks else None,
+                saved_tracks_sha256=args.saved_tracks_sha256)
         except DemoError as exc:
             raise SystemExit(f"broadcast-showcase run failed: {exc}") from exc
         for warning in result.warnings:
