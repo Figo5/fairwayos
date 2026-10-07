@@ -1,0 +1,97 @@
+{
+  "artifact_root": "~/fairway-os-runs/fairwayos-independent-testing-2026-10-07",
+  "ground_truth": false,
+  "regressions": [
+    {
+      "id": "cropped_swing_missing_objects",
+      "clip_id": "pexels_36243908",
+      "frames": [
+        0,
+        140
+      ],
+      "objects": [
+        "ball",
+        "clubhead"
+      ],
+      "diagnostic": "Visible ball and iron head in a low-angle shot; all four channels are empty. Upper body and hands are off-screen. Pose-dependent search and whole-frame scene gating are candidate causes, not an isolated causal proof.",
+      "evidence": [
+        "review/pexels_36243908-source.jpg",
+        "review/pexels_36243908-poster.jpg"
+      ],
+      "next_experiment": "Current-frame ball/head proposals for cropped views without full-body pose or majority-green gating.",
+      "source_sha256": "7cb58a57b32721091ddb18754219ea36e5e0cc500f8e2d5120a22ecb47205983",
+      "diagnostic_provenance": "AI source-image review; not independent ground truth",
+      "independent_accuracy_metric": false,
+      "source_group": "pexels_ignacio_362439_family",
+      "observations_sha256": "b02c54be76c442c4bd867088dab871c5f0874cc44b8fdea01eb35e1d8fd50064",
+      "evidence_sha256": {
+        "review/pexels_36243908-source.jpg": "6341377322141addc787d32820c7576599d7a13340a4736680c2a8c85b1db486",
+        "review/pexels_36243908-poster.jpg": "a51442290cf15c2762cf54c1ddcdbbb970bb419b65ecfcd42e3313f1b2be1fd1"
+      }
+    },
+    {
+      "id": "light_fixture_false_ball",
+      "clip_id": "pexels_36243910",
+      "frames": [
+        239,
+        274
+      ],
+      "objects": [
+        "ball"
+      ],
+      "diagnostic": "All 36 published ball centers in this interval land on the same distant light fixture atop a vertical pole. Camera motion gives it apparent motion.",
+      "evidence": [
+        "review/sky-candidate239-context.jpg",
+        "review/sky-candidate239-detail.png",
+        "review/observations/pexels_36243910-ball-0.jpg"
+      ],
+      "next_experiment": "Use camera-compensated static-background and attached-pole evidence before publishing a sky component.",
+      "source_sha256": "7b4ae6591f096f04017b74bb856a4f6a0f6d31fad59cfbcd01fbf7d949117d4b",
+      "diagnostic_provenance": "AI source-image review; not independent ground truth",
+      "independent_accuracy_metric": false,
+      "source_group": "pexels_ignacio_362439_family",
+      "observations_sha256": "a6584c6cd96eff1f2c5addbcc6ba4c8047a85765fabe8bd0099c53c93bfa8b97",
+      "evidence_sha256": {
+        "review/sky-candidate239-context.jpg": "d0ca19efeaac407a50861d156a44b86202e3b9bfa8e159532c10806ac04d7388",
+        "review/sky-candidate239-detail.png": "3cb8a5180b98868c4c70f1c5e71e2b121158f63a7209623a7dc0e9bfa205d025",
+        "review/observations/pexels_36243910-ball-0.jpg": "e40c97e2b0f265d28ad8d8e62db232fef6a6c17d72a71d6a1d7cf266e0b16588"
+      }
+    },
+    {
+      "id": "background_patch_false_cup",
+      "clip_id": "pexels_36243907",
+      "frames": [
+        102,
+        121
+      ],
+      "objects": [
+        "cup"
+      ],
+      "diagnostic": "All 20 published cup centers land on a pale background patch on the slope. The actual visible cup is at the foot of the foreground white flagstick, far from these centers.",
+      "evidence": [
+        "review/cup-candidate-context.jpg",
+        "review/cup-candidate-detail.png",
+        "review/observations/pexels_36243907-cup-0.jpg"
+      ],
+      "next_experiment": "Require native cup-rim/flagstick-base geometry and reject isolated background flat patches.",
+      "source_sha256": "9ef765ecea0797e5519e9d38d4524e255f944272546eab458023a177ae2ba848",
+      "diagnostic_provenance": "AI source-image review; not independent ground truth",
+      "independent_accuracy_metric": false,
+      "source_group": "pexels_ignacio_362439_family",
+      "observations_sha256": "56ec7fcaa44975e29641518709da1d3b3c2c7be91ebc36c1cf47681726c8c0bd",
+      "evidence_sha256": {
+        "review/cup-candidate-context.jpg": "5365318a9748934c03e90b0c169fddf76b75699bca0cfb0c945cc44cdfa15fd0",
+        "review/cup-candidate-detail.png": "1cad35b828d818460f2e3dd78b97be7e7fb90d117358aadc0d2b68a8ad264e31",
+        "review/observations/pexels_36243907-cup-0.jpg": "5ade7861cb5851f5816ec653193e045847db83dee02e371314f0267d74522f10"
+      }
+    }
+  ],
+  "additional_review": {
+    "pexels_36243907_ball": "All 190 published centers reviewed in native crops; visually follow the putted white ball. This is an AI diagnostic, not a scored precision claim.",
+    "pexels_36243905_clubhead": "All 9 published centers reviewed in native crops on the iron head.",
+    "pexels_36243910_clubhead": "All 21 published centers reviewed in native crops on the driver head; principally address/finish rather than continuous high-speed swing.",
+    "body": "667 asserted body frames; no independent identity or joint accuracy labels.",
+    "reserved": "Two raw 12-thumbnail sheets reviewed for source suitability only; no model inference."
+  },
+  "not_fixed": true
+}

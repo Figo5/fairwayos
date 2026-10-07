@@ -1,112 +1,33 @@
-# Current project status — 2026-10-05
+# FairwayOS status — paused October 7, 2026
 
-The broadcast review/export workflow now supports source-bound saved automatic
-research observations alongside the existing reviewed showcase. Automatic previews
-and exports use the scene containing the original saved seed, leave missing/lost
-frames empty, omit interpolation, and record which assistance was excluded. Jobs
-have separate output folders and pinned config snapshots; the verified output can
-be played inline. See [the saved tracking guide](docs/saved-tracking-user-guide.md).
+The automatic video-only workflow, four-object research tracking, native media export, analytics and independent-reference evaluation contracts are saved for resuming development. The owner requested this checkpoint on main and the best existing examples on GitHub. Active tracking improvement is paused.
 
-The Tiger 2019 Masters collection contains twelve source trims with reviewed and
-saved automatic export variants. Body inference uses the unchanged local MoveNet
-model and the project-pinned LiteRT runtime. Original trims, older showcases and
-tracking evidence are preserved outside Git. The canonical body-focused mode's
-unavailable ball/clubhead and physical-metric contract remains unchanged.
+The product accepts a clip without markers or per-video configuration. Local ball/pose and experimental clubhead proposals use current-image gates; optional Claude Opus 5.5 confirmation sends bounded native crops to the configured cloud provider. It supplies no coordinates. This is a research prototype with partial coverage and known wrong locks, not validated production tracking or a launch monitor.
 
-This work is on the local `feat/clubhead-appearance-identity` branch. Saved
-observations are experimental; the twelve inspected clips are a regression
-collection, not independent human-confirmed validation. A new opt-in ball-evidence
-ablation removes the four labeled false positives on this collection while
-retaining 108 of 109 previously correct ball samples; the extra miss is a causal
-confirmation delay. All twelve new exports preserve source timing and audio.
-See [the research scope and limitations](docs/ball-evidence-research.md).
-An opt-in full-swing context policy retains all classic observations and recovers
-two additional labeled head samples: 23 correct / 0 incorrect / 15 misses on 38
-visible development references. Earlier versions were rejected for background,
-shaft and grip tracking. The selected version adds 78 current observations, all
-visually inspected; this does not establish accuracy on unlabeled frames.
-See [full-swing scope and remaining limitations](docs/full-swing-research.md).
-Unseen ball distractors, flight tracking and fast-swing head losses still require research. Completion
-of the local showcase workflow does not establish general-purpose tracking.
+## Preserved collections
 
-## Earlier closeout record
+| Collection | Clips | Native frames | Ball / clubhead / body / cup assertions |
+|---|---:|---:|---|
+| Masters v5 | 23 | 9,466 | 3,781 / 869 / 3,785 / 2,568 |
+| New PGA TOUR events | 10 | 3,814 | 860 / 512 / 1,477 / 0 |
 
-The following records the separate 2026-09-22 closeout. The user subsequently
-reopened tracking work on the Tiger collection; its statement that research was
-closed describes that earlier date.
+Counts are availability, not correctness. The Masters collection has 150 simultaneous four-layer frames. The newer PGA TOUR collection has no cup assertions, a caddie body lock in the lag putt, missing ball/head intervals and a brief next-stroke tail in one drive. Independent accuracy is withheld; AI diagnostics are not reference labels. Physical mph, carry, impact, tempo and 3D metrics remain unavailable/unverified. Separately sourced 142/131/111 mph figures are broadcaster-reported ball speeds.
 
-# Final project status — 2026-09-22
+The [checkpoint release](https://github.com/Figo5/fairwayos/releases/tag/checkpoint-2026-10-07) preserves all 33 annotated clips, both compilations, four standalone showcase examples, sanitized observations/analytics, media verification and source-bound manifests. MP4 bytes are copied unchanged. Original source downloads, complete private run archives, weights, credentials and provider transcripts remain local. All archive entries pass CRC checks and release files have SHA-256 receipts.
 
-Fairway OS is finished. `main` is the product branch. Research is closed; project
-completion does not validate physical measurements or general-purpose tracking.
-Use [the README](README.md) for setup, the two supported workflows and limitations.
+## Closeout validation
 
-## History consolidation
+- Full local suite: **2,458 passed, 2 skipped, 448 subtests passed** in 366.86 seconds; two existing deprecation warnings.
+- Source and test compilation passed; staged whitespace checks passed.
+- All five existing CLI smoke scenarios passed with their expected artifacts.
+- Upload/retention/UI checks: 56 passed. Import-isolation plus archived ball-evidence checks: 53 passed and six subtests.
+- Existing collection receipts verify native individual frames/PTS/audio. The PGA TOUR compilation has all 3,814 frames, exact decoded equality to individual exports and maximum PTS delta 0.333 microseconds. The Masters compilation preserves 9,466 frames and fits/pads its picture to 1080p, with a recorded timeline tolerance of approximately two microseconds. Compilation audio is encoded once; compatible individual audio is copied bit-exactly.
+- No new inference thresholds, model weights, tracking coordinates or detector improvements were introduced during closeout. Three legacy UI assertions now target `/review`; the demo import-isolation test restores the original module objects to avoid corrupting later mocks. Development requirements include PyAV and Pillow for the rendering contracts.
 
-- Fast-forwarded completed `demo/operator-assisted-analysis` work (`2640b3a`),
-  including canonical analysis, v1/v2/v3 research history, assisted demo and showcase.
-  Local `research/ball-dataset-v2`, `research/ball-tracker-v2`,
-  `research/ball-tracker-v3-context`, `pga-research-analyzer`, and
-  `pga-research-demo` tips are ancestors of this finished history.
-- Merged remote `pga-research-analyzer` (`5aee6f0`). Its portability change was
-  already present; the merge preserves the remaining accepted-seed provenance fix
-  and regression test without restoring an older runtime.
-- Did not merge the divergent standalone `local-tracker-restart` implementation.
-  Its latest local tip (`676f1d6`, seven commits beyond its old remote tip) is
-  preserved as `archive/local-tracker-restart-2026-09-22`. It predates the final
-  body-only contract and would reintroduce a superseded AI/approximate-analytics
-  workflow. The final history retains its own process-group cleanup and truthful
-  unavailable-state implementation. The archive includes the old local `main` tip.
+Local logs and release staging live in `~/fairway-os-runs/fairwayos-github-checkpoint-2026-10-07/`. GitHub Actions runs separately after main is pushed; its result is visible on the repository Actions page.
 
-No public history was rewritten. Removed documents remain accessible in the
-pre-closeout history, and the archive tag preserves the unmerged restart.
+## When development resumes
 
-## Cleanup
+Start with cup detection and golfer identity, then independent native-frame labels, held-out source/session evaluation, ball/head proposals through blur/insets/cuts, automatic shot segmentation and measured/calibrated physical analytics. Preserve the original frozen inputs and rejected revisions. Read [the resume guide](docs/resume-fairwayos.md) for the archive map and acceptance criteria.
 
-Removed 39 obsolete Markdown files: `.hermes/plans/`, `docs/superpowers/plans/`,
-old `STATUS.md` / `DEMO_REVIEW.md`, progress logs, handoffs, acquisition plans and
-superseded workflow instructions. Retained operator guides, annotation contracts,
-canonical audit/sweep and selected ball/club research decisions; see
-[the evidence index](docs/research-decisions.md).
-
-Removed three unreferenced, superseded runners: `tools/demo/build_fairwayos_demo.py`,
-`tools/demo/render_rory_no_seed.py`, and `tools/demo/video_to_results.py`. Their
-rendering/body-only entry-point roles are covered by the final canonical/demo
-pipelines and tests; their original source remains in Git history.
-
-Removed eager imports of the historical AI demo/fallback from finished CLI startup.
-Their tested implementations remain opt-in research code. Moved the tested
-pseudo-clubhead experiment from `out/` to `tools/research/`. No test-backed research
-module was deleted merely because its experiment failed. Removed tracked `uv.lock`
-and strengthened ignores. Restricted pytest discovery to `tests/`, replaced stale
-dependency instructions, and made CI run the full pytest suite.
-
-Pruned four obsolete temporary worktrees after verifying their commits were in
-`main` and their remaining directories contained no source edits. Repaired the
-surviving PGA research worktree pointer and retained its detached historical tree.
-Obsolete local branch names were removed after ancestry checks. Remote demo and
-research branch names are removed after publishing `main`; the unmerged restart
-branch name is retired only after its archive tag is published. History remains
-reachable through `main` or the archive tag.
-
-## Validation
-
-- Fresh Python 3.11 environment installed from `requirements-dev.txt`: **1,699
-  passed, 2 skipped, 242 subtests passed** (421.64 seconds).
-- Existing research environment: **1,698 passed, 2 skipped, 240 subtests passed**
-  before the new CLI isolation test was added; that test also passed separately.
-- Targeted closeout regressions: **39 passed, 2 subtests passed**.
-- Two existing deprecation warnings: legacy `cgi` and one unittest returning a
-  value. Neither is a test failure; Python metadata excludes 3.13+.
-- Canonical CLI: success, 12 rendered frames, truthful unavailable body/ball/club
-  and physical-metric states on a synthetic clip with no golfer.
-- Demo and showcase CLI: success, 60 rendered frames each, operator assistance
-  disclosed and source/config hashes verified in provenance.
-- All three H.264 outputs passed complete FFmpeg decoding. Compilation, local
-  Markdown links, diff whitespace and the tracked-artifact audit passed.
-
-Smoke tests use a generated synthetic clip and locally supplied MoveNet weights;
-they verify execution, artifacts and truthful boundaries, not golf tracking
-accuracy. Existing showcase deliverables outside the repository are not inputs to
-these checks. No source footage, generated media, weights, caches, `out/` files or
-`uv.lock` are in the final tracked tree. Historical commits are left intact.
+Earlier workflow status is preserved in [the October 5 record](docs/status-2026-10-05.md). Historical assisted and canonical entry points remain in [the archived guide](docs/legacy-workflows.md).

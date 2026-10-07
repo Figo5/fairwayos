@@ -35,6 +35,7 @@ SEEDED_WINDOW_FRAMES = 24
 RETAIN_UPLOADED_MEDIA = False   # finding 5: delete uploaded media at terminal state
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 FRESH_WORKER_TIMEOUT_SECONDS = 1800
+AUTOMATIC_SHOT_TIMEOUT_SECONDS = 1800
 
 
 # --- EXPERIMENTAL: fresh AI analysis mode (analysis=fresh_ai)
@@ -301,6 +302,66 @@ def _plan_from_isolated_interpreters():
     return plan
 
 
+# Upload-only ball-and-target presentation. This is a separate observation
+# route; it does not turn withdrawn canonical ball trackers into supported ones.
+def _run_automatic_shot_job(store: JobStore, job_id: str, video):
+    # The subprocess below has a processing limit and cancellation kills its
+    # process group. Polling must not delete a source that it is still reading.
+    with store.processing_source(job_id):
+        _execute_automatic_shot_job(store, job_id, video)
+
+
+def _execute_automatic_shot_job(store: JobStore, job_id: str, video):
+    try:
+        if store.cancelled(job_id):
+            return
+        store.start(job_id)
+        store.progress(job_id, 0.1)
+        outdir = os.path.join(store.workdir(job_id), "shot_intelligence")
+        os.makedirs(outdir, exist_ok=True)
+        interpreter = os.environ.get("FAIRWAY_SHOT_PYTHON") or sys.executable
+        args = [interpreter, "-m", "ghostcaddie.video.automatic_shot", video.path,
+                "--outdir", outdir, "--expected-sha256", video.sha256]
+        if store.cancelled(job_id):
+            return
+        proc = subprocess.Popen(args, cwd=REPO_ROOT, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True, start_new_session=True)
+        store.set_proc(job_id, proc, process_group=True)
+        try:
+            # Cancellation can land between Popen and registration. The cancel
+            # endpoint handles registered workers; close the launch race here.
+            if store.cancelled(job_id):
+                store.kill_proc(job_id)
+                return
+            stdout, stderr = proc.communicate(timeout=AUTOMATIC_SHOT_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            store.kill_proc(job_id)
+            raise RuntimeError("Automatic analysis exceeded its processing limit")
+        finally:
+            store.clear_proc(job_id)
+        if store.cancelled(job_id):
+            return
+        with open(os.path.join(outdir, "worker.log"), "w") as f:
+            f.write(stderr or "")
+        if proc.returncode:
+            raise RuntimeError("Automatic video worker failed: " + (stderr or "")[-500:])
+        result = json.loads(stdout.strip().splitlines()[-1])
+        if result.get("source", {}).get("sha256") != video.sha256:
+            raise RuntimeError("Automatic worker returned a result for another source")
+        if result.get("operator_seed_count") != 0 or not result.get("automatic_no_seed"):
+            raise RuntimeError("Automatic worker returned an assisted result")
+        if not result.get("verification", {}).get("ok"):
+            raise RuntimeError("Automatic video export did not pass verification")
+        store.progress(job_id, .95)
+        result["media_retention"] = store.media_state(job_id)
+        store.attach_result_video(job_id, result["outputs"]["video"])
+        store.finish(job_id, result)
+    except Exception as e:
+        if not store.cancelled(job_id):
+            traceback.print_exc()
+            store.fail(job_id, f"{type(e).__name__}: {e}")
+
+
 # --- CANONICAL: analysis=canonical
 # The upload service is a wrapper around ghostcaddie.video.canonical, not a second
 # implementation of it. Everything about layer states, metric sufficiency, the
@@ -501,8 +562,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self._guard(mutating=False):
             return
-        if self.route == "/":
-            page = PAGE.replace("__FAIRWAYOS_TOKEN__", self.csrf_token)
+        if self.route in ("/", "/review"):
+            from ghostcaddie.upload.automatic_ui import PAGE as AUTO_PAGE
+            template = AUTO_PAGE if self.route == "/" else PAGE
+            page = template.replace("__FAIRWAYOS_TOKEN__", self.csrf_token)
             return self._send(200, page, "text/html; charset=utf-8")
         if self.route == "/ready":
             from ghostcaddie.upload.runtimes import RuntimeRegistry
@@ -542,6 +605,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._serve_video()
         if self.route == "/result-video":
             return self._serve_result_video()
+        if self.route == "/result-analytics":
+            return self._serve_result_analytics()
         if self.route.startswith("/jobs/"):
             jid = self.route.split("/")[2]
             try:
@@ -641,6 +706,20 @@ class Handler(BaseHTTPRequestHandler):
         if not path or not os.path.isfile(path):
             return self._send(404, {"error": "no rendered result video for this job"})
         self._serve_media(path)
+
+    def _serve_result_analytics(self):
+        try:
+            job = self.store.get(self._qs().get("job", ""))
+        except KeyError:
+            return self._send(404, {"error": "unknown job"})
+        retention = self.store.enforce_retention(job.id)
+        if not retention["retained"]:
+            return self._send(410, {"error": "media is no longer available", "media_retention": retention})
+        analytics = (job.result or {}).get("analytics")
+        if job.state != "done" or not isinstance(analytics, dict):
+            return self._send(404, {"error": "no analytics for this job"})
+        # Return the published result, never a client-supplied filesystem path.
+        return self._send(200, analytics)
 
     def _serve_media(self, path, ctype="video/mp4"):
         """Stream a media file, honouring a single HTTP byte range.
@@ -852,16 +931,19 @@ class Handler(BaseHTTPRequestHandler):
                     raise UploadRejected("fresh interval requires frame_start and frame_end")
                 fresh_frames = _fresh_frames_from_interval(frame_start, frame_end,
                                                           source_frames=video.frames)
-            elif analysis not in ("legacy_seeded", "canonical"):
+            elif analysis not in ("legacy_seeded", "canonical", "shot_intelligence"):
                 raise UploadRejected(
                     "unknown analysis mode; expected 'canonical' (the canonical "
-                    "local workflow), 'legacy_seeded', or 'fresh_ai' (research)")
+                    "local workflow), 'shot_intelligence', 'legacy_seeded', or 'fresh_ai' (research)")
         except UploadRejected as e:
             self.store.fail(job.id, str(e)); self.store.cleanup(job.id)
             return self._send(400, {"error": str(e), "job": job.to_dict()})
 
         self.store.attach_source(job.id, video)
-        if analysis == "canonical":
+        if analysis == "shot_intelligence":
+            threading.Thread(target=_run_automatic_shot_job,
+                             args=(self.store, job.id, video), daemon=True).start()
+        elif analysis == "canonical":
             threading.Thread(target=_run_canonical_job,
                              args=(self.store, job.id, video), daemon=True).start()
         elif analysis == "fresh_ai":

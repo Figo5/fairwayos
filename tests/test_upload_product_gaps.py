@@ -236,7 +236,7 @@ class ExpiredRetentionTests(_Base):
 
 class ReadinessContractTests(_Base):
     def test_the_ui_reads_the_schema_ready_actually_serves(self):
-        st, page = self.get("/", raw=True)
+        st, page = self.get("/review", raw=True)
         page = page.decode()
         self.assertIn("dependency_readiness", page)
         self.assertIn("can_execute_now", page)
@@ -324,7 +324,7 @@ class RoutingAndParameterTests(_Base):
     def test_the_seed_button_names_the_clubhead_target(self):
         """The seed the button posts has target "clubhead"; calling it "Head"
         in the UI names a target that does not exist."""
-        st, page = self.get("/", raw=True)
+        st, page = self.get("/review", raw=True)
         page = page.decode()
         self.assertIn("Clubhead box", page)
         self.assertNotIn(">Head box", page)
@@ -547,7 +547,7 @@ class ResultsDownloadTests(_Base):
             self.assertEqual(len(body["result"]["records"][0]["source_sha256"]), 64)
 
     def test_the_page_offers_a_results_download_and_an_explicit_media_delete(self):
-        st, page = self.get("/", raw=True)
+        st, page = self.get("/review", raw=True)
         page = page.decode()
         self.assertIn("Download results", page)
         self.assertIn("Delete media now", page)

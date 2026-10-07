@@ -1,0 +1,40 @@
+{
+  "provenance": "AI diagnostic inspection of native source pixels; not independent reference annotations or scored accuracy.",
+  "regressions": [
+    {
+      "clip_id": "05_fleetwood_h01_lag_putt",
+      "finding": "Target person is the caddie in the red bib, not Fleetwood. All 10 body assertions are confined to frames 162\u2013171; six distributed crops and full frame162 were visually inspected.",
+      "sampled_frames": [
+        162,
+        164,
+        166,
+        167,
+        169,
+        171
+      ],
+      "evidence_sha256": {
+        "review/05-caddie-lock-context.jpg": "3f9b15491769881c59fa0bece85485fd28d0db7dae2500c514e1f27bacf0f121",
+        "review/05_fleetwood_h01_lag_putt-published-samples.jpg": "c63be1f640fc0d7ea3b7f5ff053e772902689b7e0105b5ecde2b787489028dad"
+      }
+    },
+    {
+      "clip_id": "all",
+      "finding": "No cup assertions in any of the ten clips. Visible cups in putting views make cup detection the largest coverage gap.",
+      "evidence_sha256": {
+        "review/06_fleetwood_h01_par_putt-published-samples.jpg": "49a3ff1e44ef0c271eca1024d004fdd2d18bd8ecf153ec1b3dbae523a91a85be",
+        "review/08_fleetwood_h16_putt-published-samples.jpg": "1adbb51042ad9993060c519e4543ce43bf0c594539854f15689a631f4e6f07f1"
+      }
+    },
+    {
+      "clip_id": "03_fleetwood_h01_drive",
+      "finding": "Frames406\u2013425 include the following approach setup. These are frozen broadcast clips, not ten isolated independent strokes. Driver-adjacent early ball candidates remain ambiguous without reference annotation.",
+      "evidence_sha256": {
+        "review/03_fleetwood_h01_drive-published-samples.jpg": "baaf78490273b161900590a57265e7f01215a206a0fcebf0575df4cd1786a55b",
+        "review/03-ball-head-separation.png": "a75fe4c935dc66f90c89a64c1b538d58a1bb5386c77bab0f6d10d0a8e3d74ba5"
+      }
+    }
+  ],
+  "artifact_root": "~/fairway-os-runs/fairwayos-pga-tour-testing-2026-10-07",
+  "ground_truth": false,
+  "not_fixed": true
+}

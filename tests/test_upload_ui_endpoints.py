@@ -47,7 +47,7 @@ class UIEndpointTests(unittest.TestCase):
     def u(cls, p): return f"http://{cls.host}:{cls.port}{p}"
 
     def test_ui_page_is_served(self):
-        with urllib.request.urlopen(self.u("/")) as r:
+        with urllib.request.urlopen(self.u("/review")) as r:
             body = r.read().decode()
         self.assertEqual(r.status, 200)
         self.assertIn("upload", body.lower())
@@ -62,7 +62,7 @@ class UIEndpointTests(unittest.TestCase):
         the pseudo-label wording was misleading for a canonical body report, which is a
         measurement rather than a pseudo-label.
         """
-        with urllib.request.urlopen(self.u("/")) as r:
+        with urllib.request.urlopen(self.u("/review")) as r:
             body = r.read().decode()
         flat = " ".join(body.split())
         self.assertNotIn("Results are pseudo-labels, not ground truth", flat)
@@ -74,7 +74,7 @@ class UIEndpointTests(unittest.TestCase):
         self.assertNotIn("<title>FairwayOS upload &amp; review (research)</title>", flat)
 
     def test_the_readiness_panel_does_not_imply_canonical_ball_can_be_unlocked(self):
-        with urllib.request.urlopen(self.u("/")) as r:
+        with urllib.request.urlopen(self.u("/review")) as r:
             body = r.read().decode()
         flat = " ".join(body.split())
         self.assertIn("research dependency readiness", flat)

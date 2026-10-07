@@ -1,214 +1,104 @@
-# Fairway OS
+# FairwayOS
 
-Fairway OS is a local golf-video analysis and showcase project with
-**canonical body-focused analysis**, **operator-assisted demos**, and source-bound
-**saved tracking review and export** for selected clips. The internal Python package remains `ghostcaddie` for compatibility.
+Upload a golf clip and receive an annotated video with supported video-motion analytics. The current prototype automatically searches for the **ball, clubhead, golfer and cup**, with no points to mark, frame selections or per-video settings. The Python package is still named `ghostcaddie`.
 
-| | Canonical mode | Demo mode | Broadcast showcase |
-|---|---|---|---|
-| Command | `analyze-video` | `demo-video` | `broadcast-showcase` |
-| Scope | the clip, no operator input | one operator-chosen interval | the whole shot, overlays only in declared windows |
-| Processing | Local/offline | Local/offline, operator-assisted | Local/offline, operator-assisted |
-| Body | Conditional golfer identification and 2D image-space pose/angles | Body analysis within an optional operator-selected region | Same body pipeline, per scene window |
-| Ball / clubhead | Truthful `UNAVAILABLE` states | Experimental seeded/corrected image-space tracking | Same, per scene window, plus opt-in saved research observations; absent stays absent |
-| Output | Annotated video, analysis, report, provenance, diagnostics | Polished annotated video, keyframe cards, report, reproducible config/provenance | Whole-shot video (**source cadence, source audio copied**), per-scene report, config, provenance |
-| Physical metrics | Unavailable | Unavailable | Unavailable |
+**Status: paused at the October 7, 2026 development checkpoint.** The upload flow and presentation work. Tracking is partial, wrong-object/person locks remain possible, and independent accuracy has not been established. This is a research prototype, not a finished launch monitor or a production golf tracker.
 
-There is **no validated physical ball speed**, and no carry, spin, or launch-monitor
-claim. Pixel displacement and playback time do not establish physical speed.
-Body angles are 2D projections, not validated 3D biomechanics. Demo ball/club
-tracking is experimental and operator-assisted; seeds, corrections, interpolation,
-and reviewed anchors are disclosed rather than presented as automatic detections.
+## Watch the current examples
 
-## Review and export saved tracking
+[Checkpoint release: videos, compilations and analytics](https://github.com/Figo5/fairwayos/releases/tag/checkpoint-2026-10-07)
 
-The broadcast review UI can preview source-bound automatic research positions,
-step through tracking gaps, and export them with the showcase presentation. Load a
-matching config, then choose **Reviewed showcase (assisted)** or **Saved automatic
-targets (research)**. Each export has its own immutable config snapshot and output
-folder, with an inline video preview after verification.
+[![Tiger Masters par-putt automatic overlay](docs/assets/checkpoint-2026-10-07/tiger-masters-hole18-par-putt.jpg)](https://github.com/Figo5/fairwayos/releases/download/checkpoint-2026-10-07/tiger-masters-hole18-par-putt.mp4)
 
-```sh
-.venv/bin/python -m ghostcaddie broadcast-showcase ui \
-  --config-dir /absolute/path/to/configs --out-root /absolute/path/to/exports \
-  --extra-root /absolute/path/to/clips \
-  --tracking-predictions /absolute/path/to/results.predictions.json \
-  --cv-python "$FAIRWAY_BODY_PYTHON" --body-model "$FAIRWAY_BODY_MODEL"
-```
+| Example | Demonstrates | Known limits |
+|---|---|---|
+| [Tiger · Masters hole 18 par putt](https://github.com/Figo5/fairwayos/releases/download/checkpoint-2026-10-07/tiger-masters-hole18-par-putt.mp4) | Strongest combined ball, putter, body and cup presentation | Partial publication; no independent localization or identity score |
+| [Tiger · Masters hole 16 tee shot](https://github.com/Figo5/fairwayos/releases/download/checkpoint-2026-10-07/tiger-masters-hole16-tee.mp4) | Swing view followed by ball/green/cup tracking | Objects appear in different views; clubhead coverage is sparse |
+| [Tiger · Masters hole 13 putt](https://github.com/Figo5/fairwayos/releases/download/checkpoint-2026-10-07/tiger-masters-hole13-putt.mp4) | Ball roll, body anchors and cup presentation | No clubhead observations |
+| [Scheffler · BMW Championship chip-in](https://github.com/Figo5/fairwayos/releases/download/checkpoint-2026-10-07/scheffler-bmw-chip-in.mp4) | Different player/event and tracked ball roll | No clubhead or cup observations |
 
-Saved mode uses the original saved seed and automatic observations; current seed
-edits, corrections and assisted paths stay in the document but do not alter this
-export. Missing, lost and interpolated frames have no automatic marker or trail.
-It imports prior results without running a new tracking model. Body/phase inputs
-remain operator-assisted; physical metrics remain unavailable. See the
-[saved tracking guide](docs/saved-tracking-user-guide.md).
+The release includes all **23 Masters and 10 newer PGA TOUR event clips**, both compilations, per-clip observations, analytics and media verification. Examples are existing automatic exports without new corrections. Selected examples do not establish generalization. Broadcast tracers and speed graphics belong to the source footage.
 
-An isolated [ball evidence research ablation](docs/ball-evidence-research.md)
-checks classic proposals against compact current-frame pixels from the original
-seed. On the twelve inspected Tiger development clips it removes four labeled
-false positives while retaining 108 of 109 previously correct ball samples.
-It remains opt-in research; the canonical detector and tracking defaults are unchanged.
+## Actual tracking status
 
-The opt-in [full-swing recovery policy](docs/full-swing-research.md) adds
-current-frame wrist and image-contrast checks to mask measurements. On the same
-development collection, selected full-swing head samples improve from 21 to 23
-correct out of 38, with no incorrect labeled position. Sparse scores alone missed
-shaft/grip failures in rejected versions, so visual checks are also recorded.
+Counts describe frames with published assertions, **not correct detections or validated accuracy**.
 
-The [proposal support experiment](docs/proposal-supported-head-research.md) uses
-the frozen learned detector to restrict current pixel/shaft measurements. It
-adds one visually reviewed missing head point to the selected twelve clips.
-Four newer shots remain body-only: their unseeded candidate confused two balls
-with clubheads and still missed the fast swing. This is opt-in development
-research; tracking defaults are unchanged.
+| Collection | Clips / frames | Ball | Clubhead | Body | Cup |
+|---|---:|---:|---:|---:|---:|
+| Tiger 2019 Masters, v5 | 23 / 9,466 | 3,781 | 869 | 3,785 | 2,568 |
+| Scheffler, McIlroy, Fleetwood tournament tests | 10 / 3,814 | 860 | 512 | 1,477 | 0 |
 
-## Setup
+- The Masters batch has 150 frames with all four layers simultaneously asserted. That is not a correctness score or full-shot coverage.
+- The newer tournament batch misses every cup. Fleetwood's hole 1 lag putt selects the caddie for its ten body assertions. McIlroy's ace and two Fleetwood clips have no ball observations.
+- One drive trim includes 20 frames of the next approach setup. Automatic stroke boundaries and broadcast inset handling need improvement.
+- Independent reference labels remain unreviewed. AI reviews and Claude classifications are diagnostic evidence, not ground truth. Public footage may overlap unknown model pretraining.
+- Analytics use native pixels, source video timestamps and projected 2D body geometry. Camera motion, slow motion, perspective, jitter and wrong identity affect their meaning.
+- Physical ball/club mph, carry, spin, launch angle, true impact, swing tempo and 3D biomechanics are unverified or unavailable. Fleetwood's **142 / 131 / 111 mph** figures are separately attributed broadcaster-reported ball speeds, not FairwayOS measurements.
 
-Use Python 3.11 and install `ffmpeg` / `ffprobe` on your PATH. From the repository:
+## Run the automatic workflow
+
+Use Python 3.11, FFmpeg and ffprobe:
 
 ```sh
 python3.11 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m pip install -e '.[shot-intelligence]'
 ```
 
-The requirements provide the tested local OpenCV, NumPy and LiteRT runtime. Installation may use the network; neither finished analysis mode downloads
-models or calls remote inference services. For the optional graphical picker,
-install `opencv-python==5.0.0.93` **instead of** `opencv-python-headless` in a separate
-GUI environment (do not install both OpenCV distributions together). Editing JSON
-requires no GUI.
+Supply three existing local models; processing does not download weights:
 
-Supply your own local MoveNet SinglePose Lightning v3 TFLite file:
+- `yolo11n.pt`: generic sports-ball/person proposals.
+- `yolo11n-pose.pt`: generic current-frame body pose.
+- `models/research/clubhead-db-best.pt`: experimental clubhead search proposals; current-image geometry is also required.
+
+Weights are not distributed. The clubhead checkpoint remains research-only under its recorded dataset terms; see [third-party notices](THIRD_PARTY_NOTICES.md). Missing weights fail explicitly. `FAIRWAY_SHOT_MODEL`, `FAIRWAY_BODY_MODEL` and `FAIRWAY_CLUB_MODEL` can override these automatic-workflow paths. `FAIRWAY_BODY_MODEL` has a different model format in the archived canonical workflow; configure each mode separately.
 
 ```sh
-export FAIRWAY_BODY_MODEL=/absolute/path/to/movenet-singlepose-lightning-v3.tflite
-export FAIRWAY_BODY_PYTHON="$PWD/.venv/bin/python"
-.venv/bin/python -m ghostcaddie models
+# Choose a video on the local page; analysis starts immediately.
+.venv/bin/python -m ghostcaddie.upload.server \
+  --root /tmp/fairwayos-uploads --port 8790
+
+# Or analyze directly:
+.venv/bin/python -m ghostcaddie.video.automatic_shot \
+  /absolute/path/to/clip.mp4 --outdir out/shot
 ```
 
-Weights and source footage are not distributed. Missing model/runtime evidence is
-reported as unavailable; it must not be read as successful body detection.
+Open `http://127.0.0.1:8790/`. Inputs are bounded to 180 seconds / 6,000 frames. Outputs: `annotated.mp4`, `result.json`, `observations.json`, `analytics.json` and `verification.json`. Exports preserve native dimensions and presentation timestamps; compatible source audio is copied and checked. Odd dimensions receive padding for H.264. Successful upload processing starts a one-hour review/download window; download results to retain them. `/review` preserves the older assisted diagnostic UI.
 
-## Run canonical mode
+### Optional cloud AI ball confirmation
+
+The published checkpoint used `FAIRWAYOS_BALL_VISION=claude-cli`. An administrator configures an authenticated Claude CLI once before starting the server. Claude Opus 5.5 classifies existing native image components and supplies no coordinates. This sends bounded source-image crops to the configured cloud provider. With the variable unset, processing uses the local route and may produce different ball coverage. Provider failures abstain; AI decisions can vary across runs.
 
 ```sh
-.venv/bin/python -m ghostcaddie analyze-video /absolute/path/to/clip.mp4 \
-  --out out/canonical --body-python "$FAIRWAY_BODY_PYTHON"
+export FAIRWAYOS_BALL_VISION=claude-cli
+.venv/bin/python -m ghostcaddie.upload.server \
+  --root /tmp/fairwayos-uploads --port 8790
 ```
 
-Outputs: `annotated.mp4`, `report.md`, `analysis.json`, `provenance.json`, and
-`diagnostics.json`. Source hashing, bounded processing, golfer identity checks and
-per-metric sufficiency checks precede any supported claim. Ambiguous subjects,
-occlusion and insufficient observations can yield unavailable body results.
-Ball, clubhead and physical metrics remain unavailable. See the
-[canonical operator guide](docs/video-analysis-user-guide.md) for interval, sampling,
-ROI and failure-state details. An explicitly supplied ROI is recorded as user input.
+The user still provides only a video. AI confirmation does not resolve invisible objects or provide physical calibration. Details: [automatic workflow](docs/automatic-shot-workflow.md).
 
-## Run demo mode
+## Resume here
 
-Copy [the demo config](examples/demo_config.template.json) and replace the
-illustrative interval, region, seeds, phase marks and corrections with inputs for
-your selected clip. Coordinates are native source pixels; frame indices refer to
-the source. Alternatively, use `demo-setup CLIP.mp4 --out demo_config.json` in the
-optional GUI environment.
+1. Fix target-golfer identity and cup detection on the recorded caddie/cup failures.
+2. Add independent native-frame labels with visible, absent and ambiguous intervals for all four objects. Keep source/player/round groups together and freeze a held-out evaluation set.
+3. Improve ball/clubhead proposals in fast blur, wide greens, cropped players, insets and camera cuts. Keep unsupported observations absent.
+4. Improve stroke segmentation; measure false locks, localization, visible recall, runtime and AI repeatability before promoting changes.
+5. Add physical speeds only with verified measured values or reliable calibration.
 
-```sh
-.venv/bin/python -m ghostcaddie demo-video /absolute/path/to/clip.mp4 \
-  --config demo_config.json --out out/demo --cv-python "$PWD/.venv/bin/python" \
-  --body-model "$FAIRWAY_BODY_MODEL"
+[Resume guide and local archive map](docs/resume-fairwayos.md) · [Four-object evaluator](docs/four-object-evaluation.md) · [Example manifest](examples/checkpoint-2026-10-07/manifest.json)
 
-# Polished showcase presentation, with the same assistance disclosures:
-.venv/bin/python -m ghostcaddie demo-video /absolute/path/to/clip.mp4 \
-  --config demo_config.json --out out/showcase --showcase \
-  --cv-python "$PWD/.venv/bin/python" --body-model "$FAIRWAY_BODY_MODEL"
-```
-
-The standard set uses `demo_*` filenames; showcase uses `showcase_*`. Both retain
-source/config hashes and resolved operator inputs in provenance. Keep the source,
-config and model versions together locally for reproducibility. The
-[demo guide](docs/demo-mode.md) documents tracking, presentation, cadence caveats,
-manual anchors, holds and output contracts. The
-[showcase template](examples/showcase_config.template.json) contains illustrative
-values, not measurements that can be reused across clips.
-
-## Run the broadcast showcase
-
-A whole shot, rendered end to end at the source's own cadence with the source's own
-audio, where overlays and metrics exist **only** inside the scene windows declared in
-the config. Outside every window the frame is the source picture; at a window boundary
-the body, trails, cards, phase badge and `hand_rise` reference are all cleared, and no
-scene inherits another's tracks. A putt is marked
-`address / backstroke / forward_stroke / contact / finish` — never a full-swing TOP.
-
-```sh
-# cut/dissolve candidates for a clip (suggestions with confidence; nothing applied)
-.venv/bin/python -m ghostcaddie broadcast-showcase scenes CLIP.mp4 --out cuts.json
-
-# check a config against a clip without rendering anything
-.venv/bin/python -m ghostcaddie broadcast-showcase validate CLIP.mp4 --config C.json
-
-# render it
-.venv/bin/python -m ghostcaddie broadcast-showcase run CLIP.mp4 --config C.json \
-  --out showcases/my_shot --cv-python "$PWD/.venv/bin/python" \
-  --body-model "$FAIRWAY_BODY_MODEL"
-
-# the loopback browser review UI: drag the golfer box, mark phases, save, render
-.venv/bin/python -m ghostcaddie broadcast-showcase ui --port 8899
-```
-
-The [broadcast guide](docs/broadcast-showcase.md) documents the config, the four
-non-negotiables, the UI and what the render verification proves.
-
-## Architecture and boundaries
-
-- `ghostcaddie/cli.py` dispatches the two finished modes.
-- `ghostcaddie/video/canonical.py` binds the source, runs the bounded body worker,
-  aggregates supported 2D metrics and writes the canonical contract.
-- `ghostcaddie/video/canonical_worker.py` performs local MoveNet inference,
-  golfer identity checks and rendering in a separate interpreter.
-- `ghostcaddie/demo/` validates operator config, tracks assisted targets, computes
-  image-space analytics, and renders standard or showcase artifacts.
-- `ghostcaddie/upload/` retains a local UI wrapper and tested historical modes.
-  Legacy commands, provider fixtures and research tools remain for compatibility;
-  they are not alternate entry points for the finished video product. Some opt-in
-  historical modes can use network services; the offline guarantee above applies
-  to `analyze-video` and `demo-video`.
-
-Research code remains outside the canonical tracking path. Failed experiments are
-retained where tests or decision evidence depend on them. They are not automatic
-fallbacks and do not expand the capability boundary. See
-[research decisions](docs/research-decisions.md) and the
-[original pipeline audit](docs/canonical-video-pipeline-audit.md).
-The older synthetic shot-analytics engine and fictional provider samples under
-`data/` are separate from video analysis and are not official PGA data.
-
-The [Masters compilation and motion review](docs/masters-compilation-motion-review.md)
-records the complete local 16-clip compilation, source-bound image-motion exports,
-tempo/coverage limits and validation. Motion rates use source video time and native
-pixels; physical club/ball speed remains unavailable without calibrated evidence.
-
-## Testing
+## Validation and older workflows
 
 ```sh
 .venv/bin/python -m pip install -r requirements-dev.txt
 .venv/bin/python -m pytest -q
-ffmpeg -v error -i out/canonical/annotated.mp4 -f null -
-ffmpeg -v error -i out/demo/demo_annotated.mp4 -f null -
+.venv/bin/python -m compileall -q ghostcaddie tests
 ```
 
-Development requirements also install PyTorch for retained ranker tests; it is not
-a serving dependency. Tests cover source binding, unavailable states, canonical/research isolation,
-assisted provenance, tracking loss, rendering, CLI contracts and historical
-regressions. Optional research dependencies and external corpora can cause explicit
-skips. Synthetic CLI smoke tests check execution and artifact contracts, not tracking
-accuracy. The [final status](FINAL_STATUS.md) records closeout validation.
+Synthetic tests cover execution, evidence gates, source binding, cancellation, retention, media timing and evaluation contracts. Passing tests do not establish real-video accuracy. Checkpoint results: [FINAL_STATUS.md](FINAL_STATUS.md).
 
-## Repository policy
+Canonical body-focused analysis, assisted showcases and saved tracking review remain available in the [archived workflow guide](docs/legacy-workflows.md). Automatic research does not expand canonical-mode claims. Synthetic shot analytics and provider fixtures are separate from real video inference.
 
-Keep copyrighted PGA source footage, all generated demo/showcase media, downloaded
-corpora, large models, caches, `out/` and `uv.lock` out of Git. The only committed
-raster fixture is a tiny synthetic test image generated by a checked-in script.
-Local evidence artifacts referenced by historical reports are not bundled; do not
-mistake their paths for portable inputs. No physical launch-monitor validation or
-new research result is implied by project completion.
+Source, tests, documentation and safe summaries are in Git. Generated videos are release assets, kept out of Git history. Original downloads, weights, credentials, upload state and detailed private logs remain local. Broadcast rights and model/dataset terms are separate from the source-code license.
 
 [License](LICENSE) · [Third-party notices](THIRD_PARTY_NOTICES.md)

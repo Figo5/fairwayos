@@ -11,6 +11,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field, asdict
+from contextlib import contextmanager
 from typing import Dict, Optional
 
 
@@ -63,6 +64,7 @@ class JobStore:
         self._media_deadline: Dict[str, float] = {}
         self._media_dropped: Dict[str, str] = {}
         self._media_revoked: Dict[str, bool] = {}
+        self._processing_media: Dict[str, int] = {}
         self.import_dir = os.path.join(self.root, 'import')
         os.makedirs(self.import_dir, exist_ok=True)
         self._lock = threading.Lock()
@@ -90,6 +92,8 @@ class JobStore:
 
     def start(self, job_id: str):
         with self._lock:
+            if self._cancel.get(job_id):
+                return
             self._jobs[job_id].state = JobState.RUNNING
 
     def await_seeds(self, job_id: str, targets, result: dict):
@@ -108,12 +112,26 @@ class JobStore:
 
     def finish(self, job_id: str, result: dict):
         with self._lock:
+            if self._cancel.get(job_id):
+                return
             j = self._jobs[job_id]
+            # Automatic processing has its own bounded worker timeout. Its
+            # review/download window starts when a usable result is ready,
+            # rather than expiring the source while that worker is reading it.
+            if (self._processing_media.get(job_id, 0) and job_id in self._sources
+                    and not self._media_revoked.get(job_id, False)):
+                self._media_deadline[job_id] = time.time() + self.media_retention_seconds
+                if isinstance(result.get('media_retention'), dict):
+                    result['media_retention'] = dict(result['media_retention'],
+                        expires_at=self._media_deadline[job_id],
+                        reason='retained for review until the deadline')
             j.state, j.progress, j.result = JobState.DONE, 1.0, result
             j.awaiting = []
 
     def fail(self, job_id: str, error: str):
         with self._lock:
+            if self._cancel.get(job_id):
+                return
             j = self._jobs[job_id]
             j.state, j.error = JobState.FAILED, str(error)
 
@@ -188,6 +206,26 @@ class JobStore:
             return self._result_videos.get(job_id)
 
     # --- finding 5: explicit, bounded media retention
+    @contextmanager
+    def processing_source(self, job_id: str):
+        """Protect an active bounded worker from automatic expiry, not deletion.
+
+        Callers must bound processing and release on success, failure or cancel.
+        Explicit revocation remains immediate and never gains renewed access.
+        """
+        self.get(job_id)
+        with self._lock:
+            self._processing_media[job_id] = self._processing_media.get(job_id, 0) + 1
+        try:
+            yield
+        finally:
+            with self._lock:
+                remaining = self._processing_media.get(job_id, 1) - 1
+                if remaining:
+                    self._processing_media[job_id] = remaining
+                else:
+                    self._processing_media.pop(job_id, None)
+
     def media_state(self, job_id: str) -> dict:
         """Retention state as served to the client. Never a bare boolean."""
         with self._lock:
@@ -209,7 +247,8 @@ class JobStore:
         so waiting for a seed can never keep media indefinitely."""
         with self._lock:
             deadline = self._media_deadline.get(job_id)
-        if deadline is not None and time.time() >= deadline:
+            processing = self._processing_media.get(job_id, 0) > 0
+        if deadline is not None and time.time() >= deadline and not processing:
             self.revoke_media(job_id, reason="retention window expired")
         return self.media_state(job_id)
 

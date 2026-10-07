@@ -31,6 +31,8 @@ research_stock/
 # One exception: the tiny synthetic crop-path regression fixture. It is not media
 # from any source and it is regenerable with tests/fixtures/make_frameviews_fixture.py.
 !tests/fixtures/frameviews_turf.png
+# Curated checkpoint previews explicitly published with the GitHub release.
+!docs/assets/checkpoint-2026-10-07/*.jpg
 
 # Model weights and binary evaluation data
 *.pt

@@ -1,10 +1,13 @@
 [project]
 name = "fairwayos"
 version = "0.1.0"
-description = "Fairway OS local golf-video analysis: canonical body-focused analytics and operator-assisted demos."
+description = "FairwayOS automatic golf-video research, four-object tracking, video-motion analytics and assisted showcases."
 # 3.11, not 3.9: the suite needs cv2, and ~100 tests error out at collection on
 # 3.9 with ModuleNotFoundError. The old floor made a fresh checkout look broken.
 requires-python = ">=3.11,<3.13"
+
+[project.optional-dependencies]
+shot-intelligence = ["av>=16,<17", "ultralytics>=8.3,<9", "Pillow>=10"]
 
 [build-system]
 requires = ["setuptools>=61"]

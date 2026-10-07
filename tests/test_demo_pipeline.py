@@ -87,6 +87,10 @@ class IsolationTests(unittest.TestCase):
                     raise ImportError(f"{name} is blocked for this test")
                 return None
 
+        saved_modules = {name: module for name, module in sys.modules.items()
+                         if name.startswith("ghostcaddie.demo")}
+        import ghostcaddie
+        saved_package = getattr(ghostcaddie, "demo", None)
         for module in list(sys.modules):
             if module.startswith("ghostcaddie.demo"):
                 del sys.modules[module]
@@ -100,8 +104,13 @@ class IsolationTests(unittest.TestCase):
             for module in list(sys.modules):
                 if module.startswith("ghostcaddie.demo"):
                     del sys.modules[module]
-            for name in ("ghostcaddie.demo", "ghostcaddie.demo.config"):
-                importlib.import_module(name)
+            # Other collected tests and tools retain module references. Restore
+            # their original objects so a later mock patches the actual module.
+            sys.modules.update(saved_modules)
+            if saved_package is not None:
+                ghostcaddie.demo = saved_package
+            elif hasattr(ghostcaddie, "demo"):
+                del ghostcaddie.demo
 
     def test_the_worker_is_the_only_demo_module_that_needs_cv2(self):
         for name in DEMO_MODULES + CV2_MODULES:

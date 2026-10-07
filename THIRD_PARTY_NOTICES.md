@@ -22,12 +22,27 @@ ignored evaluation directories unless their applicable terms explicitly permit
 publication. This repository contains no downloaded GolfDB videos, annotations,
 or model weights.
 
+## ClubheadDB research proposals
+
+The recorded ClubheadDB dataset/package declares CC-BY-NC-4.0. The locally
+trained `clubhead-db-best.pt` checkpoint remains a research search proposal,
+not a validated or production-cleared clubhead detector. Its standalone Tiger
+route was rejected; the automatic prototype also requires current shaft/head
+geometry before publishing a position. No dataset videos or weights are included
+in Git or in the checkpoint release. See the
+[learned detector research record](docs/learned-clubhead-detector-research.md).
+
 ## Public PGA TOUR / YouTube material
 
-Publicly accessible PGA TOUR or other platform material is restricted to
-bounded, local qualitative stress testing under the applicable source and
-platform terms. It is not consented footage, production-cleared data, or
-validated ground truth. Downloaded media is not committed or redistributed.
+Publicly accessible PGA TOUR, Masters and Golf Channel material was used for
+bounded qualitative stress testing. It is not FairwayOS-owned footage,
+production-cleared training data or validated ground truth. Original downloads
+are not committed to Git. At the owner's request, the October 7, 2026 checkpoint
+release publishes selected annotated examples and existing analysis collections.
+Source broadcast rights remain with their respective owners; the repository's
+source-code license does not license the underlying videos. Source URLs, hashes,
+limitations and measurement provenance accompany the release. Model weights and
+private acquisition/provider records are not distributed.
 
 ## FairwayOS-owned evaluation data
 
