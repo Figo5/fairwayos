@@ -48,10 +48,14 @@ class FinalTestStaysSealed(unittest.TestCase):
         self.assertIn("sealed", str(caught.exception))
 
     def test_final_test_opens_only_with_the_flag_and_matches_the_frozen_split(self):
-        clips = self.tool.load_split("final_test", True)
         frozen = {c["clip_id"] for c in json.loads(
             (ROOT / "data/ball_dataset_v3_eval/split.json").read_text("utf-8"))["clips"]
             if c["split"] == "final_test"}
+        records = json.loads((self.tool.V3 / "sources.json").read_text("utf-8"))["clips"]
+        if not any((ROOT / r["media_path"]).is_file() for r in records
+                   if r["clip_id"] in frozen):
+            self.skipTest("Optional private final-test media is not distributed")
+        clips = self.tool.load_split("final_test", True)
         # only clips whose media is on disk can be returned, so this is a subset
         self.assertTrue({c["clip_id"] for c in clips} <= frozen)
         self.assertTrue(clips, "no final-test media on disk")

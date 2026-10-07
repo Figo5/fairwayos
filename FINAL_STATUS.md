@@ -26,6 +26,13 @@ The [checkpoint release](https://github.com/Figo5/fairwayos/releases/tag/checkpo
 
 Local logs and release staging live in `~/fairway-os-runs/fairwayos-github-checkpoint-2026-10-07/`. GitHub Actions runs separately after main is pushed; its result is visible on the repository Actions page.
 
+The initial clean-checkout CI run exposed private-media and development-environment
+assumptions in retained tests. Final-test media checks now explicitly skip when
+the undistributed files are absent; family isolation still runs against committed
+metadata. Synthetic canonical upload tests select their running interpreter, and
+the one-shot clubhead guard uses a recording model stand-in without installing or
+loading optional weights. These are test portability changes, not tracking fixes.
+
 ## When development resumes
 
 Start with cup detection and golfer identity, then independent native-frame labels, held-out source/session evaluation, ball/head proposals through blur/insets/cuts, automatic shot segmentation and measured/calibrated physical analytics. Preserve the original frozen inputs and rejected revisions. Read [the resume guide](docs/resume-fairwayos.md) for the archive map and acceptance criteria.

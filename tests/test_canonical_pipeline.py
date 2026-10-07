@@ -675,6 +675,13 @@ class UploadCanonicalModeTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.srv.shutdown()
 
+    def setUp(self):
+        # The test interpreter has the required runtime; a fresh clone does not
+        # promise a repository-local .venv at the registry's development path.
+        patcher = mock.patch.dict(os.environ, {"FAIRWAY_BODY_PYTHON": sys.executable})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _post(self, fields):
         data = self.up.urlencode(fields).encode()
         req = self.urllib.Request(

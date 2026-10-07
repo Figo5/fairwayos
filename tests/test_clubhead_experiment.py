@@ -50,7 +50,9 @@ class EvaluationContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):m.validate_test_manifest({'accepted':[a]},{'accepted':[b]})
     def test_one_shot_guard_runs_before_model_instantiation(self):
         import tempfile,json
-        from unittest.mock import patch
+        import sys
+        from types import SimpleNamespace
+        from unittest.mock import patch, Mock
         with tempfile.TemporaryDirectory() as name:
             r=Path(name);(r/'results').mkdir();(r/'data/training_dataset').mkdir(parents=True);(r/'coordination').mkdir()
             checkpoint=r/'weights.pt';checkpoint.write_bytes(b'fake model bytes')
@@ -59,7 +61,8 @@ class EvaluationContractTests(unittest.TestCase):
             freeze={'checkpoint':str(checkpoint),'checkpoint_sha256':m.sha(checkpoint),'script_sha256':m.sha(m.__file__),
                     'protocol_sha256':m.sha(protocol),'training_manifest_sha256':m.sha(manifest),'evaluation_settings':{}}
             (r/'results/CHECKPOINT_FREEZE.json').write_text(json.dumps(freeze));(r/'results/TEST_EVALUATION_START.json').write_text('{}')
-            with patch('ultralytics.YOLO') as model:
+            model = Mock(side_effect=AssertionError('Model must not be instantiated'))
+            with patch.dict(sys.modules, {'ultralytics': SimpleNamespace(YOLO=model)}):
                 with self.assertRaisesRegex(ValueError,'One-shot'):m.evaluate(r,r/'data/training_dataset','test')
                 model.assert_not_called()
     def test_test_selection_cannot_drop_source_or_be_empty(self):

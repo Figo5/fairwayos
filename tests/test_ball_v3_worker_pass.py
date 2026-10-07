@@ -314,8 +314,11 @@ class Splits(unittest.TestCase):
     def test_a_family_holding_a_ranker_holdout_clip_is_held_out(self):
         tool = load_tool("ball_v3_train")
         records = tool.source_records()
-        # pick a real train clip and a real sibling that shares its family
-        clips = tool.train_clips()
+        train_ids = {r["clip_id"] for r in json.loads(
+            tool.V2_SPLIT.read_text("utf-8"))["clips"] if r["split"] == "train"}
+        # Family isolation depends on committed metadata, not private video
+        # availability. Exercise the real roster even in a fresh clone.
+        clips = [r for ident, r in records.items() if ident in train_ids]
         self.assertTrue(clips)
         by_family: dict[str, list[str]] = {}
         for clip in clips:
