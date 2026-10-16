@@ -2,9 +2,9 @@
 
 The assisted showcase hides how often the native template tracker loses the ball or follows a leg instead of the clubhead. This local runner measures the existing tracker with one visible-target seed per target and no subsequent corrections, against sparse model-reviewed native-frame references. It does not change demo defaults or render video.
 
-The current local dataset and report are at `/Users/giofiore/fairway-os-runs/tiger-tracking-cycle/`. The twelve source clips are bound to `/Users/giofiore/fairway-os-runs/tiger-showcase-cycle/final_batch_manifest.json`. Reference files are local artifacts, not shipped fixtures.
+The current local dataset and report are at `~/fairway-os-runs/tiger-tracking-cycle/`. The twelve source clips are bound to `~/fairway-os-runs/tiger-showcase-cycle/final_batch_manifest.json`. Reference files are local artifacts, not shipped fixtures.
 
-The follow-up comparison is at `/Users/giofiore/fairway-os-runs/tiger-clubhead-cycle/REPORT.md`.
+The follow-up comparison is at `~/fairway-os-runs/tiger-clubhead-cycle/REPORT.md`.
 The classic worker now clips the search margin to valid image pixels when the full
 target patch fits near an edge. Newly admitted edge matches also need central
 contrast or central texture agreement. Score, full-template and maximum-jump guards
@@ -23,11 +23,11 @@ remain AI references, with no human ground-truth or holdout claim.
 ## Run
 
 ```sh
-/Users/giofiore/ghostcaddie-tour/.venv-fairway/bin/python tools/tiger_target_benchmark.py \
-  --dataset /Users/giofiore/fairway-os-runs/tiger-tracking-cycle/labels/tiger_targets.v1.json \
-  --manifest /Users/giofiore/fairway-os-runs/tiger-showcase-cycle/final_batch_manifest.json \
+~/ghostcaddie-tour/.venv-fairway/bin/python tools/tiger_target_benchmark.py \
+  --dataset ~/fairway-os-runs/tiger-tracking-cycle/labels/tiger_targets.v1.json \
+  --manifest ~/fairway-os-runs/tiger-showcase-cycle/final_batch_manifest.json \
   --variant baseline \
-  --out /Users/giofiore/fairway-os-runs/tiger-tracking-cycle/results/baseline.predictions.json
+  --out ~/fairway-os-runs/tiger-tracking-cycle/results/baseline.predictions.json
 ```
 
 Use `--variant lk_agreement` and a different output path for the same tracker with optical-flow agreement enabled. This changes only `lk_refine`; effective options are recorded per target. Use `--validate-only` for schema and source/hash validation without decoding. Each completed run writes predictions, a JSON report and a Markdown report. Runtime records runner, evaluator and actual tracker/config source hashes.
@@ -50,7 +50,7 @@ Synthetic fixtures exercise the candidate's behaviour (mask follow-through past 
 ## Clubhead re-detection cycle
 
 The next local cycle is saved at
-`/Users/giofiore/fairway-os-runs/tiger-redetection-cycle`. All twelve original trims
+`~/fairway-os-runs/tiger-redetection-cycle`. All twelve original trims
 and both frozen AI reference files remain unchanged. There are two additional,
 explicitly optional research paths; neither changes the editor or classic default.
 
@@ -113,7 +113,7 @@ native-frame comparisons and the next improvement priority.
 ## Checks
 
 ```sh
-/Users/giofiore/ghostcaddie-tour/.venv-fairway/bin/python -m pytest \
+~/ghostcaddie-tour/.venv-fairway/bin/python -m pytest \
   tests/test_tiger_target_benchmark.py tests/test_demo_tracking.py tests/test_demo_config.py -q
 ```
 

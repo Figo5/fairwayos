@@ -48,8 +48,8 @@ BROADCAST_REPORT_NAME = "broadcast_report.md"
 #: research media and the original showcase, both of which are evidence: a render that
 #: overwrote them would destroy the thing it is being compared against.
 PROTECTED_OUTPUT_PREFIXES = (
-    "/Users/giofiore/fairway-os-demo/pga-showcase",
-    "/Users/giofiore/fairway-os-runs/tiger-masters-2019-2026-10-01",
+    "~/fairway-os-demo/pga-showcase",
+    "~/fairway-os-runs/tiger-masters-2019-2026-10-01",
 )
 
 #: The repository this code lives in. No generated media is ever written inside it,

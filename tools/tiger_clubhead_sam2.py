@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 
-RUN = Path('/Users/giofiore/fairway-os-runs/tiger-all-clips-cycle')
+RUN = Path('~/fairway-os-runs/tiger-all-clips-cycle')
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from ghostcaddie.demo.segmented_head import MaskHeadPolicy, PROFILE as REGION_PROFILE
@@ -36,13 +36,13 @@ def main():
     parser.add_argument('--device', choices=['mps','cpu'])
     parser.add_argument('--negative-prompts', action='store_true')
     parser.add_argument('--prompt-module',type=Path)
-    parser.add_argument('--dataset', type=Path, default=Path('/Users/giofiore/fairway-os-runs/tiger-tracking-cycle/labels/tiger_targets.v1.json'))
-    parser.add_argument('--baseline', type=Path, default=Path('/Users/giofiore/fairway-os-runs/tiger-redetection-cycle/results/previous_selected.predictions.json'))
+    parser.add_argument('--dataset', type=Path, default=Path('~/fairway-os-runs/tiger-tracking-cycle/labels/tiger_targets.v1.json'))
+    parser.add_argument('--baseline', type=Path, default=Path('~/fairway-os-runs/tiger-redetection-cycle/results/previous_selected.predictions.json'))
     parser.add_argument('--out', type=Path, default=RUN/'results/all_sam2.predictions.json')
     args = parser.parse_args()
     run = args.run_dir.resolve()
-    runtime_dir = (args.runtime_dir or Path('/Users/giofiore/fairway-os-runs/tiger-redetection-cycle/runtime')).resolve()
-    checkpoint = (args.checkpoint or Path('/Users/giofiore/fairway-os-runs/tiger-redetection-cycle/models/sam2.1_hiera_tiny.pt')).resolve()
+    runtime_dir = (args.runtime_dir or Path('~/fairway-os-runs/tiger-redetection-cycle/runtime')).resolve()
+    checkpoint = (args.checkpoint or Path('~/fairway-os-runs/tiger-redetection-cycle/models/sam2.1_hiera_tiny.pt')).resolve()
     if args.out.resolve() == args.baseline.resolve():
         raise ValueError('Output must not overwrite the baseline')
     if args.out.resolve() == args.dataset.resolve():

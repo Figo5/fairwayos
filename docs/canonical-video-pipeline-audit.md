@@ -2,7 +2,7 @@
 
 **Audit date:** 2026-09-16
 **Scope:** `ghostcaddie-tour-legacy` (branch `pga-research-analyzer`) perception modules,
-the `local-tracker-restart` reference working tree at `/Users/giofiore/ghostcaddie-tour`,
+the `local-tracker-restart` reference working tree at `~/ghostcaddie-tour`,
 the upload/review service, and the local research media corpus.
 **Status:** audit only. No canonical execution path was moved, deleted, rewritten, or
 rewired. Stale `/tmp` worktrees and the untracked `uv.lock` were left in place.
@@ -204,7 +204,7 @@ misleading today.
 
 ```
 adapters.py:107  body      → /tmp/fairway-safe-body-runtime/movenet-singlepose-lightning-v3.tflite
-adapters.py:176  body_legacy → /Users/giofiore/ghostcaddie-tour/yolo11n-pose.pt
+adapters.py:176  body_legacy → ~/ghostcaddie-tour/yolo11n-pose.pt
 adapters.py:189  clubhead  → /tmp/fairway-sam-head/checkpoints/sam2.1_hiera_tiny.pt
 adapters.py:461  ball_sam2 → /tmp/fairway-sam-head/checkpoints/sam2.1_hiera_tiny.pt
 adapters.py:490  ball      → /tmp/fairway-learned/tracker/weights/bootstapir_checkpoint_v2.pt

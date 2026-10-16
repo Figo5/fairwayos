@@ -4,20 +4,9 @@ Upload a golf clip and receive an annotated video with supported video-motion an
 
 **Status: paused at the October 7, 2026 development checkpoint.** The upload flow and presentation work. Tracking is partial, wrong-object/person locks remain possible, and independent accuracy has not been established. This is a research prototype, not a finished launch monitor or a production golf tracker.
 
-## Watch the current examples
+## What it does
 
-[Checkpoint release: videos, compilations and analytics](https://github.com/Figo5/fairwayos/releases/tag/checkpoint-2026-10-07)
-
-[![Tiger Masters par-putt automatic overlay](docs/assets/checkpoint-2026-10-07/tiger-masters-hole18-par-putt.jpg)](https://github.com/Figo5/fairwayos/releases/download/checkpoint-2026-10-07/tiger-masters-hole18-par-putt.mp4)
-
-| Example | Demonstrates | Known limits |
-|---|---|---|
-| [Tiger · Masters hole 18 par putt](https://github.com/Figo5/fairwayos/releases/download/checkpoint-2026-10-07/tiger-masters-hole18-par-putt.mp4) | Strongest combined ball, putter, body and cup presentation | Partial publication; no independent localization or identity score |
-| [Tiger · Masters hole 16 tee shot](https://github.com/Figo5/fairwayos/releases/download/checkpoint-2026-10-07/tiger-masters-hole16-tee.mp4) | Swing view followed by ball/green/cup tracking | Objects appear in different views; clubhead coverage is sparse |
-| [Tiger · Masters hole 13 putt](https://github.com/Figo5/fairwayos/releases/download/checkpoint-2026-10-07/tiger-masters-hole13-putt.mp4) | Ball roll, body anchors and cup presentation | No clubhead observations |
-| [Scheffler · BMW Championship chip-in](https://github.com/Figo5/fairwayos/releases/download/checkpoint-2026-10-07/scheffler-bmw-chip-in.mp4) | Different player/event and tracked ball roll | No clubhead or cup observations |
-
-The release includes all **23 Masters and 10 newer PGA TOUR event clips**, both compilations, per-clip observations, analytics and media verification. Examples are existing automatic exports without new corrections. Selected examples do not establish generalization. Broadcast tracers and speed graphics belong to the source footage.
+FairwayOS ingests a golf clip and emits an annotated video plus per-clip observations for the ball, clubhead, golfer and cup, with no manual tracking points. The October 7, 2026 checkpoint was evaluated on 33 clips (23 from the 2019 Masters, 10 from newer PGA TOUR events), totalling 13,280 frames. Demo videos derived from copyrighted broadcast footage are not distributed here; the table below describes that evaluation run.
 
 ## Actual tracking status
 
@@ -85,7 +74,7 @@ The user still provides only a video. AI confirmation does not resolve invisible
 4. Improve stroke segmentation; measure false locks, localization, visible recall, runtime and AI repeatability before promoting changes.
 5. Add physical speeds only with verified measured values or reliable calibration.
 
-[Resume guide and local archive map](docs/resume-fairwayos.md) · [Four-object evaluator](docs/four-object-evaluation.md) · [Example manifest](examples/checkpoint-2026-10-07/manifest.json)
+[Resume guide and local archive map](docs/resume-fairwayos.md) · [Four-object evaluator](docs/four-object-evaluation.md)
 
 ## Validation and older workflows
 

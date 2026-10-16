@@ -18,4 +18,4 @@ All twelve final showcase exports are separate **ASSISTED REVIEW · 2D IMAGE EST
 
 The next improvement is a stroke-aware head identity model and uncertainty handling for fast motion, followed by human-reviewed dense references and fresh footage. A review UI should expose the original seed, missed intervals and explicit operator corrections, and choose cards according to camera visibility. Do not promote this experiment into the default editor tracker.
 
-Local delivery: `/Users/giofiore/fairway-os-runs/tiger-all-clips-cycle/REPORT.md` and `CLIPS.md`. Media receipts verify all source hashes, source-order seed crops, full presentation timestamps, frame counts, FPS and encoded audio. The actual neural run's archived source hashes distinguish it from the later live runner.
+Local delivery: `~/fairway-os-runs/tiger-all-clips-cycle/REPORT.md` and `CLIPS.md`. Media receipts verify all source hashes, source-order seed crops, full presentation timestamps, frame counts, FPS and encoded audio. The actual neural run's archived source hashes distinguish it from the later live runner.

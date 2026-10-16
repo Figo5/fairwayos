@@ -2,7 +2,7 @@
 
 The 16-clip Tiger Woods collection now has a full compilation with the selected FairwayOS overlays, retained broadcast tracers, original clip audio and chapter analytics. The collection is selected highlights, not the complete round. Existing source trims and workflow exports were left intact.
 
-Artifacts are saved at `/Users/giofiore/fairway-os-runs/fairwayos-masters-compilation-2026-10-05`:
+Artifacts are saved at `~/fairway-os-runs/fairwayos-masters-compilation-2026-10-05`:
 
 - `media/fairwayos_tiger_2019_masters_all16.mp4`: 1920×1080, 16 chapters, approximately 4:36.
 - `index.html`: chapter player with per-clip coverage, video-motion rates and plots; local preview at `http://127.0.0.1:8780/` while `coordination/serve_preview.py` is running.

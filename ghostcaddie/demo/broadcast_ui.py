@@ -50,9 +50,9 @@ LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
 CLIP_SUFFIXES = (".mp4", ".mov", ".m4v", ".mkv", ".webm")
 FRAME_MAX_WIDTH = 1280
 
-RUN_ROOT = Path("/Users/giofiore/fairway-os-runs/tiger-showcase-cycle")
+RUN_ROOT = Path("~/fairway-os-runs/tiger-showcase-cycle")
 BASELINE_CLIPS = Path(
-    "/Users/giofiore/fairway-os-runs/tiger-masters-2019-2026-10-01/clips")
+    "~/fairway-os-runs/tiger-masters-2019-2026-10-01/clips")
 
 
 # ---------------------------------------------------------------- registry

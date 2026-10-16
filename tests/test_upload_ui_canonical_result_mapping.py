@@ -20,7 +20,7 @@ import json, os, re, shutil, subprocess, tempfile, unittest
 UI = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                   "ghostcaddie", "upload", "ui.py")
 
-_FALLBACK = "/Users/giofiore/.local/bin/node"
+_FALLBACK = "~/.local/bin/node"
 NODE = (os.environ.get("FAIRWAY_NODE")
         or (_FALLBACK if os.path.exists(_FALLBACK) else "")
         or (shutil.which("node") or ""))

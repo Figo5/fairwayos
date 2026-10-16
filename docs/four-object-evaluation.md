@@ -25,4 +25,4 @@ remain unreviewed, so independent accuracy remains withheld. Source/player/round
 groups are isolated; siblings from the same broadcast are correlated. Cup
 assertions are zero and the Fleetwood lag-putt body track selects a caddie.
 These AI source-image diagnoses remain separate from scoring labels. See the
-[resume guide](resume-fairwayos.md) and [public manifest](../examples/checkpoint-2026-10-07/manifest.json).
+[resume guide](resume-fairwayos.md).

@@ -461,7 +461,7 @@ class ParentSourceManifestTests(TempDirTestCase):
         self.assertFalse(hasattr(broadcast_module, "BASELINE_MANIFEST"))
         source = Path(broadcast_module.__file__).read_text(encoding="utf-8")
         self.assertNotIn("tiger-masters-2019-2026-10-01/manifest.json", source)
-        self.assertNotIn("/Users/giofiore", source.split("PROTECTED_OUTPUT_PREFIXES")[1]
+        self.assertNotIn("~", source.split("PROTECTED_OUTPUT_PREFIXES")[1]
                          .split(")", 1)[1])
         self.assertIn("shot.parent_source_manifest", source)
 

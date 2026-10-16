@@ -55,10 +55,10 @@ What this runner will not do, by construction:
 
 Usage:
 
-    /Users/giofiore/ghostcaddie-tour/.venv-fairway/bin/python \
+    ~/ghostcaddie-tour/.venv-fairway/bin/python \
         tools/tiger_target_benchmark.py \
-        --dataset /Users/giofiore/fairway-os-runs/tiger-tracking-cycle/labels/tiger_targets.v1.json \
-        --out /Users/giofiore/fairway-os-runs/tiger-tracking-cycle/results/baseline.predictions.json \
+        --dataset ~/fairway-os-runs/tiger-tracking-cycle/labels/tiger_targets.v1.json \
+        --out ~/fairway-os-runs/tiger-tracking-cycle/results/baseline.predictions.json \
         --variant baseline
 
 ``--validate-only`` needs no cv2 (the contract and the evaluator are stdlib-only).

@@ -13,7 +13,7 @@ The product accepts a clip without markers or per-video configuration. Local bal
 
 Counts are availability, not correctness. The Masters collection has 150 simultaneous four-layer frames. The newer PGA TOUR collection has no cup assertions, a caddie body lock in the lag putt, missing ball/head intervals and a brief next-stroke tail in one drive. Independent accuracy is withheld; AI diagnostics are not reference labels. Physical mph, carry, impact, tempo and 3D metrics remain unavailable/unverified. Separately sourced 142/131/111 mph figures are broadcaster-reported ball speeds.
 
-The [checkpoint release](https://github.com/Figo5/fairwayos/releases/tag/checkpoint-2026-10-07) preserves all 33 annotated clips, both compilations, four standalone showcase examples, sanitized observations/analytics, media verification and source-bound manifests. MP4 bytes are copied unchanged. Original source downloads, complete private run archives, weights, credentials and provider transcripts remain local. All archive entries pass CRC checks and release files have SHA-256 receipts.
+The October 7, 2026 checkpoint covered all 33 annotated clips, both compilations, sanitized observations/analytics, media verification and source-bound manifests. Demo videos derived from copyrighted broadcast footage are not distributed in this repository. Original source downloads, complete private run archives, weights, credentials and provider transcripts remain local.
 
 ## Closeout validation
 

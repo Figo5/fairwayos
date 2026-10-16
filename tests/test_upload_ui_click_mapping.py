@@ -18,7 +18,7 @@ import json, os, re, subprocess, tempfile, unittest
 
 UI = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                   "ghostcaddie", "upload", "ui.py")
-NODE = "/Users/giofiore/.local/bin/node"
+NODE = "~/.local/bin/node"
 
 
 def js_source():

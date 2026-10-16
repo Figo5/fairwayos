@@ -8,7 +8,7 @@ import sys
 import time
 import shutil
 
-RUN = Path('/Users/giofiore/fairway-os-runs/tiger-redetection-cycle')
+RUN = Path('~/fairway-os-runs/tiger-redetection-cycle')
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from ghostcaddie.demo.segmented_head import MaskHeadPolicy, PROFILE as REGION_PROFILE
@@ -34,7 +34,7 @@ def main():
     parser.add_argument('--runtime-dir', type=Path)
     parser.add_argument('--checkpoint', type=Path)
     parser.add_argument('--device', choices=['mps','cpu'])
-    parser.add_argument('--dataset', type=Path, default=Path('/Users/giofiore/fairway-os-runs/tiger-tracking-cycle/labels/tiger_targets.v1.json'))
+    parser.add_argument('--dataset', type=Path, default=Path('~/fairway-os-runs/tiger-tracking-cycle/labels/tiger_targets.v1.json'))
     parser.add_argument('--baseline', type=Path, default=RUN/'results/previous_selected.predictions.json')
     parser.add_argument('--out', type=Path, default=RUN/'results/sam2_head.predictions.json')
     args = parser.parse_args()

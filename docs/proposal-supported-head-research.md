@@ -2,8 +2,8 @@
 
 The frozen learned detector can safely fill one missing full-swing observation in
 the current twelve Tiger 2019 Masters development clips. It cannot replace the
-selected tracker. The [local results report](/Users/giofiore/fairway-os-runs/tiger-proposal-support-cycle/REPORT.md)
-and [all sixteen clips](/Users/giofiore/fairway-os-runs/tiger-proposal-support-cycle/CLIPS.md)
+selected tracker. The [local results report](~/fairway-os-runs/tiger-proposal-support-cycle/REPORT.md)
+and [all sixteen clips](~/fairway-os-runs/tiger-proposal-support-cycle/CLIPS.md)
 include the actual replay, independent AI visual reviews and selected exports.
 
 `proposal_head.py` uses every eligible detector box only to restrict the search
