@@ -50,9 +50,9 @@ record. It misses the fast swing and uses unvalidated full-swing geometry for
 pitch/putt diagnostics. The four selected exports remain body-only. Never turn
 geometric refusals, unavailable pose or unlabelled frames into negative labels.
 
-DeepSeek V4.1 Flash through OpenCode Go/Hermes implemented the measurement helper.
-Both sessions reached iteration/provider errors; primary corrected fixtures and
-hardened contracts. Claude Opus 5.5 reviewed code and all 23 proposed point areas.
+The measurement helper was implemented. Both sessions
+reached iteration/provider errors; follow-up work corrected fixtures and hardened
+contracts. Review covered code and all 23 proposed point areas.
 301 focused tests and 99 subtests pass, including saved-export and UI checks.
 The review interface now defaults to source-bound saved results when available
 and preserves explicit export choices across target navigation. It waits for

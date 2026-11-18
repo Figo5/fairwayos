@@ -33,7 +33,7 @@ Generic YOLO11 ball/pose and the retained ClubheadDB research checkpoint supply 
 
 Optional `FAIRWAYOS_BALL_VISION=claude-cli` is administrator configuration. Claude Opus 5.5 classifies bounded native crops with no coordinate output. Invalid/uncertain responses and missing providers abstain. The newer PGA TOUR batch made 26 candidate decisions and published 56 associated ball frames; neither is an accuracy score or API-call count. Decisions can vary across repeated requests.
 
-DeepSeek v4.1 Flash via OpenCode Go completed text-only reviews with retained dispositions. It did not independently annotate the videos. Failed/timed-out reviews remain recorded separately.
+Text-only reviews were completed with retained dispositions. They did not independently annotate the videos. Failed/timed-out reviews remain recorded separately.
 
 ## Before a production claim
 

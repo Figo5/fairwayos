@@ -28,4 +28,4 @@ Compilation frames retain the original order and source-relative timing within t
 
 Human-review unresolved head/shaft/ball identity around impact and the four newer clips. Refused frames are not automatically negative labels. Reserve separate shot/player/camera conditions before training; reused source-family references are regression evidence, not independent accuracy. Improve impact-window continuity before adding physical-speed claims. Verified mph requires calibrated capture or a source-bound measured value.
 
-DeepSeek V4.1 Flash via OpenCode Go implemented/reviewed the new reducer. Primary checks hardened validation and corrected the separate putt schema. Claude Opus5.5 read part of the collection but hit its weekly limit before completing the review; no Claude approval is claimed.
+The new reducer was implemented and reviewed. Follow-up checks hardened validation and corrected the separate putt schema. A secondary review covered only part of the collection and was not completed; no review approval is claimed.
